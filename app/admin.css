@@ -1,0 +1,848 @@
+.apexcharts-tooltip {
+    border-radius: .5rem !important;
+    box-shadow: 0 .125rem .25rem #00000013 !important
+}
+
+.apexcharts-tooltip .apexcharts-tooltip-series-group {
+    color: #212b36;
+    text-align: left;
+    justify-content: left;
+    align-items: center;
+    display: none;
+    background: #fff !important;
+    padding: 3px 16px 6px !important;
+    line-height: 1 !important
+}
+
+.apexcharts-tooltip-marker {
+    border-radius: 50%;
+    position: relative;
+    top: 0;
+    width: 8px !important;
+    height: 8px !important;
+    margin-right: 6px !important
+}
+
+.apexcharts-tooltip.apexcharts-theme-light {
+    background: #fff !important;
+    border: 1px solid #f4f6f8 !important
+}
+
+.apexcharts-tooltip.apexcharts-theme-light .apexcharts-tooltip-title {
+    background: #fff !important;
+    border-bottom: 1px solid #f4f6f8 !important
+}
+
+.apexcharts-tooltip-title {
+    margin-bottom: 4px;
+    padding: 8px 16px !important;
+    font-size: 14px !important;
+    font-weight: 600 !important
+}
+
+code[class*=language-],
+pre[class*=language-] {
+    font-family: Inter, "sans-serif"
+}
+
+pre[class*=language-] {
+    margin: 0;
+    padding: 1em;
+    overflow: auto;
+    border-radius: .5rem !important
+}
+
+:not(pre)>code[class*=language-],
+pre[class*=language-] {
+    background: #161c24
+}
+
+div.code-toolbar {
+    position: relative
+}
+
+div.code-toolbar>.toolbar {
+    opacity: 0;
+    padding: .5rem;
+    transition: opacity .3s ease-in-out;
+    position: absolute;
+    top: 0;
+    right: 0
+}
+
+div.code-toolbar:hover>.toolbar,
+div.code-toolbar:focus-within>.toolbar {
+    opacity: 1
+}
+
+div.code-toolbar>.toolbar>.toolbar-item {
+    display: inline-block
+}
+
+div.code-toolbar>.toolbar>.toolbar-item>a {
+    cursor: pointer
+}
+
+div.code-toolbar>.toolbar>.toolbar-item>button {
+    color: #212b36;
+    font: inherit;
+    background: 0 0;
+    border: 0;
+    padding: 0;
+    line-height: normal;
+    overflow: visible
+}
+
+div.code-toolbar>.toolbar>.toolbar-item>a,
+div.code-toolbar>.toolbar>.toolbar-item>button,
+div.code-toolbar>.toolbar>.toolbar-item>span {
+    color: #212b36;
+    background: #fff;
+    border-radius: .25rem;
+    padding: .25rem .5rem;
+    font-size: .75rem;
+    font-weight: 600
+}
+
+div.code-toolbar>.toolbar>.toolbar-item>a:hover,
+div.code-toolbar>.toolbar>.toolbar-item>a:focus,
+div.code-toolbar>.toolbar>.toolbar-item>button:hover,
+div.code-toolbar>.toolbar>.toolbar-item>button:focus {
+    color: #212b36;
+    text-decoration: none
+}
+
+div.code-toolbar>.toolbar>.toolbar-item>span:hover,
+div.code-toolbar>.toolbar>.toolbar-item>span:focus {
+    color: inherit;
+    text-decoration: none
+}
+
+.heading-permalink {
+    color: #0000;
+    margin-left: -2rem
+}
+
+.heading-permalink:hover {
+    color: #0000
+}
+
+.heading-permalink:before {
+    color: #525f7f00;
+    content: "#"
+}
+
+.heading-permalink:hover:before {
+    color: #624bff
+}
+
+/* @font-face {
+    font-family: Feather;
+    src: url(../media/feather.5a954dbe.ttf)format("truetype"),
+    url(../media/feather.168613bd.woff)format("woff"),
+    url(../media/feather.09c516cb.svg)format("svg");
+    font-weight: 400;
+    font-style: normal
+} */
+
+[data-simplebar] {
+    flex-flow: column wrap;
+    place-content: flex-start;
+    align-items: flex-start;
+    position: relative
+}
+
+.simplebar-wrapper {
+    width: inherit;
+    height: inherit;
+    max-width: inherit;
+    max-height: inherit;
+    overflow: hidden
+}
+
+.simplebar-mask {
+    direction: inherit;
+    z-index: 0;
+    margin: 0;
+    padding: 0;
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    width: auto !important;
+    height: auto !important
+}
+
+.simplebar-offset {
+    -webkit-overflow-scrolling: touch;
+    margin: 0;
+    padding: 0;
+    position: absolute;
+    inset: 0;
+    direction: inherit !important;
+    box-sizing: inherit !important;
+    resize: none !important
+}
+
+.simplebar-content-wrapper {
+    direction: inherit;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    width: auto;
+    max-width: 100%;
+    height: 100%;
+    max-height: 100%;
+    display: block;
+    position: relative;
+    overflow: auto;
+    box-sizing: border-box !important
+}
+
+.simplebar-content-wrapper::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none
+}
+
+.simplebar-hide-scrollbar::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none
+}
+
+.simplebar-content:after,
+.simplebar-content:before {
+    content: " ";
+    display: table
+}
+
+.simplebar-placeholder {
+    pointer-events: none;
+    width: 100%;
+    max-width: 100%;
+    max-height: 100%
+}
+
+.simplebar-height-auto-observer-wrapper {
+    float: left;
+    z-index: -1;
+    pointer-events: none;
+    flex-grow: inherit;
+    flex-shrink: 0;
+    flex-basis: 0;
+    width: 100%;
+    max-width: 1px;
+    height: 100%;
+    max-height: 1px;
+    margin: 0;
+    padding: 0;
+    position: relative;
+    overflow: hidden;
+    box-sizing: inherit !important
+}
+
+.simplebar-height-auto-observer {
+    box-sizing: inherit;
+    opacity: 0;
+    pointer-events: none;
+    z-index: -1;
+    width: 1000%;
+    min-width: 1px;
+    height: 1000%;
+    min-height: 1px;
+    display: block;
+    position: absolute;
+    top: 0;
+    left: 0;
+    overflow: hidden
+}
+
+.simplebar-track {
+    z-index: 1;
+    pointer-events: none;
+    position: absolute;
+    bottom: 0;
+    right: 0;
+    overflow: hidden
+}
+
+[data-simplebar].simplebar-dragging,
+[data-simplebar].simplebar-dragging .simplebar-content {
+    pointer-events: none;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    -khtml-user-select: none
+}
+
+[data-simplebar].simplebar-dragging .simplebar-track {
+    pointer-events: all
+}
+
+.simplebar-scrollbar {
+    min-height: 10px;
+    position: absolute;
+    left: 0;
+    right: 0
+}
+
+.simplebar-scrollbar:before {
+    content: "";
+    opacity: 0;
+    background: #000;
+    border-radius: 7px;
+    transition: opacity .2s linear .5s;
+    position: absolute;
+    left: 2px;
+    right: 2px
+}
+
+.simplebar-scrollbar.simplebar-visible:before {
+    opacity: .5;
+    transition-duration: 0s;
+    transition-delay: 0s
+}
+
+.simplebar-track.simplebar-vertical {
+    width: 11px;
+    top: 0
+}
+
+.simplebar-scrollbar:before {
+    inset: 2px
+}
+
+.simplebar-track.simplebar-horizontal {
+    height: 11px;
+    left: 0
+}
+
+.simplebar-track.simplebar-horizontal .simplebar-scrollbar {
+    width: auto;
+    min-width: 10px;
+    min-height: 0;
+    inset: 0 auto 0 0
+}
+
+[data-simplebar-direction=rtl] .simplebar-track.simplebar-vertical {
+    left: 0;
+    right: auto
+}
+
+.simplebar-dummy-scrollbar-size {
+    opacity: 0;
+    visibility: hidden;
+    direction: rtl;
+    width: 500px;
+    height: 500px;
+    position: fixed;
+    overflow: scroll hidden;
+    -ms-overflow-style: scrollbar !important
+}
+
+.simplebar-dummy-scrollbar-size>div {
+    width: 200%;
+    height: 200%;
+    margin: 10px 0
+}
+
+.simplebar-hide-scrollbar {
+    visibility: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    position: fixed;
+    left: 0;
+    overflow-y: scroll
+}
+
+.simplebar-scrollable-y {
+    width: 100%
+}
+
+.navbar {
+    align-items: flex-start !important;
+}
+
+a {
+    text-decoration: none !important
+}
+
+.menu-item.active>a.menu-link {
+    background-color: #624bff !important;
+    color: #fff
+}
+
+.dashboardBgCard {
+    margin-top: 60px;
+}
+
+nav {
+    position: fixed !important;
+    top: 0;
+    width: stretch;
+    z-index: 55;
+}
+
+.blog-card {
+    border: none;
+    border-radius: 18px;
+    overflow: hidden;
+    position: relative;
+    backdrop-filter: blur(10px);
+    background: rgba(255, 255, 255, 0.7);
+    transition: all 0.4s ease;
+}
+
+.blog-card:hover {
+    transform: translateY(-8px) scale(1.01);
+    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.12);
+}
+
+/* Image */
+.blog-img {
+    height: 250px;
+    object-fit: cover;
+}
+
+/* Status Ribbon */
+.ribbon {
+    color: #fff;
+    background: #0d6efd;
+    padding: 5px 56px;
+    font-size: 12px;
+    position: absolute;
+    transform: rotate(-35deg);
+    box-shadow: 0 5px 10px #0003;
+    left: -23%;
+    top: -20% !important;
+    right: 0px !important;
+    z-index: 555;
+}
+
+
+/* Overlay Actions */
+.overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    opacity: 0;
+    transition: 0.3s;
+}
+
+.blog-card:hover .overlay {
+    opacity: 1;
+}
+
+.overlay button {
+    border-radius: 50%;
+    width: 45px;
+    height: 45px;
+}
+
+/* Footer */
+.blog-footer {
+    font-size: 14px;
+}
+
+.stat {
+    font-size: 22px;
+    font-weight: 600;
+}
+
+.custom-card {
+    transition: all 0.3s ease-in-out;
+    border: none;
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+.custom-card:hover {
+    transform: translateY(-10px);
+    box-shadow: 0 15px 30px rgba(0, 0, 0, 0.15) !important;
+}
+
+.img-gradient-overlay {
+    position: relative;
+}
+
+.img-gradient-overlay::after {
+    content: "";
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 60%;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent);
+}
+
+.category-badge {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    z-index: 2;
+    backdrop-filter: blur(5px);
+    background: rgba(255, 255, 255, 0.8);
+    color: #000;
+    font-weight: 600;
+    border-radius: 30px;
+}
+
+.sort-order-pill {
+    width: 35px;
+    height: 35px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f8f9fa;
+    border-radius: 50%;
+    font-weight: bold;
+    font-size: 0.8rem;
+}
+
+.bg-gradient-primary {
+    background: linear-gradient(135deg, #0d6efd 0%, #6610f2 100%);
+}
+
+.border-dashed {
+    border: 2px dashed #dee2e6 !important;
+}
+
+.backdrop-blur {
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+}
+
+.glass-card {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.transition-all {
+    transition: all 0.3s ease;
+}
+
+.tracking-wider {
+    letter-spacing: 0.1em;
+}
+
+.object-fit-cover {
+    object-fit: cover;
+}
+
+.text-truncate-3 {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.accordion-button.no-icon::after {
+    display: none !important;
+}
+
+.accordion-button:not(.collapsed) {
+    background-color: #f8fbff !important;
+    color: inherit !important;
+    box-shadow: inset 0 -1px 0 rgba(0, 0, 0, .125);
+}
+
+.accordion-button:focus {
+    box-shadow: none;
+    border-color: rgba(0, 0, 0, .125);
+}
+
+.line-clamp-1 {
+    display: -webkit-box;
+    -webkit-line-clamp: 1;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.transition-all {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.dropdown-item-div {
+    display: flex;
+    gap: 10px;
+    font-size: 16px;
+    font-weight: 500;
+}
+
+/* Chrome, Safari, Edge, Opera */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+/* Firefox */
+input[type=number] {
+    -moz-appearance: textfield;
+}
+
+.misc-wrapper {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+    min-block-size: 100vh;
+    text-align: center;
+    width: 100%;
+}
+
+.misc-bg {
+    position: absolute;
+    inline-size: 100%;
+    inset-block-end: 0;
+    inset-inline-start: 0;
+}
+
+.misc-object {
+    position: absolute;
+    z-index: 1;
+    inset-block-end: 8%;
+    inset-inline-start: 16%;
+}
+
+.misc-object:dir(rtl) {
+    inset-inline-start: 10%;
+}
+
+.misc-model {
+    position: relative;
+    inset-block-end: 3rem;
+}
+
+/*
+* demo.css
+* File include item demo only specific css only
+******************************************************************************/
+
+.menu .app-brand.demo {
+    height: 64px;
+}
+
+.app-brand-logo.demo svg {
+    width: 38px;
+    height: 20px;
+}
+
+.app-brand-text.demo {
+    font-size: 1.25rem;
+    letter-spacing: 0.15px;
+}
+
+.authentication-wrapper .app-brand-text.demo {
+    text-transform: capitalize;
+}
+
+/* ! For .layout-navbar-fixed added fix padding top to .layout-page */
+/* Default navbar */
+.layout-navbar-fixed .layout-wrapper:not(.layout-without-menu) .layout-page {
+    padding-top: 64px !important;
+}
+
+/* Navbar page z-index issue solution */
+.content-wrapper .navbar {
+    z-index: auto;
+}
+
+/*
+* Content
+******************************************************************************/
+
+.demo-blocks>* {
+    display: block !important;
+}
+
+.demo-inline-spacing>* {
+    margin: 1rem 0.375rem 0 0 !important;
+}
+
+/* ? .demo-vertical-spacing class is used to have vertical margins between elements. To remove margin-top from the first-child, use .demo-only-element class with .demo-vertical-spacing class. For example, we have used this class in forms-input-groups.html file. */
+.demo-vertical-spacing>* {
+    margin-top: 1.25rem !important;
+    margin-bottom: 0 !important;
+}
+
+.demo-vertical-spacing.demo-only-element> :first-child {
+    margin-top: 0 !important;
+}
+
+.demo-vertical-spacing-lg>* {
+    margin-top: 1.875rem !important;
+    margin-bottom: 0 !important;
+}
+
+.demo-vertical-spacing-lg.demo-only-element> :first-child {
+    margin-top: 0 !important;
+}
+
+.demo-vertical-spacing-xl>* {
+    margin-top: 5rem !important;
+    margin-bottom: 0 !important;
+}
+
+.demo-vertical-spacing-xl.demo-only-element> :first-child {
+    margin-top: 0 !important;
+}
+
+/* Dropdown buttons going out of small screens */
+@media (max-width: 576px) {
+    #dropdown-variation-demo .btn-group .text-truncate {
+        width: 300px;
+        position: relative;
+    }
+
+    #dropdown-variation-demo .btn-group .text-truncate::after {
+        position: absolute;
+        top: 45%;
+        right: 0.65rem;
+    }
+}
+
+/*
+* Layout demo
+******************************************************************************/
+
+.layout-demo-wrapper {
+    display: -ms-flexbox;
+    display: flex;
+    -ms-flex-align: center;
+    align-items: center;
+    -ms-flex-direction: column;
+    flex-direction: column;
+    margin-top: 1.25rem;
+}
+
+.layout-demo-placeholder img {
+    width: 900px;
+}
+
+.layout-demo-info {
+    text-align: center;
+    margin-top: 1.25rem;
+}
+
+.layout-menu {
+    position: fixed !important;
+}
+
+.layout-page {
+    padding-left: 17% !important;
+    width: 100%;
+}
+
+.layout-page nav {
+    width: stretch !important
+}
+
+.layout-page nav {
+    width: stretch;
+    padding-right: 15px;
+}
+
+.content-wrapper {
+    margin-top: 50px;
+}
+
+@media screen and (max-width: 1200) {
+    .layout-page {
+        padding: 4% !important;
+    }
+}
+
+
+.singleline {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.twoline {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    /* Limits text to 2 lines */
+    -webkit-box-orient: vertical;
+    /* Required for line-clamp to work */
+    overflow: hidden;
+    /* Hides the remaining text */
+}
+
+.modal.fade.show {
+    background-color: #0000007d;
+}
+
+::-webkit-scrollbar {
+    width: 5px;
+}
+
+/* Track */
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+/* Handle */
+::-webkit-scrollbar-thumb {
+    background: #888;
+}
+
+/* Handle on hover */
+::-webkit-scrollbar-thumb:hover {
+    background: #555;
+}
+
+
+/* Package card custom accent styling */
+.package-card {
+    border-radius: 0.75rem;
+    background-color: #ffffff;
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.package-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 0.5rem 1.5rem rgba(0, 0, 0, 0.08) !important;
+}
+
+.package-img {
+    height: 220px;
+    object-fit: cover;
+    transition: transform 0.5s ease;
+}
+
+.package-card:hover .package-img {
+    transform: scale(1.04);
+}
+
+/* Custom Orange Button matching the reference image */
+.btn-orange {
+    background-color: #e65f1e !important;
+    border-color: #e65f1e !important;
+}
+
+.btn-orange:hover {
+    background-color: #cc4f14 !important;
+    border-color: #cc4f14 !important;
+}
+
+/* Custom styles helper */
+.cursor-pointer {
+    cursor: pointer;
+}
+
+.fw-extrabold {
+    font-weight: 800;
+}
+
+.custom-strike {
+    background: linear-gradient(15deg, transparent 49%, #000 48%, #000 50%, transparent 53%);
+    color: black;
+    display: inline-block;
+}

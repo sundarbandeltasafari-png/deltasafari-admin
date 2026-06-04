@@ -4,7 +4,7 @@ import { Editor } from '@tinymce/tinymce-react';
 export default function EditorTinyMCE({ handleEditorChange, value }) {
   return (
     <Editor
-      apiKey={process.env.NEXT_PUBLIC_TinyMCE_API}
+      apiKey={'c5nqkc7jadyaytjmb828w1snv8btq5hu8y7t94hrzz4eleye'}
       onEditorChange={handleEditorChange}
       value={value}
       init={{
@@ -21,7 +21,11 @@ export default function EditorTinyMCE({ handleEditorChange, value }) {
           'bold italic forecolor | alignleft aligncenter ' +
           'alignright alignjustify | bullist numlist outdent indent | ' +
           'removeformat | help',
-        content_style: 'body { font-family:Helvetica,Arial,sans-serif; font-size:14px }'
+        tinymceai_token_provider: async () => {
+          await fetch(`https://demo.api.tiny.cloud/1/c5nqkc7jadyaytjmb828w1snv8btq5hu8y7t94hrzz4eleye/auth/random`, { method: "POST", credentials: "include" });
+          return { token: await fetch(`https://demo.api.tiny.cloud/1/c5nqkc7jadyaytjmb828w1snv8btq5hu8y7t94hrzz4eleye/jwt/tinymceai`, { credentials: "include" }).then(r => r.text()) };
+        },
+        uploadcare_public_key: 'd3b20d32fc6a2a57f19e',
       }}
     />
   );

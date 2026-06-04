@@ -37,7 +37,7 @@ const MultiLevelSelect = ({ categories, onSelect, selectedId, type="", categoryI
 
                 {/* Category Image */}
                 <img 
-                  src={"http://localhost:3002/"+cat.image || 'https://via.placeholder.com/40'} 
+                  src={process.env.NEXT_PUBLIC_SERVER_URL+cat.image || 'https://via.placeholder.com/40'} 
                   className="rounded-2 me-3 border shadow-sm" 
                   style={{ width: '40px', height: '40px', objectFit: 'cover' }} 
                   alt="" 

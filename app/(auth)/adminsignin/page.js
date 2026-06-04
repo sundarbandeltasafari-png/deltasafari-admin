@@ -54,7 +54,7 @@ const SignIn = () => {
         <div className="card smooth-shadow-md">
           <div className="card-body p-6">
             <div className="mb-4 d-flex flex-divumn justify-content-center align-items-center">
-              <Link href="/"><img src="/images/try24news.png" className="mb-2" alt="" style={{ width: 200 }} /></Link>
+              <Link href="/"><img src="/images/logo_DS.png" className="mb-2" alt="" style={{ width: 200 }} /></Link>
             </div>
             <form onSubmit={(e)=>{e.preventDefault(); handleFormsubmit();}}>
               <div className="mb-3">

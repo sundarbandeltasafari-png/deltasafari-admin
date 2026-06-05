@@ -101,8 +101,8 @@ function page() {
                   <span className=" my-3 mt-0 badge bg-secondary py-2 fs-6">
                     {pkg?.package_type_name} Package
                   </span>
-                  <h5 className="card-title fw-bold text-dark mb-1">{pkg?.title}</h5>
-                  <p className="text-muted small fw-medium mb-3">{pkg?.description}</p>
+                  <h5 className="card-title fw-bold text-dark mb-1 twoline">{pkg?.title}</h5>
+                  <p className="text-muted small fw-medium mb-3 twoline">{pkg?.description}</p>
 
                   <div className="row g-2 small fw-medium text-dark-emphasis mb-4">
                     {

@@ -2,21 +2,9 @@
 
 import React, { useState, useEffect } from "react";
 import { Editor } from "@tinymce/tinymce-react";
+import EditorTinyMCE from "../blogs/EditorTinyMCE";
 
 export default function ItineraryComponent({ days, setDays }) {
-
-  // TinyMCE settings Profile
-  const editorConfig = {
-    height: 180,
-    menubar: false,
-    plugins: ['lists', 'link', 'code', 'wordcount'],
-    toolbar: 'undo redo | bold italic | bullist numlist | removeformat',
-    tinymceai_token_provider: async () => {
-      await fetch(`https://demo.api.tiny.cloud/1/c5nqkc7jadyaytjmb828w1snv8btq5hu8y7t94hrzz4eleye/auth/random`, { method: "POST", credentials: "include" });
-      return { token: await fetch(`https://demo.api.tiny.cloud/1/c5nqkc7jadyaytjmb828w1snv8btq5hu8y7t94hrzz4eleye/jwt/tinymceai`, { credentials: "include" }).then(r => r.text()) };
-    },
-    uploadcare_public_key: 'd3b20d32fc6a2a57f19e',
-  };
 
   // --- Change Handlers ---
   const handleFieldChange = (index, field, value) => {
@@ -63,7 +51,6 @@ export default function ItineraryComponent({ days, setDays }) {
 
   return (
     <div className="container my-5 p-4 rounded shadow-sm" style={{ maxWidth: "1100px" }}>
-
       <div className="border-bottom pb-3 mb-4 d-flex justify-content-between align-items-center">
         <div>
           <h5 className="fw-bold text-dark m-0">Itinerary Creation</h5>
@@ -146,14 +133,8 @@ export default function ItineraryComponent({ days, setDays }) {
               {/* DETAIL TEXT ACTIONS */}
               <div>
                 <label className="form-label fw-semibold small text-uppercase text-muted">Detailed Itinerary Contents</label>
-                <Editor
-                  apiKey={process.env.NEXT_PUBLIC_TinyMCE_API}
-                  value={item.details}
-                  init={editorConfig}
-                  onEditorChange={(content) => handleFieldChange(dIdx, "details", content)}
-                />
+                <EditorTinyMCE handleEditorChange={(content) => handleFieldChange(dIdx, "details", content)} value={item.details} />
               </div>
-
             </div>
           </div>
         ))}

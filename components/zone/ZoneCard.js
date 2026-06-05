@@ -3,7 +3,7 @@ import { urlEncode } from '@/libs/urlHelper';
 import { useRouter } from 'next/navigation';
 import React, { useState } from 'react';
 import { useSelector } from 'react-redux';
-function ZoneCard({ zone, level }) {
+function ZoneCard({ zone, level, handleDeleteDetect }) {
   const [isOpen, setIsOpen] = useState(false);
   const permisions = useSelector((state) => state.permision?.permisions);
   const route = useRouter();
@@ -13,6 +13,8 @@ function ZoneCard({ zone, level }) {
     : [];
 
   const hasChildren = sortedChildren.length > 0;
+
+
   return (
     <div className={`accordion-item border-0 mb-2 shadow-sm rounded-3 overflow-hidden ${level > 0 ? 'ms-4 mt-2' : ''}`}>
       <div className={`accordion-header`}>
@@ -48,7 +50,8 @@ function ZoneCard({ zone, level }) {
               <p className="text-muted small mb-0 mt-1 line-clamp-1">
                 {zone.description || 'No description available for this zone.'}
               </p>
-              {permisions.includes('/zone/edit') && <div onClick={(e)=>{route.push('/zone/edit/'+urlEncode(zone?.id))}} className ='position-relative mt-3 btn btn-primary'>+ Edit Destination</div>}
+              {permisions.includes('/zone/edit') && <div onClick={(e) => { route.push('/zone/edit/' + urlEncode(zone?.id)) }} className='position-relative mt-3 btn btn-primary'>+ Edit Destination</div>}
+              {permisions.includes('/zone/edit') && <div onClick={() => { handleDeleteDetect(zone) }} className='position-relative mt-3 btn btn-danger ms-3'><i class="bi bi-trash me-1"></i> Delete Destination</div>}
             </div>
 
             {/* Child Counter */}

@@ -14,11 +14,11 @@ function DeleteModal({status, onChangeStatus, handleChange, post}) {
                             <div className="row">
                                 <div className="col-12 mb-6 mt-2">
                                     <div className="form-floating form-floating-outline" style={{height: "200px", border: "1px solid #cbcbcb", borderRadius: "10px"}}>
-                                        <img src={process.env.NEXT_PUBLIC_SERVER_URL +post?.featured_image} alt={post?.title && Buffer.from(post?.title).toString('utf-8')} style={{width: "100%", height: "100%"}} />
+                                        <img src={process.env.NEXT_PUBLIC_SERVER_URL +(post?.featured_image ? post?.featured_image : post?.path ? post?.path : post?.image)} alt={post?.title && Buffer.from(post?.title).toString('utf-8')} style={{width: "100%", height: "100%"}} />
                                     </div>
                                 </div>
                                 <div className="col-12 mb-6 mt-2">
-                                    <h4 className='oneLine'>{post?.title && Buffer.from(post?.title).toString('utf-8')}</h4>
+                                    <h4 className='oneLine'>{post?.title ? Buffer.from(post?.title).toString('utf-8') : post?.name}</h4>
                                 </div>
                             </div>
                         </div>

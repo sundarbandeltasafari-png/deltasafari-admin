@@ -1,5 +1,6 @@
 "use client"
 import { getAllZoneUrl } from '@/app/routes/serviceRoutes';
+import DeleteModal from '@/components/admin/common/DeleteModal';
 import LoadingComponent from '@/components/common/LoadingComponent';
 import NotFound from '@/components/common/NotFound';
 import ZoneCard from '@/components/zone/ZoneCard';
@@ -13,6 +14,8 @@ function page() {
     const [loading, setLoading] = useState(true);
     const [zones, setZones] = useState([])
     const [sortedRoots, setsortedRoots] = useState([]);
+    const [deleteStatus, setDeleteStatus] = useState(false);
+    const [deletePackage, setDeletePackage] = useState(null);
     const route = useRouter();
     const token = useSelector((state) => state.adminAuth?.token);
     const permisions = useSelector((state) => state.permision?.permisions);
@@ -38,13 +41,22 @@ function page() {
                 setLoading(false);
                 setZones(res.zone)
                 setsortedRoots([...res.zone].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)))
-            }else{
+            } else {
                 showMessage('Something went wrong, Please try again later')
             }
-        }).catch((err)=>{
+        }).catch((err) => {
             showMessage(err.message)
         })
     }, [])
+
+    function handleDeleteDetect(zone) {
+        setDeletePackage(zone)
+        setDeleteStatus(true)
+    }
+
+    function handleDelete(zoneId) {
+
+    }
 
     return (
         <section className='p-3'>
@@ -63,16 +75,17 @@ function page() {
                 </div>
             </div>
             {loading ?
-            <LoadingComponent />
-            :
-            <div className="category-explorer p-3">
-                {sortedRoots.length == 0 ?
-                <NotFound />
+                <LoadingComponent />
                 :
-                sortedRoots.map(cat => (
-                    <ZoneCard key={cat.id} zone={cat} level={0} />
-                ))}
-            </div>}
+                <div className="category-explorer p-3">
+                    {sortedRoots.length == 0 ?
+                        <NotFound />
+                        :
+                        sortedRoots.map(cat => (
+                            <ZoneCard key={cat.id} zone={cat} level={0} handleDeleteDetect={handleDeleteDetect}/>
+                        ))}
+                </div>}
+            <DeleteModal status={deleteStatus} onChangeStatus={setDeleteStatus} handleChange={handleDelete} post={deletePackage} />
         </section>
     )
 }

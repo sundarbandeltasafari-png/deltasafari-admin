@@ -4,7 +4,7 @@ import LottieReactComponent from './LottieReactComponent'
 function NotFound({height, width, classes}) {
     return (
         <>
-            <div class="card h-100">
+            <div class="w-100 card h-100">
                 <div class="card-body d-flex justify-content-center">
                     <div className={classes? classes : 'col-12 col-md-6 col-lg-4'}>
                         <div class="text-center mb-6 pt-2 rounded-3">

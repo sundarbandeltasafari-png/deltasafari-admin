@@ -14,7 +14,9 @@ function page() {
     description: '',
     sort_order: 1,
     image: null,
-    showleft: false
+    top_trending: false,
+    top_destination: false,
+    showing_text: ''
   });
   const [preview, setPreview] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -148,10 +150,22 @@ function page() {
                     <textarea name="description" className="form-control  p-3" rows="3" placeholder="Briefly describe this Destination..." onChange={handleChange}></textarea>
                   </div>
 
-                  <div class="form-check form-switch ms-2">
-                    <input class="form-check-input" name='showleft' onChange={(event)=>{setFormData({...formData, showleft: event.target.checked})}} type="checkbox" role="switch" id="switchCheckChecked" />
-                      <label class="form-check-label" for="switchCheckChecked">Show this on left side bar</label>
+                  <div className="form-check form-switch ms-2">
+                    <input className="form-check-input" name='top_trending' onChange={(event) => { setFormData({ ...formData, top_trending: event.target.checked }) }} type="checkbox" role="switch" id="topTrendingSwitch" />
+                    <label className="form-check-label" htmlFor="topTrendingSwitch">Showing in Top Trending</label>
                   </div>
+
+                  <div className="form-check form-switch ms-2">
+                    <input className="form-check-input" name='top_destination' onChange={(event) => { setFormData({ ...formData, top_destination: event.target.checked }) }} type="checkbox" role="switch" id="topDestinationSwitch" />
+                    <label className="form-check-label" htmlFor="topDestinationSwitch">Top Destination</label>
+                  </div>
+
+                  {formData.top_destination && (
+                    <div className="col-12 mt-2">
+                      <label className="form-label fw-bold small text-uppercase text-secondary">Showing Text</label>
+                      <input type="text" name="showing_text" className="form-control p-3" placeholder="Showing Text" onChange={handleChange} />
+                    </div>
+                  )}
 
                   <div className="col-12">
                     <label className="form-label fw-bold small text-uppercase text-secondary">Upload Icon/Image</label>

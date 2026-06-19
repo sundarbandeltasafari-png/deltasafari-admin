@@ -16,7 +16,7 @@ const page = () => {
     const route = useRouter();
 
     function onEditFaq(page) {
-        route.push('commonpages/edit/'+urlEncode(page?.id))
+        route.push('commonpages/edit/' + urlEncode(page?.id))
     }
 
     useEffect(() => {
@@ -51,8 +51,8 @@ const page = () => {
                                 </tr>
                             </thead>
                             <tbody className="table-border-bottom-0">
-                                {pages.map((page) => (
-                                    <tr key={page.id}>
+                                {pages.map((page, index) => {
+                                    return page.id !=8 && <tr key={page.id}>
                                         <td><strong>#{page.id}</strong></td>
                                         <td>
                                             <i className={`${page.icon_class} me-2 text-primary fs-5`}></i>
@@ -74,7 +74,7 @@ const page = () => {
                                             </button>
                                         </td>
                                     </tr>
-                                ))}
+                                })}
                             </tbody>
                         </table>
                     </div>

@@ -23,7 +23,7 @@ export default function page() {
     content: '',
     category_id: '',
     status: 1,
-    tags: [],
+    tags: ['Royal Bengal Tiger', 'Mangrove Forest', 'Wildlife Safari', 'Sundarban Wildlife', 'Nature Tourism', 'Eco Tourism', 'Bird Watching', 'Crocodile Safari', 'Tiger Safari', 'Wildlife Photography'],
     featured_video: '',
     featured_image: ''
   });
@@ -61,11 +61,12 @@ export default function page() {
         setCategoryData(res.category)
         if (res.category.length > 0) {
           handleSelection(res.category[0]);
-          setLoading(false)
         }
       }
     }).catch((err) => {
       showMessage("Something went wrong! " + err.message)
+    }).finally(()=>{
+      setLoading(false)
     })
   }, [])
 
@@ -123,7 +124,7 @@ export default function page() {
             </div>
           </div>
         </div>
-        {!loading ?
+        {loading ?
         <Loading />
         :
         <div className="col-lg-11 card">
@@ -179,7 +180,7 @@ export default function page() {
                   </div>
                   <div className="mb-3">
                     <label className="form-label">Status</label>
-                    <select name="status" value={1} className="form-select" onChange={handleChange}>
+                    <select name="status" className="form-select" onChange={handleChange}>
                       <option value="0">Draft</option>
                       <option value="1">Published</option>
                     </select>

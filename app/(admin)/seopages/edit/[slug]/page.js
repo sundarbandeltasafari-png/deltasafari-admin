@@ -11,7 +11,7 @@ const page = ({ onBack }) => {
     const params = useParams();
     const pageId = params?.slug
     if (!pageId) {
-        redirect('/faqpages');
+        redirect('/seopages');
     }
     const token = useSelector((state) => state.adminAuth?.token);
     const route = useRouter();

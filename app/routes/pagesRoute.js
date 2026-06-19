@@ -9,3 +9,6 @@ export const createOfficeAddressUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admi
 export const deleteOfficeAddressUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/settings/deleteOfficeAddress`;
 
 export const setContactDetailsUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/settings/setContactChanel`;
+
+export const getCommonPageUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/settings/getCommonPage`;
+export const createCommonPageUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/settings/setCommonPageSettings`;

@@ -16,3 +16,4 @@ export const getAllUsersUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/g
 export const getUserStatusUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/usersStatus?user=0`;
 export const createUsersUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/insertusers`;
 export const getParticulerUsersUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/getParticularUser`;
+export const getAdminUserSearchUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/getAdminUserSearch`;

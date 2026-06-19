@@ -1,10 +1,12 @@
 "use client"
-import { getAllZoneUrl } from '@/app/routes/serviceRoutes';
+import { deleteZoneUrl, getAllZoneUrl } from '@/app/routes/serviceRoutes';
 import DeleteModal from '@/components/admin/common/DeleteModal';
 import LoadingComponent from '@/components/common/LoadingComponent';
 import NotFound from '@/components/common/NotFound';
 import ZoneCard from '@/components/zone/ZoneCard';
+import { axiosDelete } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
+import { urlEncode } from '@/libs/urlHelper';
 import axios from 'axios';
 import { useRouter } from 'next/navigation';
 import React, { useEffect, useState } from 'react'
@@ -55,7 +57,21 @@ function page() {
     }
 
     function handleDelete(zoneId) {
-
+        setLoading(true)
+        axiosDelete(`${deleteZoneUrl}?id=${urlEncode(zoneId)}`, token).then((res) => {
+            if (res.status) {
+                showMessage(res?.msg, 'success')
+                const newZones = zones.filter((elem) => elem.id != zoneId);
+                setsortedRoots([...newZones].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
+                setDeleteStatus(false)
+            } else {
+                showMessage(res?.msg, 'error')
+            }
+            setLoading(false)
+        }).catch((err) => {
+            showMessage('Something went wrong, please try again later.')
+            setLoading(false)
+        })
     }
 
     return (
@@ -82,7 +98,7 @@ function page() {
                         <NotFound />
                         :
                         sortedRoots.map(cat => (
-                            <ZoneCard key={cat.id} zone={cat} level={0} handleDeleteDetect={handleDeleteDetect}/>
+                            <ZoneCard key={cat.id} zone={cat} level={0} handleDeleteDetect={handleDeleteDetect} />
                         ))}
                 </div>}
             <DeleteModal status={deleteStatus} onChangeStatus={setDeleteStatus} handleChange={handleDelete} post={deletePackage} />

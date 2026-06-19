@@ -17,6 +17,7 @@ export const getAllZoneUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service
 export const createZoneUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/createZone`;
 export const getParticularZoneUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getParticularZone`;
 export const setZoneUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/setZone`;
+export const deleteZoneUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/deleteZone`;
 
 
 // Package types

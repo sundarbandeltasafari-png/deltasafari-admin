@@ -1,13 +1,17 @@
 "use client"
 import React, { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { getAdminUserStatusUrl, getAllAdminUsersUrl, getAlladminUsersUrl } from '../../routes/userRoutes'
+import { getAdminUserSearchUrl, getAdminUserStatusUrl, getAllAdminUsersUrl, getAlladminUsersUrl } from '../../routes/userRoutes'
 import LoadingComponent from '../../../components/common/LoadingComponent'
 import { useRouter } from 'next/navigation'
 import { useSelector } from 'react-redux'
 import axios from 'axios'
 import UserStatusCard from '../../../components/common/UserStatusCard'
 import { getPermisionsUrl } from '@/app/routes/premisionRoute'
+import FilterUser from '@/components/users/FilterUser'
+import { axiosGet } from '@/libs/axiosHelper'
+import AddButton from '@/components/common/AddButton'
+import SearchList from '@/components/common/SearchList'
 
 function page() {
     const [loading, setLoading] = useState(true);
@@ -15,68 +19,47 @@ function page() {
     const token = useSelector((state) => state.adminAuth?.token);
     const [loadingStatus, setLoadingStatus] = useState(true);
     const [adminUsersStatus, setAdminUsersStatus] = useState();
+    const [usersFilterStatus, setUsersFilterStatus] = useState();
+    const [roleChange, setRoleChange] = useState()
     const permisions = useSelector((state) => state.permision?.permisions);
     const [allPermisions, setAllPermisions] = useState([]);
+    const [searchData, setSearchData] = useState('')
 
-    async function getAlladminUsers() {
-        try {
-            const response = await axios.get(getAllAdminUsersUrl, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            return response.data;
-        } catch (error) {
-            showMessage('Error fetching data:', error.response ? error.response.data : error.message);
+    useEffect(() => {
+        if (searchData || usersFilterStatus) {
+            handleSearch();
         }
-    }
+    }, [searchData, usersFilterStatus])
 
-    async function getadminUserstatus() {
-        try {
-            const response = await axios.get(getAdminUserStatusUrl, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            return response.data;
-        } catch (error) {
-            showMessage('Error fetching data:', error.response ? error.response.data : error.message);
-        }
-    }
-
-    async function getAllPermision() {
-        try {
-            const response = await axios.get(getPermisionsUrl, {
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/json'
-                }
-            });
-
-            return response.data;
-        } catch (error) {
-            showMessage('Error fetching data:', error.response ? error.response.data : error.message);
-        }
+    function handleSearch() {
+        setLoading(true)
+        axiosPost(getAdminUserSearchUrl, { searchData: searchData, status: usersFilterStatus, role: roleChange }, token).then((res) => {
+            if (res.status) {
+                setusers(res.users)
+            } else {
+                showMessage("Something went wrong! Please try again later")
+            }
+        }).catch((err) => {
+            showMessage("Something went wrong! " + err.message)
+        }).finally(() => {
+            setLoading(false)
+        })
     }
 
     useEffect(() => {
-        getAlladminUsers().then((res) => {
+        axiosGet(getAllAdminUsersUrl, token).then((res) => {
             if (res.status) {
                 setLoading(false);
                 setAdminUsers(res.adminUsers)
             }
         })
-        getadminUserstatus().then((res) => {
+        axiosGet(getAdminUserStatusUrl, token).then((res) => {
             if (res.status) {
                 setLoadingStatus(false);
                 setAdminUsersStatus(res.userStatus)
             }
         })
-        getAllPermision().then((res) => {
+        axiosGet(getPermisionsUrl, token).then((res) => {
             if (res.status) {
                 setAllPermisions(res.permision)
             }
@@ -110,50 +93,15 @@ function page() {
                     <div className="card-header border-bottom">
                         <h5 className="card-title mb-0">Filters</h5>
                         <div className="d-flex justify-content-between align-items-center row gx-5 pt-4 gap-5 gap-md-0">
-                            <div className="col-md-6 user_role">
-                                <select id="UserRole" className="form-select text-capitalize">
-                                    {
-                                        allPermisions.map((per)=>{
-                                            return <option value={per?.id}>{per?.name}</option>
-                                        })
-                                    }
-                                </select>
-                            </div>
-                            <div className="col-md-6 user_status">
-                                <select id="FilterTransaction" className="form-select text-capitalize">
-                                    <option value="">Select Status</option>
-                                    <option value="1" className="text-capitalize">Active</option>
-                                    <option value="0" className="text-capitalize">Inactive</option>
-                                </select>
-                            </div>
+                            <FilterUser type={'adminuser'} allPermisions={allPermisions} setRoleChange={setRoleChange} setUserStatus={setUsersFilterStatus} />
                         </div>
                     </div>
                     <div className="card-datatable">
                         <div id="DataTables_Table_0_wrapper" className="dt-container dt-bootstrap5 dt-empty-footer">
                             <div className="row m-2 my-0 mt-0 justify-content-between">
                                 <div className="d-md-flex w-100 align-items-center dt-layout-end col-md-auto ms-auto d-flex gap-md-4 justify-content-md-between justify-content-center gap-md-2 flex-wrap mt-0">
-                                    <div className='d-flex gap-3'>
-                                        <div className="dt-search">
-                                            <input type="search" className="form-control form-control-sm" id="dt-search-0" placeholder="Search User" aria-controls="DataTables_Table_0" />
-                                            <label htmlFor="dt-search-0"></label>
-                                        </div>
-                                        <div className='d-flex align-items-center justify-content-center'>
-                                            <button className="btn add-new btn-primary" tabIndex="0" aria-controls="DataTables_Table_0" type="button">
-                                                <span>
-                                                    <i className="icon-base ri ri-search-line icon-sm me-0 me-sm-2"></i>
-                                                    <span className="d-none d-sm-inline-block">Search</span>
-                                                </span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    {permisions.includes('/adminusers/add') && <div className="dt-buttons btn-group flex-wrap d-md-flex d-block gap-4 mb-md-0 mb-5 justify-content-center">
-                                        <Link href={"/adminusers/add"} className="btn add-new btn-primary" tabIndex="0" aria-controls="DataTables_Table_0" type="button">
-                                            <span>
-                                                <i className="icon-base ri ri-add-line icon-sm me-0 me-sm-2"></i>
-                                                <span className="d-none d-sm-inline-block">Add New Admin User</span>
-                                            </span>
-                                        </Link>
-                                    </div>}
+                                    <SearchList handleSearch={setSearchData} />
+                                    <AddButton hrefPath={"/adminusers/add"} buttonName={'Add New Admin User'} />
                                 </div>
                             </div>
                             {loading ?
@@ -185,7 +133,7 @@ function page() {
                                                                 <div className="d-flex justify-content-start align-items-center user-name">
                                                                     <div className="avatar-wrapper">
                                                                         <div className="avatar avatar-sm me-4">
-                                                                            <img src="../../assets/img/avatars/2.png" alt="Avatar" className="rounded-circle" />
+                                                                            <img src={reporter?.profile_picture ? process.env.NEXT_PUBLIC_SERVER_URL + reporter?.profile_picture : (reporter?.gender == 1 ? "/assets/img/avatars/1.png" : reporter?.gender == 2 ? "/assets/img/avatars/2.png" : "/assets/img/avatars/7.png")} alt="Avatar" className="rounded-circle" />
                                                                         </div>
                                                                     </div>
                                                                     <div className="d-flex flex-column">

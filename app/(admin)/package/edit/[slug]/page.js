@@ -32,6 +32,7 @@ function page() {
     duration_days: 0,
     duration_nights: 0,
     base_price: 0,
+    discount_type: 'percentage',
     discount: 0,
     actual_price: 0,
     category: null,
@@ -74,10 +75,15 @@ function page() {
 
   useEffect(() => {
     if (formData.base_price > 0) {
-      const actualPrice = formData.base_price - ((formData.base_price * formData.discount) / 100);
-      setFormData({ ...formData, actual_price: actualPrice })
+      let actualPrice = 0;
+      if (formData.discount_type === 'flat') {
+        actualPrice = formData.base_price - formData.discount;
+      } else {
+        actualPrice = formData.base_price - ((formData.base_price * formData.discount) / 100);
+      }
+      setFormData({ ...formData, actual_price: actualPrice > 0 ? actualPrice : 0 })
     }
-  }, [formData.base_price, formData.discount])
+  }, [formData.base_price, formData.discount, formData.discount_type])
 
 
   useEffect(() => {
@@ -116,6 +122,7 @@ function page() {
           duration_days: pkg?.duration_days,
           duration_nights: pkg?.duration_nights,
           base_price: pkg?.base_price,
+          discount_type: pkg?.discount_type || 'percentage',
           discount: pkg?.discount,
           actual_price: pkg?.actual_price,
           category: pkg?.package_type,
@@ -278,17 +285,35 @@ function page() {
                     <input type="number"  value={formData.duration_nights} name="duration_nights" className="form-control  p-3" placeholder="Package Nights" onChange={handleChange} />
                   </div>
 
-                  <div className="col-md-4">
+                  <div className="col-md-6">
                     <label className="form-label fw-bold small text-uppercase text-secondary">Base Price (₹) <span className='text-danger'>*</span></label>
                     <input type="number"  value={formData.base_price} name="base_price" className="form-control  p-3" placeholder="Package Base Price" onChange={handleChange} />
                   </div>
 
-                  <div className="col-md-4">
-                    <label className="form-label fw-bold small text-uppercase text-secondary">Discount (%)</label>
+                  <div className="col-md-6">
+                    <label className="form-label fw-bold small text-uppercase text-secondary">Discount Type</label>
+                    <div className="form-check form-switch mt-2">
+                      <input
+                        className="form-check-input"
+                        type="checkbox"
+                        role="switch"
+                        id="discountTypeSwitch"
+                        checked={formData.discount_type === 'flat'}
+                        onChange={(e) => setFormData({ ...formData, discount_type: e.target.checked ? 'flat' : 'percentage' })}
+                        style={{ width: '3em', height: '1.5em' }}
+                      />
+                      <label className="form-check-label ms-2 mt-1" htmlFor="discountTypeSwitch">
+                        {formData.discount_type === 'flat' ? 'Flat (₹)' : 'Percentage (%)'}
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="col-md-6">
+                    <label className="form-label fw-bold small text-uppercase text-secondary">Discount {formData.discount_type === 'flat' ? '(₹)' : '(%)'}</label>
                     <input type="number"  value={formData.discount} name="discount" className="form-control  p-3" placeholder="Package Discount" onChange={handleChange} />
                   </div>
 
-                  <div className="col-md-4">
+                  <div className="col-md-6">
                     <label className="form-label fw-bold small text-uppercase text-secondary">Actual Price (₹) <span className='text-danger'>*</span></label>
                     <input type="number" className="form-control  p-3" value={formData.actual_price} placeholder="Package Actual Price" disabled={true} />
                   </div>

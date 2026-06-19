@@ -2,8 +2,8 @@
 "use client";
 import React, { useState, useRef } from 'react';
 
-export default function MediaUpload({ setImage, setVideo, image, video }) {
-  const [previews, setPreviews] = useState({ image: null, video: null });
+export default function MediaUpload({ setImage, setVideo, image, video, previewImage }) {
+  const [previews, setPreviews] = useState({ image: previewImage, video: null });
   const [isDragging, setIsDragging] = useState(false);
 
   // Refs for hidden inputs

@@ -5,6 +5,8 @@ import { Bounce, ToastContainer } from "react-toastify";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./admin.css";
 import PermisionWrapper from '@/permision/PermisionWrapper';
+import axios from 'axios';
+import { getSitePageSettingsUrl } from './routes/settingsRoutes';
 
 const geistSans = Geist({
     variable: "--font-geist-sans",
@@ -16,10 +18,55 @@ const geistMono = Geist_Mono({
     subsets: ["latin"],
 });
 
-export const metadata = {
-    title: "Deltasafari",
-    description: "Deltasafari Platform",
-};
+async function getSiteSettings() {
+  try {
+    const response = await axios.get(getSitePageSettingsUrl);
+    if (response.data?.status) {
+      return response.data?.siteSettings;
+    }
+  } catch (error) {
+    console.error("Failed to fetch site settings:", error);
+  }
+  return null;
+}
+
+export async function generateMetadata() {
+  const data = await getSiteSettings();
+  const siteUrl = data?.canonical_url || "https://sundarbandeltasafari.com";
+
+  return {
+    title: data?.site_title || "Delta Safari",
+    description: data?.meta_description || "Delta Safari",
+    keywords: data?.meta_keywords || "Delta Safari",
+    metadataBase: new URL(siteUrl),
+    alternates: {
+      canonical: "/",
+    },
+    robots: data?.robots_meta || "index, follow",
+    icons: {
+      icon: data?.site_favicon ?  process.env.NEXT_PUBLIC_SERVER_URL + `${data.site_favicon.replace(/\\/g, "/")}` :  process.env.NEXT_PUBLIC_PUBLIC_URL + "/assets/images/fav-icon.png",
+    },
+    openGraph: {
+      title: data?.og_title || data?.site_title,
+      description: data?.og_description || data?.meta_description,
+      url: data?.og_url || "/",
+      siteName: data?.og_site_name || "Delta Safari",
+      type: data?.og_type || "website",
+      images: data?.og_image 
+        ? [{ url: process.env.NEXT_PUBLIC_SERVER_URL + `${data.og_image.replace(/\\/g, "/")}` }] 
+        : [],
+    },
+    twitter: {
+      card: data?.twitter_card || "summary_large_image",
+      title: data?.twitter_title || data?.site_title,
+      description: data?.twitter_description || data?.meta_description,
+      images: data?.twitter_image 
+        ? [ process.env.NEXT_PUBLIC_SERVER_URL + `${data.twitter_image.replace(/\\/g, "/")}`] 
+        : [],
+    },
+  };
+}
+
 
 export default function RootLayout({ children }) {
     return (

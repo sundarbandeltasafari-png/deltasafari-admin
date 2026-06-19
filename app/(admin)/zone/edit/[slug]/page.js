@@ -22,7 +22,9 @@ export default function page() {
     description: '',
     sort_order: 1,
     image: null,
-    showleft: false
+    top_trending: false,
+    top_destination: false,
+    showing_text: ''
   });
   const [zone, setZone] = useState(null)
   const [preview, setPreview] = useState(null);
@@ -126,7 +128,9 @@ export default function page() {
             parent_id: response?.zone?.parent_id,
             description: response?.zone?.description,
             sort_order: response?.zone?.sort_order,
-            showleft: response?.zone?.showleft ? true : false,
+            top_trending: response?.zone?.top_trending ? true : false,
+            top_destination: response?.zone?.top_destination ? true : false,
+            showing_text: response?.zone?.showing_text || '',
             id: response?.zone?.id
           })
           setZone(response?.zone);
@@ -206,9 +210,21 @@ export default function page() {
                     </div>
 
                     <div className="form-check form-switch ms-2">
-                      <input className="form-check-input" name='showleft' onChange={(event) => { setFormData({ ...formData, showleft: event.target.checked }) }} type="checkbox" role="switch" id="switchCheckChecked" checked={formData.showleft == 1 ? true : false} />
-                      <label className="form-check-label" htmlFor="switchCheckChecked">Show this on left side bar</label>
+                      <input className="form-check-input" name='top_trending' onChange={(event) => { setFormData({ ...formData, top_trending: event.target.checked }) }} type="checkbox" role="switch" id="topTrendingSwitch" checked={formData.top_trending} />
+                      <label className="form-check-label" htmlFor="topTrendingSwitch">Showing in Top Trending</label>
                     </div>
+
+                    <div className="form-check form-switch ms-2">
+                      <input className="form-check-input" name='top_destination' onChange={(event) => { setFormData({ ...formData, top_destination: event.target.checked }) }} type="checkbox" role="switch" id="topDestinationSwitch" checked={formData.top_destination} />
+                      <label className="form-check-label" htmlFor="topDestinationSwitch">Top Destination</label>
+                    </div>
+
+                    {formData.top_destination && (
+                      <div className="col-12 mt-2">
+                        <label className="form-label fw-bold small text-uppercase text-secondary">Showing Text</label>
+                        <input type="text" name="showing_text" value={formData.showing_text} className="form-control p-3" placeholder="Showing Text" onChange={handleChange} />
+                      </div>
+                    )}
                     {(zone?.image || preview) && <div className='mt-3 mb-2' style={{ height: "250px" }}>
                       <label className='mb-2'>Image Preview</label>
                       <img src={preview ? preview : process.env.NEXT_PUBLIC_SERVER_URL + zone?.image} className='w-100 h-100' style={{ objectFit: "fill" }} />

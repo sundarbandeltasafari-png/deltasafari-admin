@@ -5,10 +5,9 @@ import { useSelector } from 'react-redux';
 import DeleteModal from '@/components/admin/common/DeleteModal';
 import { showMessage } from '@/libs/commonHelper';
 import { urlEncode } from '@/libs/urlHelper';
-import { deleteNewsUrl, getAllNewsUrl } from "../../routes/serviceRoutes";
 import NotFound from '@/components/common/NotFound';
 import { axiosDelete, axiosGet } from '@/libs/axiosHelper';
-import { getAllPackageUrl } from '@/app/routes/packageRoutes';
+import { deletePackageUrl, getAllPackageUrl } from '@/app/routes/packageRoutes';
 import Link from 'next/link';
 
 function page() {
@@ -38,18 +37,18 @@ function page() {
     setDeleteStatus(true)
   }
 
-  function handleDelete(postId) {
-    axiosDelete(deleteNewsUrl, { id: postId }, token).then((response) => {
+  function handleDelete(packageId) {
+    axiosDelete(`${deletePackageUrl}?id=${urlEncode(packageId)}`, token).then((response) => {
       if (response.status) {
-        getPackages(packages.filter((elem) => elem.id != postId))
+        getPackages(packages.filter((elem) => elem.id != packageId))
         showMessage(response?.msg, "success");
+        setDeleteStatus(false)
       } else {
         showMessage(response?.msg);
       }
     }).catch((err) => {
       showMessage(err?.message)
     })
-
   }
 
   return (
@@ -74,7 +73,7 @@ function page() {
             return <div key={index} className="col-lg-4 col-md-4">
               <div className="card package-card border-0 shadow-sm h-100">
                 <div className="position-relative overflow-hidden rounded-top-3" style={{ borderBottom: "1px solid #80808024" }}>
-                  <img src={pkg?.path ? process.env.NEXT_PUBLIC_SERVER_URL + pkg?.path : 'assets/images/Travel-Agency-3.png'} className="card-img-top package-img" alt={pkg?.title} />
+                  <img src={pkg?.path ? process.env.NEXT_PUBLIC_SERVER_URL + pkg?.path : process.env.NEXT_PUBLIC_PUBLIC_URL + '/images/noimage.jpg'} className="card-img-top package-img" alt={pkg?.title} />
 
                   <div className="position-absolute top-0 start-0 m-3 d-flex align-items-center">
                     {pkg.status == 1 ?
@@ -88,7 +87,7 @@ function page() {
                     }
                   </div>
                   <span className="position-absolute top-0 end-0 m-3 badge bg-warning text-dark fw-bold px-3 py-2 rounded-pill d-flex align-items-center gap-1 shadow-sm">
-                    {pkg?.discount}% Discount
+                    {pkg?.discount_type === 'flat' ? `₹ ${pkg?.discount}` : `${pkg?.discount}%`} Discount
                   </span>
 
                   <span className="position-absolute bottom-0 start-0 m-3 badge bg-primary px-3 py-2 fs-6 rounded-pill">

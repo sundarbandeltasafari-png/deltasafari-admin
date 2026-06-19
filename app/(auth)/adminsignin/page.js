@@ -24,6 +24,8 @@ const SignIn = () => {
       });
       return response.data;
     } catch (error) {
+      console.log(error);
+      
       var msg = "Something went wrong, please try again later!"
       if (error.response && error.response.status === 401) {
         msg = "Invalid credential, try again with valid credential"

@@ -20,7 +20,7 @@ function HeaderAdmin() {
     }
     return (
         <>
-            <div className={sidebar && "layout-menu-expanded"}>
+            <div className={sidebar ? "layout-menu-expanded" : ''}>
                 <aside id="layout-menu" className="layout-menu menu-vertical menu">
                     <div className="app-brand demo">
                         <Link href="" className="app-brand-link">

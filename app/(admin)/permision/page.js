@@ -57,20 +57,9 @@ function page() {
                     <div className="card-datatable">
                         <div id="DataTables_Table_0_wrapper" className="dt-container dt-bootstrap5 dt-empty-footer">
                             <div className="row m-2 my-0 mt-0 justify-content-between">
-                                <div className="d-md-flex w-100 align-items-center dt-layout-end col-md-auto ms-auto d-flex gap-md-4 justify-content-md-between justify-content-center gap-md-2 flex-wrap mt-0">
+                                <div className="d-md-flex py-3 w-100 align-items-center dt-layout-end col-md-auto ms-auto d-flex gap-md-4 justify-content-md-between justify-content-center gap-md-2 flex-wrap mt-0">
                                     <div className='d-flex gap-3'>
-                                        <div className="dt-search">
-                                            <input type="search" className="form-control form-control-sm" id="dt-search-0" placeholder="Search User" aria-controls="DataTables_Table_0" />
-                                            <label htmlFor="dt-search-0"></label>
-                                        </div>
-                                        <div className='d-flex align-items-center justify-content-center'>
-                                            <button className="btn add-new btn-primary" tabIndex="0" aria-controls="DataTables_Table_0" type="button">
-                                                <span>
-                                                    <i className="icon-base ri ri-search-line icon-sm me-0 me-sm-2"></i>
-                                                    <span className="d-none d-sm-inline-block">Search</span>
-                                                </span>
-                                            </button>
-                                        </div>
+                                        
                                     </div>
                                     <div className="dt-buttons btn-group flex-wrap d-md-flex d-block gap-4 mb-md-0 mb-5 justify-content-center">
                                         {myPermisions.includes('/permision/add') && <Link href={"/permision/add"} className="btn add-new btn-primary" tabIndex="0" aria-controls="DataTables_Table_0" type="button">

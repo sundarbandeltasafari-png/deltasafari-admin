@@ -29,7 +29,7 @@ function SearchList({ handleSearch, placeholder }) {
     return (
         <>
             <div className='d-flex gap-3'>
-                <div className="dt-search">
+                <div className="dt-search d-flex">
                     <input type="search" onInput={handleInput} className="form-control form-control-sm" id="dt-search-0" placeholder={placeholder} aria-controls="DataTables_Table_0" />
                     <label htmlFor="dt-search-0"></label>
                 </div>

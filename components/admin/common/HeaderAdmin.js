@@ -54,6 +54,12 @@ function HeaderAdmin() {
                                 <div data-i18n="Destination">Destination</div>
                             </Link>
                         </li>
+                        <li className={`menu-item menu-item-parent ${pathname.includes("/cities")? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/cities" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-map-pin-2-line"></i>
+                                <div data-i18n="Cities">Cities</div>
+                            </Link>
+                        </li>
                         <li className={`menu-item menu-item-parent ${pathname.includes("/package") ? 'active' : ''}`} onClick={openParentmenu}>
                             <Link href="/package" className="menu-link">
                                 <i className="menu-icon icon-base ri ri-instance-line"></i>

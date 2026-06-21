@@ -2,7 +2,7 @@
 "use client";
 import React, { useState, useRef } from 'react';
 
-export default function MediaUpload({ setImage, setVideo, image, video, previewImage }) {
+export default function MediaUpload({ setImage, setVideo, image, video, previewImage, type = 'both' }) {
   const [previews, setPreviews] = useState({ image: previewImage, video: null });
   const [isDragging, setIsDragging] = useState(false);
 
@@ -38,7 +38,7 @@ export default function MediaUpload({ setImage, setVideo, image, video, previewI
       <div className="card-body">
 
         {/* IMAGE UPLOAD */}
-        <div className="mb-4">
+        {(type == "both" || type == "image") && <div className="mb-4">
           <label className="form-label fw-semibold small">Featured Image</label>
           <div
             className={`upload-zone rounded border-2 border-dashed p-3 text-center ${isDragging ? 'bg-primary-subtle border-primary' : 'bg-light'}`}
@@ -71,10 +71,10 @@ export default function MediaUpload({ setImage, setVideo, image, video, previewI
               onChange={(e) => handleFile(e.target.files[0], 'image')}
             />
           </div>
-        </div>
+        </div>}
 
         {/* VIDEO UPLOAD */}
-        <div className="mb-0">
+        {(type == "both" || type == "video") && <div className="mb-0">
           <label className="form-label fw-semibold small">Featured Video</label>
           <div
             className="upload-zone rounded border-2 border-dashed p-3 text-center bg-light"
@@ -106,7 +106,7 @@ export default function MediaUpload({ setImage, setVideo, image, video, previewI
               onChange={(e) => handleFile(e.target.files[0], 'video')}
             />
           </div>
-        </div>
+        </div>}
 
       </div>
     </div>

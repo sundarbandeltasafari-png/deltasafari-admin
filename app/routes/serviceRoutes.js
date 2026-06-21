@@ -22,3 +22,15 @@ export const deleteZoneUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service
 
 // Package types
 export const getAllPackageTypeUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/package/getAllPackageType`;
+
+// City Routes
+export const getAllCityUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getCity`;
+export const getAllCountriesUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getAllCountries`;
+export const createCityUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/createCity`;
+export const deleteCityUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/deleteCity`;
+export const getParticularCityUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getParticularCity`;
+export const updateCityUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/updateCity`;
+
+
+// Bookings
+export const getAllBookingsUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/package/getAllBookings`;

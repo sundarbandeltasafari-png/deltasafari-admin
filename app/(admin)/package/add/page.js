@@ -361,6 +361,7 @@ function page() {
                       inputName={'category'}
                     />}
                 </div>
+                
                 <div className="p-4">
                   <div id='media' className="p-2 mb-2 border-bottom d-flex justify-content-between align-items-center">
                     <span className="fw-bold small text-uppercase text-secondary">Package Media</span>

@@ -13,8 +13,18 @@ function DeleteModal({status, onChangeStatus, handleChange, post}) {
                         <div className="modal-body">
                             <div className="row">
                                 <div className="col-12 mb-6 mt-2">
-                                    <div className="form-floating form-floating-outline" style={{height: "200px", border: "1px solid #cbcbcb", borderRadius: "10px"}}>
-                                        <img src={process.env.NEXT_PUBLIC_SERVER_URL +(post?.featured_image ? post?.featured_image : post?.path ? post?.path : post?.image)} alt={post?.title && Buffer.from(post?.title).toString('utf-8')} style={{width: "100%", height: "100%"}} />
+                                    <div className="form-floating form-floating-outline" style={{height: "200px", border: "1px solid #cbcbcb", borderRadius: "10px", overflow: "hidden"}}>
+                                        <img 
+                                            src={
+                                                post?.featured_image ? (post.featured_image.startsWith('data:') || post.featured_image.startsWith('/') ? post.featured_image : process.env.NEXT_PUBLIC_SERVER_URL + post.featured_image) :
+                                                post?.path ? (post.path.startsWith('data:') || post.path.startsWith('/') ? post.path : process.env.NEXT_PUBLIC_SERVER_URL + post.path) :
+                                                post?.image ? (post.image.startsWith('data:') || post.image.startsWith('/') ? post.image : process.env.NEXT_PUBLIC_SERVER_URL + post.image) :
+                                                post?.city_image ? (post.city_image.startsWith('data:') || post.city_image.startsWith('/') ? post.city_image : process.env.NEXT_PUBLIC_SERVER_URL + post.city_image) :
+                                                "/images/noimage.jpg"
+                                            } 
+                                            alt={post?.title ? (typeof post.title === 'string' ? post.title : Buffer.from(post.title).toString('utf-8')) : post?.name} 
+                                            style={{width: "100%", height: "100%", objectFit: "cover"}} 
+                                        />
                                     </div>
                                 </div>
                                 <div className="col-12 mb-6 mt-2">

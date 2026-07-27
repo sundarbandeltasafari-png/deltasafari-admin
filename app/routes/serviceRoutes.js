@@ -33,4 +33,23 @@ export const updateCityUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service
 
 
 // Bookings
-export const getAllBookingsUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/package/getAllBookings`;
+export const getAllBookingsUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getAllBookings`;
+
+// Dashboard URL
+export const getDashboardUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getDashboard`;
+
+// Corporate Lead Enquiries
+export const getAllCorporateLeadEnquiriesUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getAllCorporateLeadEnquiries`;
+export const getParticularCorporateLeadEnquiryUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getParticularCorporateLeadEnquiry`;
+export const updateCorporateLeadEnquiryUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/updateCorporateLeadEnquiry`;
+
+// Custom Package / Holiday Enquiries
+export const getAllHolidayEnquiriesUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getAllHolidayEnquiries`;
+export const getParticularHolidayEnquiryUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getParticularHolidayEnquiry`;
+export const updateHolidayEnquiryUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/updateHolidayEnquiry`;
+
+// Contact Queries
+export const getAllContactQueriesUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getAllContactQueries`;
+export const getParticularContactQueryUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getParticularContactQuery`;
+export const updateContactQueryUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/updateContactQuery`;
+export const deleteContactQueryUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/deleteContactQuery`;

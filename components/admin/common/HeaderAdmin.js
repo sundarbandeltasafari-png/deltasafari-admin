@@ -83,6 +83,19 @@ function HeaderAdmin() {
                                 <div data-i18n="Bookings">Bookings</div>
                             </Link>
                         </li>
+                        <li className={`menu-item menu-item-parent ${pathname.includes("/corporate-lead") ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/corporate-lead" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-briefcase-line"></i>
+                                <div data-i18n="Corporate Lead">Corporate Lead</div>
+                            </Link>
+                        </li>
+                        <li className={`menu-item menu-item-parent ${pathname.includes("/custom-package") ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/custom-package" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-compass-3-line"></i>
+                                <div data-i18n="Custom Package">Custom Package</div>
+                            </Link>
+                        </li>
+
 
 
                         <li className="menu-header small mt-5">

@@ -15,6 +15,9 @@ export default function AddCityPage() {
         name: '',
         country: '',
         state: '',
+        starting_from: '',
+        days: '',
+        nights: '',
         city_image: null,
         show_in_package: false,
         show_in_corporate: false,
@@ -110,6 +113,18 @@ export default function AddCityPage() {
             showMessage('Please upload a city image', 'error');
             return;
         }
+        if (!formData.starting_from) {
+            showMessage('Please add a starting from', 'error');
+            return;
+        }
+        if (!formData.nights) {
+            showMessage('Please add a nights', 'error');
+            return;
+        }
+        if (!formData.days) {
+            showMessage('Please add a days', 'error');
+            return;
+        }
 
         setSubmitting(true);
 
@@ -120,6 +135,9 @@ export default function AddCityPage() {
             apiFormData.append('country', formData.country);
             apiFormData.append('state', formData.state);
             apiFormData.append('city_image', formData.city_image);
+            apiFormData.append('starting_from', formData.starting_from);
+            apiFormData.append('days', formData.days);
+            apiFormData.append('nights', formData.nights);
             apiFormData.append('show_in_package', formData.show_in_package ? '1' : '0');
             apiFormData.append('show_in_corporate', formData.show_in_corporate ? '1' : '0');
             apiFormData.append('show_in_hotel', formData.show_in_hotel ? '1' : '0');
@@ -218,6 +236,51 @@ export default function AddCityPage() {
                                                         className="form-control form-control-lg ps-2"
                                                         placeholder="Enter city name (e.g. Kolkata, Paris)"
                                                         value={formData.name}
+                                                        onChange={handleInputChange}
+                                                        required
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="col-12">
+                                                <label className="form-label fw-semibold text-uppercase text-secondary small">Starting From</label>
+                                                <div className="input-group input-group-merge">
+                                                    <span className="input-group-text"><i className="ri-map-pin-line text-muted"></i></span>
+                                                    <input
+                                                        type="text"
+                                                        name="starting_from"
+                                                        className="form-control form-control-lg ps-2"
+                                                        placeholder="Starting Package Price"
+                                                        value={formData.starting_from}
+                                                        onChange={handleInputChange}
+                                                        required
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="col-md-6">
+                                                <label className="form-label fw-semibold text-uppercase text-secondary small">Package Days</label>
+                                                <div className="input-group input-group-merge">
+                                                    <span className="input-group-text"><i className="ri-map-pin-line text-muted"></i></span>
+                                                    <input
+                                                        type="text"
+                                                        name="days"
+                                                        className="form-control form-control-lg ps-2"
+                                                        placeholder="Starting Package Price"
+                                                        value={formData.days}
+                                                        onChange={handleInputChange}
+                                                        required
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="col-md-6">
+                                                <label className="form-label fw-semibold text-uppercase text-secondary small">Package Nights</label>
+                                                <div className="input-group input-group-merge">
+                                                    <span className="input-group-text"><i className="ri-map-pin-line text-muted"></i></span>
+                                                    <input
+                                                        type="text"
+                                                        name="nights"
+                                                        className="form-control form-control-lg ps-2"
+                                                        placeholder="Starting Package Price"
+                                                        value={formData.nights}
                                                         onChange={handleInputChange}
                                                         required
                                                     />

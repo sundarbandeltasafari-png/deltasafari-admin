@@ -242,6 +242,9 @@ export default function CitiesPage() {
                   <th className="py-3">City Name</th>
                   <th className="py-3">State / Province</th>
                   <th className="py-3">Country</th>
+                  <th className="py-3">Starting From</th>
+                  <th className="py-3">Days</th>
+                  <th className="py-3">Nights</th>
                   <th className="py-3 pe-4 text-end" style={{ width: '120px' }}>Actions</th>
                 </tr>
               </thead>
@@ -269,6 +272,15 @@ export default function CitiesPage() {
                     </td>
                     <td>
                       <span className="badge bg-label-info text-capitalize">{city.country}</span>
+                    </td>
+                    <td>
+                      ₹{city.starting_from}
+                    </td>
+                    <td>
+                      {city.days}
+                    </td>
+                    <td>
+                      {city.nights}
                     </td>
                     <td className="pe-4 text-end">
                       <button 

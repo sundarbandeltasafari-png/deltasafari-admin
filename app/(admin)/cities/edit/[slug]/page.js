@@ -22,6 +22,9 @@ export default function EditCityPage() {
     name: '',
     country: '',
     state: '',
+    starting_from: '',
+    days: '',
+    nights: '',
     city_image: null,
     show_in_package: false,
     show_in_corporate: false,
@@ -32,7 +35,7 @@ export default function EditCityPage() {
   const [states, setStates] = useState([]);
   const [imagePreview, setImagePreview] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  
+
   const token = useSelector((state) => state.adminAuth?.token);
   const route = useRouter();
 
@@ -101,6 +104,9 @@ export default function EditCityPage() {
             name: city.name,
             country: city.country,
             state: city.state,
+            starting_from: city.starting_from,
+            days: city.days,
+            nights: city.nights,
             city_image: null,
             show_in_package: city.show_in_package === true || city.show_in_package === 1 || city.show_in_package === '1',
             show_in_corporate: city.show_in_corporate === true || city.show_in_corporate === 1 || city.show_in_corporate === '1',
@@ -198,6 +204,9 @@ export default function EditCityPage() {
       apiFormData.append('name', formData.name);
       apiFormData.append('country', formData.country);
       apiFormData.append('state', formData.state);
+      apiFormData.append('starting_from', formData.starting_from);
+      apiFormData.append('days', formData.days);
+      apiFormData.append('nights', formData.nights);
       apiFormData.append('show_in_package', formData.show_in_package ? '1' : '0');
       apiFormData.append('show_in_corporate', formData.show_in_corporate ? '1' : '0');
       apiFormData.append('show_in_hotel', formData.show_in_hotel ? '1' : '0');
@@ -236,7 +245,7 @@ export default function EditCityPage() {
       const localData = localStorage.getItem('cities');
       if (localData) {
         const parsed = JSON.parse(localData);
-        
+
         let finalImage = imagePreview;
         if (formData.city_image) {
           finalImage = await getBase64(formData.city_image);
@@ -249,6 +258,9 @@ export default function EditCityPage() {
               name: formData.name,
               country: formData.country,
               state: formData.state,
+              starting_from: formData.starting_from,
+              days: formData.days,
+              nights: formData.nights,
               image: finalImage,
               city_image: finalImage,
               show_in_package: formData.show_in_package,
@@ -280,7 +292,7 @@ export default function EditCityPage() {
 
   return (
     <div className="container-xxl flex-grow-1 container-p-y">
-      
+
       {/* Navigation Breadcrumbs & Header */}
       <div className="d-flex align-items-center mb-6 gap-3">
         <Link href="/cities" className="btn btn-icon btn-outline-secondary rounded-pill">
@@ -294,31 +306,76 @@ export default function EditCityPage() {
 
       <div className="row justify-content-center">
         <div className="col-12 col-lg-10">
-          
+
           <form onSubmit={handleUpdateCity}>
             <div className="row g-6">
-              
+
               {/* Form Input Details Card */}
               <div className="col-12 col-md-7">
                 <div className="card h-100 border-0 shadow-sm rounded-3">
                   <div className="card-header bg-white border-bottom py-4">
                     <h5 className="mb-0 fw-semibold">City Specifications</h5>
                   </div>
-                  
+
                   <div className="card-body py-5">
                     <div className="row g-5">
-                      
+
                       {/* City Name */}
                       <div className="col-12">
                         <label className="form-label fw-semibold text-uppercase text-secondary small">City Name</label>
                         <div className="input-group input-group-merge">
                           <span className="input-group-text"><i className="ri-map-pin-line text-muted"></i></span>
-                          <input 
-                            type="text" 
-                            name="name" 
-                            className="form-control form-control-lg ps-2" 
-                            placeholder="Enter city name (e.g. Kolkata, Paris)" 
+                          <input
+                            type="text"
+                            name="name"
+                            className="form-control form-control-lg ps-2"
+                            placeholder="Enter city name (e.g. Kolkata, Paris)"
                             value={formData.name}
+                            onChange={handleInputChange}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="col-12">
+                        <label className="form-label fw-semibold text-uppercase text-secondary small">Starting From</label>
+                        <div className="input-group input-group-merge">
+                          <span className="input-group-text"><i className="ri-map-pin-line text-muted"></i></span>
+                          <input
+                            type="text"
+                            name="starting_from"
+                            className="form-control form-control-lg ps-2"
+                            placeholder="Starting Package Price"
+                            value={formData.starting_from}
+                            onChange={handleInputChange}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label fw-semibold text-uppercase text-secondary small">Package Days</label>
+                        <div className="input-group input-group-merge">
+                          <span className="input-group-text"><i className="ri-map-pin-line text-muted"></i></span>
+                          <input
+                            type="text"
+                            name="days"
+                            className="form-control form-control-lg ps-2"
+                            placeholder="Starting Package Price"
+                            value={formData.days}
+                            onChange={handleInputChange}
+                            required
+                          />
+                        </div>
+                      </div>
+                      <div className="col-md-6">
+                        <label className="form-label fw-semibold text-uppercase text-secondary small">Package Nights</label>
+                        <div className="input-group input-group-merge">
+                          <span className="input-group-text"><i className="ri-map-pin-line text-muted"></i></span>
+                          <input
+                            type="text"
+                            name="nights"
+                            className="form-control form-control-lg ps-2"
+                            placeholder="Starting Package Price"
+                            value={formData.nights}
                             onChange={handleInputChange}
                             required
                           />
@@ -328,8 +385,8 @@ export default function EditCityPage() {
                       {/* Country Select */}
                       <div className="col-12 col-md-6">
                         <label className="form-label fw-semibold text-uppercase text-secondary small">Country</label>
-                        <select 
-                          name="country" 
+                        <select
+                          name="country"
                           className="form-select form-select-lg"
                           value={formData.country}
                           onChange={handleInputChange}
@@ -347,8 +404,8 @@ export default function EditCityPage() {
                       {/* State Select */}
                       <div className="col-12 col-md-6">
                         <label className="form-label fw-semibold text-uppercase text-secondary small">State / Province</label>
-                        <select 
-                          name="state" 
+                        <select
+                          name="state"
                           className="form-select form-select-lg"
                           value={formData.state}
                           onChange={handleInputChange}
@@ -370,16 +427,16 @@ export default function EditCityPage() {
                       <div className="col-12 border-top pt-4 mt-4">
                         <h6 className="fw-semibold mb-3 text-secondary text-uppercase small">Page Display Settings</h6>
                         <div className="row g-4">
-                          
+
                           {/* Show in Package */}
                           <div className="col-6">
                             <div className="form-check form-switch ms-1">
-                              <input 
-                                className="form-check-input cursor-pointer" 
-                                type="checkbox" 
-                                role="switch" 
+                              <input
+                                className="form-check-input cursor-pointer"
+                                type="checkbox"
+                                role="switch"
                                 name="show_in_package"
-                                id="showInPackageSwitch" 
+                                id="showInPackageSwitch"
                                 checked={formData.show_in_package}
                                 onChange={handleSwitchChange}
                               />
@@ -392,12 +449,12 @@ export default function EditCityPage() {
                           {/* Show in Corporate */}
                           <div className="col-6">
                             <div className="form-check form-switch ms-1">
-                              <input 
-                                className="form-check-input cursor-pointer" 
-                                type="checkbox" 
-                                role="switch" 
+                              <input
+                                className="form-check-input cursor-pointer"
+                                type="checkbox"
+                                role="switch"
                                 name="show_in_corporate"
-                                id="showInCorporateSwitch" 
+                                id="showInCorporateSwitch"
                                 checked={formData.show_in_corporate}
                                 onChange={handleSwitchChange}
                               />
@@ -410,12 +467,12 @@ export default function EditCityPage() {
                           {/* Show in Hotel */}
                           <div className="col-6 mt-3">
                             <div className="form-check form-switch ms-1">
-                              <input 
-                                className="form-check-input cursor-pointer" 
-                                type="checkbox" 
-                                role="switch" 
+                              <input
+                                className="form-check-input cursor-pointer"
+                                type="checkbox"
+                                role="switch"
                                 name="show_in_hotel"
-                                id="showInHotelSwitch" 
+                                id="showInHotelSwitch"
                                 checked={formData.show_in_hotel}
                                 onChange={handleSwitchChange}
                               />
@@ -428,12 +485,12 @@ export default function EditCityPage() {
                           {/* Show in Cab */}
                           <div className="col-6 mt-3">
                             <div className="form-check form-switch ms-1">
-                              <input 
-                                className="form-check-input cursor-pointer" 
-                                type="checkbox" 
-                                role="switch" 
+                              <input
+                                className="form-check-input cursor-pointer"
+                                type="checkbox"
+                                role="switch"
                                 name="show_in_cab"
-                                id="showInCabSwitch" 
+                                id="showInCabSwitch"
                                 checked={formData.show_in_cab}
                                 onChange={handleSwitchChange}
                               />
@@ -454,7 +511,7 @@ export default function EditCityPage() {
               {/* Media Upload Uploader Component Card */}
               <div className="col-12 col-md-5">
                 <div className="h-100">
-                  <MediaUpload 
+                  <MediaUpload
                     setImage={(imgFile) => {
                       setFormData(prev => ({ ...prev, city_image: imgFile }));
                     }}
@@ -472,8 +529,8 @@ export default function EditCityPage() {
                     <Link href="/cities" className="btn btn-outline-secondary rounded-pill px-5 py-2">
                       Cancel
                     </Link>
-                    <button 
-                      type="submit" 
+                    <button
+                      type="submit"
                       className="btn btn-primary rounded-pill px-5 py-2 fw-semibold d-flex align-items-center"
                       disabled={submitting}
                     >

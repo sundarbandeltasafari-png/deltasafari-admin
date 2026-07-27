@@ -242,7 +242,6 @@ function BookingsPage() {
         }
     };
 
-    // Safely parse inclusions/exclusions JSON strings
     const getParsedList = (listStr) => {
         if (!listStr) return [];
         try {

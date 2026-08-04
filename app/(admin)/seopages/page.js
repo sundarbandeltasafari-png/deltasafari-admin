@@ -21,8 +21,14 @@ const page = () => {
     useEffect(() => {
         axiosPost(getAllPagesUrl, { type: 1 }, token).then((res) => {
             if (res?.status) {
-                setPages(res?.pages)
-                setLoading(false)
+                const filteredPages = res?.pages?.filter((p) => 
+                    p.slug?.toLowerCase() !== 'home' && 
+                    p.page_name?.toLowerCase() !== 'home' &&
+                    p.slug !== '/' &&
+                    p.slug !== ''
+                ) || [];
+                setPages(filteredPages);
+                setLoading(false);
             }
         }).catch((err) => {
             showMessage(err.message)

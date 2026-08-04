@@ -80,28 +80,15 @@ function page() {
       if (res && res.status) {
         showMessage(res.msg || "Package duplicated successfully.", "success");
         loadPackages();
+        setDuplicateModalOpen(false);
+        setDuplicateTargetPackage(null);
       } else {
-        // Fallback state update if backend mock/offline
-        const newPkg = {
-          ...pkg,
-          id: res?.newPackageId || Date.now(),
-          title: res?.newPackageTitle || newTitle
-        };
-        getPackages([newPkg, ...packages]);
-        showMessage(res?.msg || "Package duplicated successfully.", "success");
+        showMessage(res?.msg || "A package with this title or slug already exists!", "error");
       }
     } catch (err) {
-      const newPkg = {
-        ...pkg,
-        id: Date.now(),
-        title: newTitle
-      };
-      getPackages([newPkg, ...packages]);
-      showMessage("Package duplicated successfully.", "success");
+      showMessage(err?.message || "Failed to duplicate package.", "error");
     } finally {
       setIsDuplicating(false);
-      setDuplicateModalOpen(false);
-      setDuplicateTargetPackage(null);
     }
   }
 

@@ -4,6 +4,7 @@ import { getAllPackageTypeUrl, getAllZoneUrl } from '@/app/routes/serviceRoutes'
 import MultiLevelSelect from '@/components/blogs/MultiLevelSelect';
 import MultiMediaUpload from '@/components/blogs/MultiMediaUpload';
 import LoadingComponent from '@/components/common/LoadingComponent';
+import EditorTinyMCE from '@/components/blogs/EditorTinyMCE';
 import InclusionsExclusions from '@/components/package/InclusionsExclusions';
 import ItineraryComponent from '@/components/package/ItineraryComponent';
 import TermsAndConditions from '@/components/package/TermsAndConditions';
@@ -24,12 +25,12 @@ function page() {
     tags: [],
     to_destination: '',
     from_destination: '',
-    duration_days: 0,
-    duration_nights: 0,
-    base_price: 0,
+    duration_days: '',
+    duration_nights: '',
+    base_price: '',
     discount_type: 'percentage',
-    discount: 0,
-    actual_price: 0,
+    discount: '',
+    actual_price: '',
     category: null
   });
   const [days, setDays] = useState([
@@ -61,20 +62,33 @@ function page() {
 
   const handleChange = (e) => {
     const { name, value, type } = e.target;
-    setFormData({ ...formData, [name]: type == 'number' ? parseInt(Math.abs(value), 10) : value });
+    if (type === 'number') {
+      if (value === '' || value === null || value === undefined) {
+        setFormData((prev) => ({ ...prev, [name]: '' }));
+      } else {
+        const parsed = parseInt(value, 10);
+        setFormData((prev) => ({ ...prev, [name]: isNaN(parsed) ? '' : Math.abs(parsed) }));
+      }
+    } else {
+      setFormData((prev) => ({ ...prev, [name]: value }));
+    }
   };
 
   useEffect(() => {
-    if (formData.base_price > 0) {
+    const base = Number(formData.base_price) || 0;
+    const disc = Number(formData.discount) || 0;
+    if (base > 0) {
       let actualPrice = 0;
       if (formData.discount_type === 'flat') {
-        actualPrice = formData.base_price - formData.discount;
+        actualPrice = base - disc;
       } else {
-        actualPrice = formData.base_price - ((formData.base_price * formData.discount) / 100);
+        actualPrice = base - ((base * disc) / 100);
       }
-      setFormData({ ...formData, actual_price: actualPrice > 0 ? actualPrice : 0 })
+      setFormData((prev) => ({ ...prev, actual_price: actualPrice > 0 ? Math.round(actualPrice) : 0 }));
+    } else {
+      setFormData((prev) => ({ ...prev, actual_price: '' }));
     }
-  }, [formData.base_price, formData.discount, formData.discount_type])
+  }, [formData.base_price, formData.discount, formData.discount_type]);
 
 
   useEffect(() => {
@@ -111,6 +125,8 @@ function page() {
   }
 
 
+
+  const [duplicateWarningModal, setDuplicateWarningModal] = useState({ open: false, msg: '' });
 
   const handleCreatePackage = async () => {
     if (postLoading) {
@@ -173,12 +189,19 @@ function page() {
         showMessage(response.msg, "success");
         route.push('/package')
       } else {
-        showMessage(response.msg)
-        setPostLoading(false)
+        if (response.isDuplicateSlug || response.msg?.toLowerCase().includes('already exists')) {
+          setDuplicateWarningModal({
+            open: true,
+            msg: response.msg || 'A package with this title/name already exists! Please choose a unique name.'
+          });
+        } else {
+          showMessage(response.msg);
+        }
+        setPostLoading(false);
       }
     }).catch((err) => {
-      showMessage(err.message)
-      setPostLoading(false)
+      showMessage(err.message);
+      setPostLoading(false);
     })
   }
 
@@ -213,27 +236,30 @@ function page() {
 
                   <div className="col-md-4">
                     <label className="form-label fw-bold small text-uppercase text-secondary">Sort Order <span className='text-danger'>*</span></label>
-                    <input type="number" name="sort_order" className="form-control  p-3" placeholder="1" onChange={handleChange} />
+                    <input type="number" name="sort_order" className="form-control  p-3" placeholder="1" onChange={handleChange} onWheel={(e) => e.target.blur()} />
                   </div>
 
                   <div className="col-12">
-                    <label className="form-label fw-bold small text-uppercase text-secondary">Description <span className='text-danger'>*</span></label>
-                    <textarea name="description" className="form-control  p-3" rows="8" placeholder="Briefly describe this Package..." onChange={handleChange}></textarea>
+                    <label className="form-label fw-bold small text-uppercase text-secondary mb-2">Description <span className='text-danger'>*</span></label>
+                    <EditorTinyMCE
+                      value={formData.description}
+                      handleEditorChange={(content) => setFormData((prev) => ({ ...prev, description: content }))}
+                    />
                   </div>
 
                   <div className="col-md-6">
                     <label className="form-label fw-bold small text-uppercase text-secondary">Duration Days (3N/5D) <span className='text-danger'>*</span></label>
-                    <input type="number" value={formData.duration_days} name="duration_days" className="form-control  p-3" placeholder="Package Days" onChange={handleChange} />
+                    <input type="number" value={formData.duration_days} name="duration_days" className="form-control  p-3" placeholder="Package Days" onChange={handleChange} onWheel={(e) => e.target.blur()} />
                   </div>
 
                   <div className="col-md-6">
                     <label className="form-label fw-bold small text-uppercase text-secondary">Duration Nights (3N/5D) <span className='text-danger'>*</span></label>
-                    <input type="number" value={formData.duration_nights} name="duration_nights" className="form-control  p-3" placeholder="Package Nights" onChange={handleChange} />
+                    <input type="number" value={formData.duration_nights} name="duration_nights" className="form-control  p-3" placeholder="Package Nights" onChange={handleChange} onWheel={(e) => e.target.blur()} />
                   </div>
 
                   <div className="col-md-6">
                     <label className="form-label fw-bold small text-uppercase text-secondary">Base Price (₹) <span className='text-danger'>*</span></label>
-                    <input type="number" value={formData.base_price} name="base_price" className="form-control  p-3" placeholder="Package Base Price" onChange={handleChange} />
+                    <input type="number" value={formData.base_price} name="base_price" className="form-control  p-3" placeholder="Package Base Price" onChange={handleChange} onWheel={(e) => e.target.blur()} />
                   </div>
 
                   <div className="col-md-6">
@@ -256,12 +282,12 @@ function page() {
 
                   <div className="col-md-6">
                     <label className="form-label fw-bold small text-uppercase text-secondary">Discount {formData.discount_type === 'flat' ? '(₹)' : '(%)'}</label>
-                    <input type="number" value={formData.discount} name="discount" className="form-control  p-3" placeholder="Package Discount" onChange={handleChange} />
+                    <input type="number" value={formData.discount} name="discount" className="form-control  p-3" placeholder="Package Discount" onChange={handleChange} onWheel={(e) => e.target.blur()} />
                   </div>
 
                   <div className="col-md-6">
                     <label className="form-label fw-bold small text-uppercase text-secondary">Actual Price (₹) <span className='text-danger'>*</span></label>
-                    <input type="number" className="form-control  p-3" value={formData.actual_price} placeholder="Package Actual Price" disabled={true} />
+                    <input type="number" className="form-control  p-3" value={formData.actual_price} placeholder="Package Actual Price" disabled={true} onWheel={(e) => e.target.blur()} />
                   </div>
 
                   {/* <div class="form-check form-switch ms-2">
@@ -375,6 +401,37 @@ function page() {
           </div>}
         </div>
       </div>
+
+      {/* Duplicate Slug Warning Modal */}
+      {duplicateWarningModal.open && (
+        <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)', zIndex: 1060 }}>
+          <div className="modal-dialog modal-dialog-centered">
+            <div className="modal-content shadow-lg border-0 rounded-4">
+              <div className="modal-header bg-warning bg-opacity-10 border-bottom-0 p-4">
+                <h5 className="modal-title fw-bold text-dark d-flex align-items-center gap-2">
+                  <i className="bi bi-exclamation-triangle-fill text-warning fs-4"></i>
+                  Duplicate Package Name Warning
+                </h5>
+                <button type="button" className="btn-close" onClick={() => setDuplicateWarningModal({ open: false, msg: '' })}></button>
+              </div>
+              <div className="modal-body p-4 text-center">
+                <div className="alert alert-danger bg-danger bg-opacity-10 border-danger border-opacity-25 text-danger fw-semibold mb-3 p-3 rounded-3">
+                  <i className="bi bi-x-circle-fill me-2 fs-5"></i>
+                  {duplicateWarningModal.msg}
+                </div>
+                <p className="text-muted small mb-0">
+                  Please update the package name to a unique title. Details and images will not be saved until the package name is unique.
+                </p>
+              </div>
+              <div className="modal-footer border-top-0 justify-content-center p-3">
+                <button type="button" className="btn btn-primary rounded-pill px-4 fw-bold" onClick={() => setDuplicateWarningModal({ open: false, msg: '' })}>
+                  Got it, I will change title
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

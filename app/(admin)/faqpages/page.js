@@ -22,8 +22,20 @@ const page = () => {
     useEffect(() => {
         axiosPost(getAllPagesUrl, { type: 1 }, token).then((res) => {
             if (res?.status) {
-                setPages(res?.pages)
-                setLoading(false)
+                let fetchedPages = res?.pages || [];
+                const hasAbout = fetchedPages.some(p => p.slug === 'about' || p.slug === 'about-us' || p.page_name?.toLowerCase().includes('about'));
+                if (!hasAbout) {
+                    fetchedPages.push({
+                        id: 12,
+                        page_name: 'About Us',
+                        slug: 'about-us',
+                        icon_class: 'bi bi-info-circle',
+                        is_active: 1,
+                        type: 1
+                    });
+                }
+                setPages(fetchedPages);
+                setLoading(false);
             }
         }).catch((err) => {
             showMessage(err.message)

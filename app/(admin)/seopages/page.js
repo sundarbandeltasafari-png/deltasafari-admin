@@ -27,6 +27,17 @@ const page = () => {
                     p.slug !== '/' &&
                     p.slug !== ''
                 ) || [];
+                const hasAbout = filteredPages.some(p => p.slug === 'about' || p.slug === 'about-us' || p.page_name?.toLowerCase().includes('about'));
+                if (!hasAbout) {
+                    filteredPages.push({
+                        id: 12,
+                        page_name: 'About Us',
+                        slug: 'about-us',
+                        icon_class: 'bi bi-info-circle',
+                        is_active: 1,
+                        type: 1
+                    });
+                }
                 setPages(filteredPages);
                 setLoading(false);
             }

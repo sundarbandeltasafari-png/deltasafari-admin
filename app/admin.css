@@ -846,3 +846,8 @@ input[type=number] {
     color: black;
     display: inline-block;
 }
+
+/* Ensure cursor pointer on all links, buttons, and action items */
+a, button, [role="button"], .btn, input[type="submit"], input[type="button"] {
+    cursor: pointer !important;
+}

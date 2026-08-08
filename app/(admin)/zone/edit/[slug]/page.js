@@ -1,6 +1,8 @@
 "use client"
 import { getAllZoneUrl, getParticularZoneUrl, setZoneUrl } from '@/app/routes/serviceRoutes';
 import MultiLevelSelect from '@/components/blogs/MultiLevelSelect';
+import MetaComponent from '@/components/seocomponent/MetaComponent';
+import TouristGuideComponent, { defaultGuideData } from '@/components/seocomponent/TouristGuideComponent';
 import LoadingComponent from '@/components/common/LoadingComponent';
 import { showMessage } from '@/libs/commonHelper';
 import { urlDecode } from '@/libs/urlHelper';
@@ -24,8 +26,16 @@ export default function page() {
     image: null,
     top_trending: false,
     top_destination: false,
-    showing_text: ''
+    showing_text: '',
+    meta_title: '',
+    meta_description: '',
+    tags: [],
+    canonical_url: '',
+    og_title: '',
+    og_description: '',
+    robots_meta: 'index, follow'
   });
+  const [guideData, setGuideData] = useState(defaultGuideData);
   const [zone, setZone] = useState(null)
   const [preview, setPreview] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -124,15 +134,30 @@ export default function page() {
       getParticularCategories().then((response) => {
         if (response.status) {
           setFormData({
-            name: response?.zone?.name,
-            parent_id: response?.zone?.parent_id,
-            description: response?.zone?.description,
-            sort_order: response?.zone?.sort_order,
+            name: response?.zone?.name || '',
+            parent_id: response?.zone?.parent_id || '',
+            description: response?.zone?.description || '',
+            sort_order: response?.zone?.sort_order || 1,
             top_trending: response?.zone?.top_trending ? true : false,
             top_destination: response?.zone?.top_destination ? true : false,
             showing_text: response?.zone?.showing_text || '',
+            meta_title: response?.zone?.meta_title || '',
+            meta_description: response?.zone?.meta_description || '',
+            tags: response?.zone?.tags ? (typeof response?.zone?.tags === 'string' ? response?.zone?.tags.split(',').map(s => s.trim()) : response?.zone?.tags) : [],
+            canonical_url: response?.zone?.canonical_url || '',
+            og_title: response?.zone?.og_title || '',
+            og_description: response?.zone?.og_description || '',
+            robots_meta: response?.zone?.robots_meta || 'index, follow',
             id: response?.zone?.id
           })
+          if (response?.zone?.tourist_guide) {
+            try {
+              const parsedGuide = typeof response.zone.tourist_guide === 'string' ? JSON.parse(response.zone.tourist_guide) : response.zone.tourist_guide;
+              setGuideData(parsedGuide);
+            } catch (e) {
+              console.error("Error parsing tourist_guide:", e);
+            }
+          }
           setZone(response?.zone);
           setLoading(false);
         } else {
@@ -152,8 +177,13 @@ export default function page() {
     if (formData.name && formData.description && formData.sort_order) {
       const formDataNew = new FormData();
       Object.keys(formData).forEach(key => {
-        formDataNew.append(key, formData[key]);
+        if (formData[key] !== null && formData[key] !== undefined) {
+          formDataNew.append(key, typeof formData[key] === 'object' && !(formData[key] instanceof File) ? JSON.stringify(formData[key]) : formData[key]);
+        }
       });
+
+      // Append Tourist Guide config
+      formDataNew.append('tourist_guide', JSON.stringify(guideData));
 
       try {
         const response = await axios.put(setZoneUrl, formDataNew, {
@@ -225,6 +255,15 @@ export default function page() {
                         <input type="text" name="showing_text" value={formData.showing_text} className="form-control p-3" placeholder="Showing Text" onChange={handleChange} />
                       </div>
                     )}
+
+                    {/* SEO Meta Details Component */}
+                    <MetaComponent metaDetails={formData} setMetaDetails={handleChange} setFormData={setFormData} />
+
+                    {/* Tourist Guide Section Configuration */}
+                    <div className="col-12">
+                      <TouristGuideComponent guideData={guideData} setGuideData={setGuideData} entityName="Destination" />
+                    </div>
+
                     {(zone?.image || preview) && <div className='mt-3 mb-2' style={{ height: "250px" }}>
                       <label className='mb-2'>Image Preview</label>
                       <img src={preview ? preview : process.env.NEXT_PUBLIC_SERVER_URL + zone?.image} className='w-100 h-100' style={{ objectFit: "fill" }} />

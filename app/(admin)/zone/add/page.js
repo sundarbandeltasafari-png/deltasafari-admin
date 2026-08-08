@@ -1,6 +1,8 @@
 "use client"
 import {createZoneUrl, getAllZoneUrl } from '@/app/routes/serviceRoutes';
 import MultiLevelSelect from '@/components/blogs/MultiLevelSelect';
+import MetaComponent from '@/components/seocomponent/MetaComponent';
+import TouristGuideComponent, { defaultGuideData } from '@/components/seocomponent/TouristGuideComponent';
 import { showMessage } from '@/libs/commonHelper';
 import axios from 'axios';
 import { useRouter } from 'next/navigation';
@@ -16,8 +18,16 @@ function page() {
     image: null,
     top_trending: false,
     top_destination: false,
-    showing_text: ''
+    showing_text: '',
+    meta_title: '',
+    meta_description: '',
+    tags: [],
+    canonical_url: '',
+    og_title: '',
+    og_description: '',
+    robots_meta: 'index, follow'
   });
+  const [guideData, setGuideData] = useState(defaultGuideData);
   const [preview, setPreview] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -96,8 +106,13 @@ function page() {
 
       // Convert JSON keys to FormData fields
       Object.keys(formData).forEach(key => {
-        formDataNew.append(key, formData[key]);
+        if (formData[key] !== null && formData[key] !== undefined) {
+          formDataNew.append(key, typeof formData[key] === 'object' && !(formData[key] instanceof File) ? JSON.stringify(formData[key]) : formData[key]);
+        }
       });
+
+      // Append Tourist Guide config
+      formDataNew.append('tourist_guide', JSON.stringify(guideData));
 
       try {
         const response = await axios.post(createZoneUrl, formDataNew, {
@@ -166,6 +181,14 @@ function page() {
                       <input type="text" name="showing_text" className="form-control p-3" placeholder="Showing Text" onChange={handleChange} />
                     </div>
                   )}
+
+                  {/* SEO Meta Details Component */}
+                  <MetaComponent metaDetails={formData} setMetaDetails={handleChange} setFormData={setFormData} />
+
+                  {/* Tourist Guide Section Configuration */}
+                  <div className="col-12">
+                    <TouristGuideComponent guideData={guideData} setGuideData={setGuideData} entityName="Destination" />
+                  </div>
 
                   <div className="col-12">
                     <label className="form-label fw-bold small text-uppercase text-secondary">Upload Icon/Image</label>

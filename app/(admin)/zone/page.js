@@ -39,17 +39,20 @@ function page() {
 
     useEffect(() => {
         getZones().then((res) => {
-            if (res.status) {
+            if (res && res.status) {
                 setLoading(false);
-                setZones(res.zone)
-                setsortedRoots([...res.zone].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)))
+                const zoneList = Array.isArray(res.zone) ? res.zone : [];
+                setZones(zoneList);
+                setsortedRoots([...zoneList].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0)));
             } else {
-                showMessage('Something went wrong, Please try again later')
+                setLoading(false);
+                showMessage('Something went wrong, Please try again later');
             }
         }).catch((err) => {
-            showMessage(err.message)
-        })
-    }, [])
+            setLoading(false);
+            showMessage(err.message);
+        });
+    }, []);
 
     function handleDeleteDetect(zone) {
         setDeletePackage(zone)

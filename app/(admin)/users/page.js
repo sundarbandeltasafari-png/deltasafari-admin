@@ -63,8 +63,26 @@ function page() {
         })
     }, [])
 
-    function handleSuspend(){
-
+    function handleToggleStatus(userItem) {
+        const newStatus = userItem?.status == 1 ? 0 : 1;
+        const actionLabel = newStatus === 1 ? 'Activate' : 'Deactivate / Pending';
+        if (!confirm(`Are you sure you want to ${actionLabel} user "${userItem?.first_name} ${userItem?.last_name}"?`)) return;
+        
+        axiosPost(`${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/setUser`, {
+            id: userItem.id,
+            user: { status: newStatus }
+        }, token)
+        .then((res) => {
+            if (res.status) {
+                showMessage("success", `User status updated to ${newStatus === 1 ? 'Active' : 'Inactive'} successfully!`);
+                setusers((prev) => prev.map((u) => u.id === userItem.id ? { ...u, status: newStatus } : u));
+            } else {
+                showMessage("error", res.msg || "Failed to update user status.");
+            }
+        })
+        .catch((err) => {
+            showMessage("error", "Error updating user status: " + err.message);
+        });
     }
 
     return (
@@ -128,7 +146,7 @@ function page() {
                                                             <span className="dt-column-order"></span>
                                                         </th>
                                                         <th data-dt-column="6" rowSpan="1" colSpan="1" className="dt-orderable-asc dt-orderable-desc" aria-label="Status: Activate to sort" tabIndex="0">
-                                                            <span className="dt-column-title" role="button">Status</span>
+                                                            <span className="dt-column-title" role="button">Status / Approval</span>
                                                             <span className="dt-column-order"></span>
                                                         </th>
                                                         <th data-dt-column="7" rowSpan="1" colSpan="1" className="dt-orderable-none" aria-label="Actions">
@@ -151,6 +169,9 @@ function page() {
                                                                         <a href="app-user-view-account.html" className="text-heading text-truncate">
                                                                             <span className="fw-medium">{user?.first_name + " " + user?.last_name}</span>
                                                                         </a>
+                                                                        <small className="text-muted">
+                                                                            {user?.user_type == 3 ? 'Agent Partner' : user?.user_type == 2 ? 'Corporate' : 'Customer'}
+                                                                        </small>
                                                                     </div>
                                                                 </div>
                                                             </td>
@@ -162,11 +183,19 @@ function page() {
                                                                     <i className="icon-base ri ri-pie-chart-line icon-22px text-success me-2"></i>{formatDate(user?.date)}</span>
                                                             </td>
                                                             <td>
-                                                                {user.status ?
-                                                                    <span className="badge rounded-pill bg-label-success" text-capitalized="">Active</span>
-                                                                    :
-                                                                    <span className="badge rounded-pill bg-label-danger" text-capitalized="">Inactive</span>
-                                                                }
+                                                                {user?.user_type == 3 && user.status == 0 ? (
+                                                                    <button onClick={() => handleToggleStatus(user)} className="btn btn-xs btn-warning rounded-pill fw-bold" title="Click to approve and activate Agent account">
+                                                                        <i className="ri ri-time-line me-1"></i> Pending Activation (Click to Activate)
+                                                                    </button>
+                                                                ) : user.status == 1 ? (
+                                                                    <button onClick={() => handleToggleStatus(user)} className="btn btn-xs btn-success rounded-pill fw-bold" title="Click to deactivate account">
+                                                                        <i className="ri ri-checkbox-circle-line me-1"></i> Active
+                                                                    </button>
+                                                                ) : (
+                                                                    <button onClick={() => handleToggleStatus(user)} className="btn btn-xs btn-danger rounded-pill fw-bold" title="Click to activate account">
+                                                                        <i className="ri ri-close-circle-line me-1"></i> Inactive
+                                                                    </button>
+                                                                )}
                                                             </td>
                                                             <td>
                                                                 <div className="d-flex align-items-center">
@@ -177,7 +206,9 @@ function page() {
                                                                         </a>
                                                                         <div className="dropdown-menu dropdown-menu-end m-0">
                                                                             <a onClick={() => { route.push(`/users/edit?id=${urlEncode(user?.id)}`) }} className="dropdown-item text-primary" style={{cursor: 'pointer'}}>Edit</a>
-                                                                            <a onClick={()=>{handleSuspend(user?.id)}} className="dropdown-item text-danger" style={{cursor: 'pointer'}}>Suspend</a>
+                                                                            <a onClick={() => handleToggleStatus(user)} className="dropdown-item text-warning" style={{cursor: 'pointer'}}>
+                                                                                {user.status == 1 ? 'Deactivate' : 'Activate Account'}
+                                                                            </a>
                                                                         </div>
                                                                     </>}
                                                                 </div>

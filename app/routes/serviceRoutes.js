@@ -34,6 +34,9 @@ export const updateCityUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service
 
 // Bookings
 export const getAllBookingsUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getAllBookings`;
+export const getParticularBookingUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getParticularBooking`;
+export const updateBookingUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/updateBooking`;
+export const deleteBookingUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/deleteBooking`;
 
 // Dashboard URL
 export const getDashboardUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getDashboard`;

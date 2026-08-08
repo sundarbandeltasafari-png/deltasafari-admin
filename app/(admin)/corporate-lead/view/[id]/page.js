@@ -284,26 +284,38 @@ export default function ViewCorporateLeadPage() {
                 <div className="col-md-6">
                   <label className="text-muted small fw-medium d-block">Target Destination</label>
                   <span className="fw-bold text-dark">
-                    <i className="ri ri-map-pin-line me-1 text-danger"></i>{lead.destination || 'N/A'}
+                    <i className="ri ri-map-pin-line me-1 text-danger"></i>{lead.destination || 'Sundarban Tour'}
                   </span>
                 </div>
                 <div className="col-md-6">
-                  <label className="text-muted small fw-medium d-block">Group Size</label>
-                  <span className="badge bg-label-primary px-2 py-1 fs-6">
-                    <i className="ri ri-group-line me-1"></i>{lead.group_size || 'N/A'}
-                  </span>
+                  <label className="text-muted small fw-medium d-block">Employee Attendance Matrix</label>
+                  <div className="d-flex align-items-center gap-2 mt-1 flex-wrap">
+                    <span className="badge bg-label-primary px-3 py-1 fs-6 fw-bold">
+                      👥 {lead.total_employees || lead.adults_count || lead.group_size || 1} Total Employees
+                    </span>
+                    {(lead.male_count !== undefined && Number(lead.male_count) > 0) && (
+                      <span className="badge bg-label-info px-2.5 py-1 fw-semibold">
+                        👨 {lead.male_count} Male
+                      </span>
+                    )}
+                    {(lead.female_count !== undefined && Number(lead.female_count) > 0) && (
+                      <span className="badge bg-label-danger px-2.5 py-1 fw-semibold">
+                        👩 {lead.female_count} Female
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="col-md-6">
                   <label className="text-muted small fw-medium d-block">Tentative Travel Date</label>
                   <span className="fw-semibold text-dark">
                     <i className="ri ri-calendar-line me-1 text-primary"></i>
-                    {lead.travel_date ? new Date(lead.travel_date).toLocaleDateString('en-IN', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'}
+                    {lead.travel_date || lead.departure_date ? new Date(lead.travel_date || lead.departure_date).toLocaleDateString('en-IN', { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' }) : 'N/A'}
                   </span>
                 </div>
                 <div className="col-md-6">
                   <label className="text-muted small fw-medium d-block">Budget Allocation</label>
                   <span className="fw-bold text-success fs-6">
-                    <i className="ri ri-money-rupee-circle-line me-1"></i>{lead.budget || 'N/A'}
+                    <i className="ri ri-money-rupee-circle-line me-1"></i>{lead.budget || lead.budget_band || 'Standard'}
                   </span>
                 </div>
               </div>

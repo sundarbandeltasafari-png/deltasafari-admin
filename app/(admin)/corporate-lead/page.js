@@ -401,10 +401,22 @@ export default function CorporateLeadPage() {
                     </td>
                     <td>
                       <div className="d-flex flex-column">
-                        <span className="fw-medium text-dark">{item.destination || 'N/A'}</span>
-                        <span className="badge bg-label-secondary w-auto align-self-start mt-1">
-                          <i className="ri ri-group-line me-1"></i>{item.group_size || 'N/A'}
-                        </span>
+                        <span className="fw-bold text-dark">{item.destination || 'Sundarban Tour'}</span>
+                        <div className="d-flex align-items-center gap-1.5 mt-1 flex-wrap">
+                          <span className="badge bg-label-primary px-2 py-0.5 fw-bold">
+                            👥 {item.total_employees || item.adults_count || item.group_size || 1} Total
+                          </span>
+                          {(item.male_count !== undefined && item.male_count !== null && Number(item.male_count) > 0) && (
+                            <span className="badge bg-label-info px-1.5 py-0.5" style={{ fontSize: '11px' }}>
+                              👨 {item.male_count} Male
+                            </span>
+                          )}
+                          {(item.female_count !== undefined && item.female_count !== null && Number(item.female_count) > 0) && (
+                            <span className="badge bg-label-danger px-1.5 py-0.5" style={{ fontSize: '11px' }}>
+                              👩 {item.female_count} Female
+                            </span>
+                          )}
+                        </div>
                       </div>
                     </td>
                     <td>

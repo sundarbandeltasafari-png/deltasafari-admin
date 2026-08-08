@@ -31,6 +31,8 @@ function page() {
     discount_type: 'percentage',
     discount: '',
     actual_price: '',
+    agent_discount: '',
+    agent_actual_price: '',
     category: null
   });
   const [days, setDays] = useState([
@@ -74,22 +76,42 @@ function page() {
     }
   };
 
+  // Live Auto-Calculation for both Normal User and Agent Discounts
   useEffect(() => {
     const base = Number(formData.base_price) || 0;
-    const disc = Number(formData.discount) || 0;
+    const userDisc = Number(formData.discount) || 0;
+    const agentDisc = Number(formData.agent_discount) || 0;
+
     if (base > 0) {
+      // 1. Normal User Discount & Actual Price Calculation
       let actualPrice = 0;
       if (formData.discount_type === 'flat') {
-        actualPrice = base - disc;
+        actualPrice = base - userDisc;
       } else {
-        actualPrice = base - ((base * disc) / 100);
+        actualPrice = base - ((base * userDisc) / 100);
       }
-      setFormData((prev) => ({ ...prev, actual_price: actualPrice > 0 ? Math.round(actualPrice) : 0 }));
-    } else {
-      setFormData((prev) => ({ ...prev, actual_price: '' }));
-    }
-  }, [formData.base_price, formData.discount, formData.discount_type]);
 
+      // 2. Travel Agent Discount / Commission & Actual Price Calculation
+      let agentActualPrice = 0;
+      if (formData.discount_type === 'flat') {
+        agentActualPrice = base - agentDisc;
+      } else {
+        agentActualPrice = base - ((base * agentDisc) / 100);
+      }
+
+      setFormData((prev) => ({
+        ...prev,
+        actual_price: actualPrice > 0 ? Math.round(actualPrice) : 0,
+        agent_actual_price: agentActualPrice > 0 ? Math.round(agentActualPrice) : 0
+      }));
+    } else {
+      setFormData((prev) => ({
+        ...prev,
+        actual_price: '',
+        agent_actual_price: ''
+      }));
+    }
+  }, [formData.base_price, formData.discount, formData.agent_discount, formData.discount_type]);
 
   useEffect(() => {
     axiosGet(getAllZoneUrl, token).then((res) => {
@@ -124,8 +146,6 @@ function page() {
     setPostLoading(false)
   }
 
-
-
   const [duplicateWarningModal, setDuplicateWarningModal] = useState({ open: false, msg: '' });
 
   const handleCreatePackage = async () => {
@@ -138,7 +158,7 @@ function page() {
       return;
     }
     else if (!formData.meta_title || !formData.meta_description || formData.tags.length == 0) {
-      showError('Please update package meta details', 'packageMetaDetails');
+      showError('Please update meta details', 'packageMetaDetails');
       return;
     }
     else if (!formData.from_destination) {
@@ -216,7 +236,7 @@ function page() {
               <div className="col-lg-7 p-4 p-md-5 bg-white" style={{ borderRightWidth: "1px", borderRightColor: "#8080802e", borderRightStyle: "solid" }}>
                 <div className="d-flex align-items-center mb-4">
                   <div className="bg-primary bg-opacity-10 p-3 rounded-3 me-3 text-primary">
-                    <i class="bi bi-box-fill fs-3"></i>
+                    <i className="bi bi-box-fill fs-3"></i>
                   </div>
                   <div>
                     <h3 className="fw-bold mb-0">New Package Create</h3>
@@ -257,13 +277,20 @@ function page() {
                     <input type="number" value={formData.duration_nights} name="duration_nights" className="form-control  p-3" placeholder="Package Nights" onChange={handleChange} onWheel={(e) => e.target.blur()} />
                   </div>
 
+                  {/* Pricing & Multi-Tier Discounts */}
+                  <div className="col-12">
+                    <div className="p-2 mb-2 border-bottom d-flex justify-content-between align-items-center">
+                      <span className="fw-bold small text-uppercase text-secondary">Pricing & Multi-Tier Discounts (Normal User & Agent)</span>
+                    </div>
+                  </div>
+
                   <div className="col-md-6">
                     <label className="form-label fw-bold small text-uppercase text-secondary">Base Price (₹) <span className='text-danger'>*</span></label>
                     <input type="number" value={formData.base_price} name="base_price" className="form-control  p-3" placeholder="Package Base Price" onChange={handleChange} onWheel={(e) => e.target.blur()} />
                   </div>
 
                   <div className="col-md-6">
-                    <label className="form-label fw-bold small text-uppercase text-secondary">Discount Type</label>
+                    <label className="form-label fw-bold small text-uppercase text-secondary">Discount Calculation Mode</label>
                     <div className="form-check form-switch mt-2">
                       <input
                         className="form-check-input"
@@ -274,34 +301,59 @@ function page() {
                         onChange={(e) => setFormData({ ...formData, discount_type: e.target.checked ? 'flat' : 'percentage' })}
                         style={{ width: '3em', height: '1.5em' }}
                       />
-                      <label className="form-check-label ms-2 mt-1" htmlFor="discountTypeSwitch">
-                        {formData.discount_type === 'flat' ? 'Flat (₹)' : 'Percentage (%)'}
+                      <label className="form-check-label ms-2 mt-1 fw-semibold" htmlFor="discountTypeSwitch">
+                        {formData.discount_type === 'flat' ? 'Flat Amount (₹)' : 'Percentage (%)'}
                       </label>
                     </div>
                   </div>
 
+                  {/* Option 1: Normal User Discount */}
                   <div className="col-md-6">
-                    <label className="form-label fw-bold small text-uppercase text-secondary">Discount {formData.discount_type === 'flat' ? '(₹)' : '(%)'}</label>
-                    <input type="number" value={formData.discount} name="discount" className="form-control  p-3" placeholder="Package Discount" onChange={handleChange} onWheel={(e) => e.target.blur()} />
+                    <div className="p-3 bg-light rounded-3 border">
+                      <label className="form-label fw-bold small text-uppercase text-primary mb-1">
+                        <i className="fa-solid fa-user me-1"></i> Normal User Discount {formData.discount_type === 'flat' ? '(₹)' : '(%)'}
+                      </label>
+                      <input 
+                        type="number" 
+                        value={formData.discount} 
+                        name="discount" 
+                        className="form-control p-2.5 bg-white" 
+                        placeholder="e.g. 10% for normal users" 
+                        onChange={handleChange} 
+                        onWheel={(e) => e.target.blur()} 
+                      />
+                      <div className="mt-2 d-flex align-items-center justify-content-between">
+                        <small className="text-muted fw-semibold">Customer Selling Price:</small>
+                        <span className="badge bg-primary fs-6 px-2.5 py-1">
+                          ₹{formData.actual_price ? Number(formData.actual_price).toLocaleString('en-IN') : '0'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
 
+                  {/* Option 2: Travel Agent Discount */}
                   <div className="col-md-6">
-                    <label className="form-label fw-bold small text-uppercase text-secondary">Actual Price (₹) <span className='text-danger'>*</span></label>
-                    <input type="number" className="form-control  p-3" value={formData.actual_price} placeholder="Package Actual Price" disabled={true} onWheel={(e) => e.target.blur()} />
+                    <div className="p-3 bg-light rounded-3 border">
+                      <label className="form-label fw-bold small text-uppercase text-success mb-1">
+                        <i className="fa-solid fa-user-shield me-1"></i> Agent Discount / Commission {formData.discount_type === 'flat' ? '(₹)' : '(%)'}
+                      </label>
+                      <input 
+                        type="number" 
+                        value={formData.agent_discount} 
+                        name="agent_discount" 
+                        className="form-control p-2.5 bg-white" 
+                        placeholder="e.g. 20% for travel agents" 
+                        onChange={handleChange} 
+                        onWheel={(e) => e.target.blur()} 
+                      />
+                      <div className="mt-2 d-flex align-items-center justify-content-between">
+                        <small className="text-muted fw-semibold">Agent B2B Net Price:</small>
+                        <span className="badge bg-success fs-6 px-2.5 py-1">
+                          ₹{formData.agent_actual_price ? Number(formData.agent_actual_price).toLocaleString('en-IN') : '0'}
+                        </span>
+                      </div>
+                    </div>
                   </div>
-
-                  {/* <div class="form-check form-switch ms-2">
-                    <input class="form-check-input" name='showleft' onChange={(event) => { setFormData({ ...formData, showleft: event.target.checked }) }} type="checkbox" role="switch" id="switchCheckChecked" />
-                    <label class="form-check-label" for="switchCheckChecked">Show this on left side bar</label>
-                  </div>
-                  <div class="form-check form-switch ms-2">
-                    <input class="form-check-input" name='showleft' onChange={(event) => { setFormData({ ...formData, showleft: event.target.checked }) }} type="checkbox" role="switch" id="switchCheckChecked" />
-                    <label class="form-check-label" for="switchCheckChecked">Show this on left side bar</label>
-                  </div>
-                  <div class="form-check form-switch ms-2">
-                    <input class="form-check-input" name='showleft' onChange={(event) => { setFormData({ ...formData, showleft: event.target.checked }) }} type="checkbox" role="switch" id="switchCheckChecked" />
-                    <label class="form-check-label" for="switchCheckChecked">Show this on left side bar</label>
-                  </div> */}
 
                   <div id='packageMetaDetails' className="p-2 mb-2 border-bottom d-flex justify-content-between align-items-center">
                     <span className="fw-bold small text-uppercase text-secondary">SEO Details</span>
@@ -330,8 +382,8 @@ function page() {
                     {
                       postLoading ?
                         <button type="button" className="btn btn-primary px-5 py-3 rounded-pill fw-bold shadow-sm w-100 w-md-auto">
-                          <div class="spinner-border text-light" role="status">
-                            <span class="visually-hidden">Loading...</span>
+                          <div className="spinner-border text-light" role="status">
+                            <span className="visually-hidden">Loading...</span>
                           </div>
                         </button>
                         :
@@ -343,97 +395,107 @@ function page() {
                 </div>
               </div>
 
-              {/* Right Side: Multi-level Parent Picker */}
-              <div className="col-lg-5">
-                <div className="p-4">
-                  <div id='from_destination' className="p-2 mb-2 border-bottom d-flex justify-content-between align-items-center">
-                    <span className="fw-bold small text-uppercase text-secondary">From Destination</span>
+              {/* Right Side: Media Upload */}
+              <div className="col-lg-5 p-4 p-md-5 bg-light d-flex flex-column justify-content-between">
+                <div id='media'>
+                  <div className="d-flex align-items-center mb-4">
+                    <div className="bg-success bg-opacity-10 p-3 rounded-3 me-3 text-success">
+                      <i className="bi bi-images fs-3"></i>
+                    </div>
+                    <div>
+                      <h3 className="fw-bold mb-0">Package Media</h3>
+                      <p className="text-muted small">Upload high quality images and short videos.</p>
+                    </div>
                   </div>
-                  <MultiLevelSelect
-                    categories={zoneData}
-                    selectedId={formData.from_destination}
-                    onSelect={handleSelection}
-                    name='Zone'
-                    type='Destination'
-                    inputName={'from_destination'}
-                  />
-                </div>
-                <div className="p-4">
-                  <div id='to_destination' className="p-2 mb-2 border-bottom d-flex justify-content-between align-items-center">
-                    <span className="fw-bold small text-uppercase text-secondary">To Destination</span>
+
+                  {
+                    !PackageLoading &&
+                    <div className="my-3">
+                      <label className="form-label fw-bold small text-uppercase text-secondary">Package Category <span className='text-danger'>*</span></label>
+                      <MultiLevelSelect categories={packageType} handleSelection={(category) => { handleSelection(category, 'category') }} title="Select Category" />
+                    </div>
+                  }
+                  <div className="my-3">
+                    <label className="form-label fw-bold small text-uppercase text-secondary">From Destination <span className='text-danger'>*</span></label>
+                    <MultiLevelSelect categories={zoneData} handleSelection={(category) => { handleSelection(category, 'from_destination') }} title="Select From Destination" />
                   </div>
-                  <MultiLevelSelect
-                    categories={zoneData}
-                    selectedId={formData.to_destination}
-                    onSelect={handleSelection}
-                    name='Zone'
-                    type='Destination'
-                    inputName={'to_destination'}
-                  />
-                </div>
-                <div className="p-4">
-                  <div id='category' className="p-2 mb-2 border-bottom d-flex justify-content-between align-items-center">
-                    <span className="fw-bold small text-uppercase text-secondary">Category</span>
+                  <div className="my-3">
+                    <label className="form-label fw-bold small text-uppercase text-secondary">To Destination <span className='text-danger'>*</span></label>
+                    <MultiLevelSelect categories={zoneData} handleSelection={(category) => { handleSelection(category, 'to_destination') }} title="Select To Destination" />
                   </div>
-                  {PackageLoading ?
-                    <LoadingComponent />
-                    :
-                    <MultiLevelSelect
-                      categories={packageType}
-                      selectedId={formData.category}
-                      onSelect={handleSelection}
-                      name='Package'
-                      type='Package Type'
-                      inputName={'category'}
-                    />}
-                </div>
-                
-                <div className="p-4">
-                  <div id='media' className="p-2 mb-2 border-bottom d-flex justify-content-between align-items-center">
-                    <span className="fw-bold small text-uppercase text-secondary">Package Media</span>
-                  </div>
-                  <div className="col-12">
-                    <MultiMediaUpload images={images} setImages={setImages} videos={videos} setVideos={setVideos} />
-                  </div>
+
+                  <MultiMediaUpload images={images} setImages={setImages} videos={videos} setVideos={setVideos} />
                 </div>
               </div>
+
             </div>
           </div>}
         </div>
       </div>
 
-      {/* Duplicate Slug Warning Modal */}
+      {/* Duplicate Slug / Name Warning Modal */}
       {duplicateWarningModal.open && (
-        <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)', zIndex: 1060 }}>
-          <div className="modal-dialog modal-dialog-centered">
-            <div className="modal-content shadow-lg border-0 rounded-4">
-              <div className="modal-header bg-warning bg-opacity-10 border-bottom-0 p-4">
-                <h5 className="modal-title fw-bold text-dark d-flex align-items-center gap-2">
-                  <i className="bi bi-exclamation-triangle-fill text-warning fs-4"></i>
-                  Duplicate Package Name Warning
-                </h5>
-                <button type="button" className="btn-close" onClick={() => setDuplicateWarningModal({ open: false, msg: '' })}></button>
-              </div>
-              <div className="modal-body p-4 text-center">
-                <div className="alert alert-danger bg-danger bg-opacity-10 border-danger border-opacity-25 text-danger fw-semibold mb-3 p-3 rounded-3">
-                  <i className="bi bi-x-circle-fill me-2 fs-5"></i>
-                  {duplicateWarningModal.msg}
-                </div>
-                <p className="text-muted small mb-0">
-                  Please update the package name to a unique title. Details and images will not be saved until the package name is unique.
-                </p>
-              </div>
-              <div className="modal-footer border-top-0 justify-content-center p-3">
-                <button type="button" className="btn btn-primary rounded-pill px-4 fw-bold" onClick={() => setDuplicateWarningModal({ open: false, msg: '' })}>
-                  Got it, I will change title
-                </button>
-              </div>
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            width: '100vw',
+            height: '100vh',
+            backgroundColor: 'rgba(15, 23, 42, 0.75)',
+            backdropFilter: 'blur(4px)',
+            zIndex: 999999,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '20px'
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#ffffff',
+              borderRadius: '20px',
+              maxWidth: '480px',
+              width: '100%',
+              padding: '30px',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
+              textAlign: 'center'
+            }}
+          >
+            <div
+              style={{
+                width: '64px',
+                height: '64px',
+                borderRadius: '50%',
+                backgroundColor: '#fee2e2',
+                color: '#ef4444',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '28px',
+                marginBottom: '16px'
+              }}
+            >
+              <i className="bi bi-exclamation-triangle-fill"></i>
             </div>
+            <h4 style={{ fontWeight: 700, color: '#1e293b', marginBottom: '10px' }}>
+              Duplicate Package Name
+            </h4>
+            <p style={{ color: '#64748b', fontSize: '14px', lineHeight: '1.6', marginBottom: '24px' }}>
+              {duplicateWarningModal.msg}
+            </p>
+            <button
+              type="button"
+              className="btn btn-primary w-100 py-2.5 rounded-pill fw-bold"
+              onClick={() => setDuplicateWarningModal({ open: false, msg: '' })}
+            >
+              Okay, I will change the title
+            </button>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }
 
-export default page
+export default page;

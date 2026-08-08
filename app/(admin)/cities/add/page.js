@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
@@ -6,6 +6,8 @@ import { useSelector } from 'react-redux';
 import axios from 'axios';
 import { createCityUrl, getAllCountriesUrl } from '@/app/routes/serviceRoutes';
 import MediaUpload from '@/components/blogs/MediaUpload';
+import MetaComponent from '@/components/seocomponent/MetaComponent';
+import TouristGuideComponent, { defaultGuideData } from '@/components/seocomponent/TouristGuideComponent';
 import { showMessage } from '@/libs/commonHelper';
 import Link from 'next/link';
 import { axiosGet } from '@/libs/axiosHelper';
@@ -22,8 +24,16 @@ export default function AddCityPage() {
         show_in_package: false,
         show_in_corporate: false,
         show_in_hotel: false,
-        show_in_cab: false
+        show_in_cab: false,
+        meta_title: '',
+        meta_description: '',
+        tags: [],
+        canonical_url: '',
+        og_title: '',
+        og_description: '',
+        robots_meta: 'index, follow'
     });
+    const [guideData, setGuideData] = useState(defaultGuideData);
     const [submitting, setSubmitting] = useState(false);
     const token = useSelector((state) => state.adminAuth?.token);
     const route = useRouter();
@@ -142,6 +152,14 @@ export default function AddCityPage() {
             apiFormData.append('show_in_corporate', formData.show_in_corporate ? '1' : '0');
             apiFormData.append('show_in_hotel', formData.show_in_hotel ? '1' : '0');
             apiFormData.append('show_in_cab', formData.show_in_cab ? '1' : '0');
+            apiFormData.append('tourist_guide', JSON.stringify(guideData));
+            apiFormData.append('meta_title', formData.meta_title || '');
+            apiFormData.append('meta_description', formData.meta_description || '');
+            apiFormData.append('tags', Array.isArray(formData.tags) ? formData.tags.join(',') : (formData.tags || ''));
+            apiFormData.append('canonical_url', formData.canonical_url || '');
+            apiFormData.append('og_title', formData.og_title || '');
+            apiFormData.append('og_description', formData.og_description || '');
+            apiFormData.append('robots_meta', formData.robots_meta || 'index, follow');
 
             // Attempt backend post
             const response = await axios.post(createCityUrl, apiFormData, {
@@ -421,6 +439,16 @@ export default function AddCityPage() {
                                         type='image'
                                     />
                                 </div>
+                            </div>
+
+                            {/* SEO Meta Details Component */}
+                            <div className="col-12 mt-3">
+                                <MetaComponent metaDetails={formData} setMetaDetails={handleInputChange} setFormData={setFormData} />
+                            </div>
+
+                            {/* Tourist Guide Section Configuration */}
+                            <div className="col-12 mt-3">
+                                <TouristGuideComponent guideData={guideData} setGuideData={setGuideData} entityName="City" />
                             </div>
 
                             {/* Action Buttons */}

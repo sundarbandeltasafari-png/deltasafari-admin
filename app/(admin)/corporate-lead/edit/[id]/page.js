@@ -338,16 +338,43 @@ export default function EditCorporateLeadPage() {
                     />
                   </div>
 
-                  {/* Group Size */}
-                  <div className="col-md-6">
-                    <label className="form-label fw-semibold">Group Size</label>
+                  {/* Group Size & Employee Breakdown */}
+                  <div className="col-md-4">
+                    <label className="form-label fw-semibold">Total Employees</label>
                     <input
-                      type="text"
+                      type="number"
                       className="form-control"
-                      name="group_size"
-                      value={formData.group_size}
+                      name="total_employees"
+                      min="1"
+                      value={formData.total_employees || formData.group_size || ''}
                       onChange={handleChange}
-                      placeholder="e.g. 25-30 members"
+                      placeholder="e.g. 25"
+                    />
+                  </div>
+
+                  <div className="col-md-4">
+                    <label className="form-label fw-semibold text-primary">👨 Male Employees</label>
+                    <input
+                      type="number"
+                      className="form-control"
+                      name="male_count"
+                      min="0"
+                      value={formData.male_count || ''}
+                      onChange={handleChange}
+                      placeholder="e.g. 15"
+                    />
+                  </div>
+
+                  <div className="col-md-4">
+                    <label className="form-label fw-semibold text-danger">👩 Female Employees</label>
+                    <input
+                      type="number"
+                      className="form-control"
+                      name="female_count"
+                      min="0"
+                      value={formData.female_count || ''}
+                      onChange={handleChange}
+                      placeholder="e.g. 10"
                     />
                   </div>
 

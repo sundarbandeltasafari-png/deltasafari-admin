@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, useParams } from 'next/navigation';
@@ -6,6 +6,8 @@ import { useSelector } from 'react-redux';
 import axios from 'axios';
 import { getParticularCityUrl, updateCityUrl, getAllCountriesUrl } from '@/app/routes/serviceRoutes';
 import MediaUpload from '@/components/blogs/MediaUpload';
+import MetaComponent from '@/components/seocomponent/MetaComponent';
+import TouristGuideComponent, { defaultGuideData } from '@/components/seocomponent/TouristGuideComponent';
 import LoadingComponent from '@/components/common/LoadingComponent';
 import { showMessage } from '@/libs/commonHelper';
 import { urlDecode } from '@/libs/urlHelper';
@@ -29,8 +31,16 @@ export default function EditCityPage() {
     show_in_package: false,
     show_in_corporate: false,
     show_in_hotel: false,
-    show_in_cab: false
+    show_in_cab: false,
+    meta_title: '',
+    meta_description: '',
+    tags: [],
+    canonical_url: '',
+    og_title: '',
+    og_description: '',
+    robots_meta: 'index, follow'
   });
+  const [guideData, setGuideData] = useState(defaultGuideData);
   const [countries, setCountries] = useState([]);
   const [states, setStates] = useState([]);
   const [imagePreview, setImagePreview] = useState(null);
@@ -111,8 +121,23 @@ export default function EditCityPage() {
             show_in_package: city.show_in_package === true || city.show_in_package === 1 || city.show_in_package === '1',
             show_in_corporate: city.show_in_corporate === true || city.show_in_corporate === 1 || city.show_in_corporate === '1',
             show_in_hotel: city.show_in_hotel === true || city.show_in_hotel === 1 || city.show_in_hotel === '1',
-            show_in_cab: city.show_in_cab === true || city.show_in_cab === 1 || city.show_in_cab === '1'
+            show_in_cab: city.show_in_cab === true || city.show_in_cab === 1 || city.show_in_cab === '1',
+            meta_title: city.meta_title || '',
+            meta_description: city.meta_description || '',
+            tags: city.tags ? (typeof city.tags === 'string' ? city.tags.split(',').map(s => s.trim()) : city.tags) : [],
+            canonical_url: city.canonical_url || '',
+            og_title: city.og_title || '',
+            og_description: city.og_description || '',
+            robots_meta: city.robots_meta || 'index, follow'
           });
+          if (city.tourist_guide) {
+            try {
+              const parsed = typeof city.tourist_guide === 'string' ? JSON.parse(city.tourist_guide) : city.tourist_guide;
+              setGuideData(parsed);
+            } catch (e) {
+              console.error('Error parsing city tourist_guide:', e);
+            }
+          }
           setImagePreview(city.image || city.city_image);
 
           // 3. Fetch states for the city's current country so state dropdown is loaded
@@ -212,6 +237,14 @@ export default function EditCityPage() {
       apiFormData.append('show_in_hotel', formData.show_in_hotel ? '1' : '0');
       apiFormData.append('show_in_cab', formData.show_in_cab ? '1' : '0');
       apiFormData.append('cityId', cityId);
+      apiFormData.append('tourist_guide', JSON.stringify(guideData));
+      apiFormData.append('meta_title', formData.meta_title || '');
+      apiFormData.append('meta_description', formData.meta_description || '');
+      apiFormData.append('tags', Array.isArray(formData.tags) ? formData.tags.join(',') : (formData.tags || ''));
+      apiFormData.append('canonical_url', formData.canonical_url || '');
+      apiFormData.append('og_title', formData.og_title || '');
+      apiFormData.append('og_description', formData.og_description || '');
+      apiFormData.append('robots_meta', formData.robots_meta || 'index, follow');
       if (formData.city_image) {
         apiFormData.append('city_image', formData.city_image);
       }
@@ -520,6 +553,16 @@ export default function EditCityPage() {
                     type='image'
                   />
                 </div>
+              </div>
+
+              {/* SEO Meta Details Component */}
+              <div className="col-12 mt-3">
+                <MetaComponent metaDetails={formData} setMetaDetails={handleInputChange} setFormData={setFormData} />
+              </div>
+
+              {/* Tourist Guide Section Configuration */}
+              <div className="col-12 mt-3">
+                <TouristGuideComponent guideData={guideData} setGuideData={setGuideData} entityName="City" />
               </div>
 
               {/* Action Buttons */}

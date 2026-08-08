@@ -175,6 +175,12 @@ function HeaderAdmin() {
                                 <div data-i18n="Admin Users">Admin Users</div>
                             </Link>
                         </li>
+                        <li className={`menu-item menu-item-parent ${pathname.includes("/referrals") ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/referrals" className="menu-link">
+                                <i className="icon-base ri ri-gift-line menu-icon "></i>
+                                <div data-i18n="Referral Program">Referral Program</div>
+                            </Link>
+                        </li>
                         <li className="menu-header small mt-5">
                             <span className="menu-header-text" data-i18n="Authentication">Authentication</span>
                         </li>

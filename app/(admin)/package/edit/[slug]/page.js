@@ -1,6 +1,6 @@
 "use client"
 import { createPackageUrl, getParticularPackageUrl, updatePackageUrl } from '@/app/routes/packageRoutes';
-import { getAllPackageTypeUrl, getAllZoneUrl } from '@/app/routes/serviceRoutes';
+import { getAllPackageTypeUrl, getAllZoneUrl, getAllHotelsUrl } from '@/app/routes/serviceRoutes';
 import MultiLevelSelect from '@/components/blogs/MultiLevelSelect';
 import MultiMediaUpload from '@/components/blogs/MultiMediaUpload';
 import LoadingComponent from '@/components/common/LoadingComponent';
@@ -58,6 +58,8 @@ function page() {
       bullets: []
     }
   ]);
+  const [availableHotels, setAvailableHotels] = useState([]);
+  const [selectedHotelIds, setSelectedHotelIds] = useState([]);
   const [images, setImages] = useState([]);
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -143,6 +145,12 @@ function page() {
     }).catch((err) => {
       showMessage(err.message)
     })
+    axiosGet(getAllHotelsUrl, token).then((res) => {
+      if (res?.status && res?.hotels) {
+        setAvailableHotels(res.hotels);
+      }
+    }).catch(console.error);
+
     axiosGet(`${getParticularPackageUrl}?id=${packageId}`, token).then((response) => {
       if (response.status) {
         const pkg = response?.package
@@ -168,6 +176,11 @@ function page() {
         })
         setInclusions(JSON.parse(pkg?.inclusions));
         setExclusions(JSON.parse(pkg?.exclusions));
+        if (pkg?.hotel_ids && Array.isArray(pkg.hotel_ids)) {
+          setSelectedHotelIds(pkg.hotel_ids.map(Number));
+        } else if (pkg?.reference_hotels && Array.isArray(pkg.reference_hotels)) {
+          setSelectedHotelIds(pkg.reference_hotels.map(h => Number(h.id)));
+        }
         setDays(
           response?.package?.itineraries?.map((day) => {
             return {
@@ -196,6 +209,15 @@ function page() {
 
   const handleSelection = (category, name) => {
     setFormData({ ...formData, [name]: category.id });
+  };
+
+  const toggleHotelSelection = (hotelId) => {
+    const idNum = Number(hotelId);
+    if (selectedHotelIds.includes(idNum)) {
+      setSelectedHotelIds(selectedHotelIds.filter(id => id !== idNum));
+    } else {
+      setSelectedHotelIds([...selectedHotelIds, idNum]);
+    }
   };
 
   function showError(msg, container) {
@@ -265,6 +287,7 @@ function page() {
     deletedAssets.forEach((delAsset) => {
       formDataNew.append('delAssets[]', JSON.stringify(delAsset));
     })
+    formDataNew.append('hotel_ids', JSON.stringify(selectedHotelIds));
     axiosPost(updatePackageUrl, formDataNew, token, 'multipart/form-data').then((response) => {
       if (response.status) {
         showMessage(response.msg, "success");
@@ -432,6 +455,76 @@ function page() {
                   </div>
 
                   <InclusionsExclusions inclusions={inclusions} setInclusions={setInclusions} exclusions={exclusions} setExclusions={setExclusions} />
+
+                  {/* Reference Hotels Selection Section */}
+                  <div className="p-2 mb-2 border-bottom d-flex justify-content-between align-items-center">
+                    <span className="fw-bold small text-uppercase text-secondary">
+                      <i className="ri-hotel-line text-primary me-1"></i> Reference Hotels & Accommodation
+                    </span>
+                    <span className="badge bg-primary rounded-pill">
+                      {selectedHotelIds.length} Hotels Linked
+                    </span>
+                  </div>
+
+                  <div className="col-12 mb-3">
+                    <p className="text-muted small mb-2">
+                      Select reference hotels and partner stays to display on this package's detail page for customers:
+                    </p>
+                    {availableHotels.length === 0 ? (
+                      <div className="p-3 bg-light rounded-3 text-center border">
+                        <small className="text-muted">No hotels created yet. </small>
+                        <a href="/hotels/add" target="_blank" className="btn btn-xs btn-outline-primary ms-2 rounded-pill">
+                          + Create Hotel
+                        </a>
+                      </div>
+                    ) : (
+                      <div className="row g-2" style={{ maxHeight: '250px', overflowY: 'auto' }}>
+                        {availableHotels.map((hotel) => {
+                          const isSelected = selectedHotelIds.includes(Number(hotel.id));
+                          const hotelImg = hotel.main_image
+                            ? (hotel.main_image.startsWith('http') || hotel.main_image.startsWith('/')
+                              ? hotel.main_image
+                              : `${process.env.NEXT_PUBLIC_SERVER_URL}${hotel.main_image}`)
+                            : "/images/noimage.jpg";
+
+                          return (
+                            <div key={hotel.id} className="col-md-6">
+                              <div
+                                onClick={() => toggleHotelSelection(hotel.id)}
+                                className={`p-2.5 rounded-3 border d-flex align-items-center gap-2.5 cursor-pointer transition-all ${
+                                  isSelected ? 'bg-primary bg-opacity-10 border-primary shadow-2xs' : 'bg-light hover-bg-white'
+                                }`}
+                                style={{ cursor: 'pointer', borderLeft: isSelected ? '4px solid #0d6efd' : undefined }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="form-check-input m-0 cursor-pointer"
+                                  checked={isSelected}
+                                  onChange={() => {}}
+                                />
+                                <div className="rounded overflow-hidden flex-shrink-0" style={{ width: '42px', height: '32px' }}>
+                                  <img
+                                    src={hotelImg}
+                                    alt={hotel.name}
+                                    className="w-100 h-100 object-fit-cover"
+                                    onError={(e) => { e.target.src = "/images/noimage.jpg"; }}
+                                  />
+                                </div>
+                                <div className="overflow-hidden flex-grow-1">
+                                  <span className="fw-semibold text-dark text-truncate d-block small mb-0">
+                                    {hotel.name}
+                                  </span>
+                                  <small className="text-muted d-block text-2xs">
+                                    ★ {hotel.star_rating || 3} Star • {hotel.city_name || hotel.zone_name || 'Sundarban'}
+                                  </small>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
 
                   <div className="p-2 mb-2 border-bottom d-flex justify-content-between align-items-center">
                     <span className="fw-bold small text-uppercase text-secondary">Terms & Conditions</span>

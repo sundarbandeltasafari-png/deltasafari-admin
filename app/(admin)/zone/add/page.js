@@ -18,6 +18,8 @@ function page() {
     image: null,
     top_trending: false,
     top_destination: false,
+    show_in_corporate: false,
+    corporate_tag: '',
     showing_text: '',
     meta_title: '',
     meta_description: '',
@@ -179,6 +181,33 @@ function page() {
                     <div className="col-12 mt-2">
                       <label className="form-label fw-bold small text-uppercase text-secondary">Showing Text</label>
                       <input type="text" name="showing_text" className="form-control p-3" placeholder="Showing Text" onChange={handleChange} />
+                    </div>
+                  )}
+
+                  <div className="form-check form-switch ms-2">
+                    <input 
+                      className="form-check-input" 
+                      name='show_in_corporate' 
+                      onChange={(event) => { setFormData({ ...formData, show_in_corporate: event.target.checked }) }} 
+                      type="checkbox" 
+                      role="switch" 
+                      id="showInCorporateSwitch" 
+                      checked={formData.show_in_corporate} 
+                    />
+                    <label className="form-check-label" htmlFor="showInCorporateSwitch">Show in Corporate Destinations (/corporate)</label>
+                  </div>
+
+                  {formData.show_in_corporate && (
+                    <div className="col-12 mt-2">
+                      <label className="form-label fw-bold small text-uppercase text-secondary">Corporate Tag / Subtitle</label>
+                      <input 
+                        type="text" 
+                        name="corporate_tag" 
+                        value={formData.corporate_tag || ''} 
+                        className="form-control p-3" 
+                        placeholder="e.g. Jungle & Boat Safari, Mountain Offsite, International MICE" 
+                        onChange={handleChange} 
+                      />
                     </div>
                   )}
 

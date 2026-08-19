@@ -41,8 +41,25 @@ function ZoneCard({ zone, level, handleDeleteDetect }) {
             {/* zone Details */}
             <div className="flex-grow-1 ms-3">
               <div className="d-flex justify-content-between align-items-center">
-                <h6 className="fw-bold mb-0 text-dark">{zone.name}</h6>
-                <span className="text-muted">
+                <div className="d-flex align-items-center gap-2 flex-wrap">
+                  <h6 className="fw-bold mb-0 text-dark">{zone.name}</h6>
+                  {(zone.show_in_corporate === 1 || zone.show_in_corporate === '1' || zone.show_in_corporate === true) && (
+                    <span className="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill px-2 py-1 small">
+                      <i className="bi bi-briefcase me-1"></i>Corporate {zone.corporate_tag ? `(${zone.corporate_tag})` : ''}
+                    </span>
+                  )}
+                  {(zone.top_trending === 1 || zone.top_trending === '1' || zone.top_trending === true) && (
+                    <span className="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill px-2 py-1 small">
+                      <i className="bi bi-graph-up-arrow me-1"></i>Trending
+                    </span>
+                  )}
+                  {(zone.top_destination === 1 || zone.top_destination === '1' || zone.top_destination === true) && (
+                    <span className="badge bg-warning bg-opacity-10 text-warning border border-warning border-opacity-25 rounded-pill px-2 py-1 small">
+                      <i className="bi bi-star-fill me-1"></i>Top Dest
+                    </span>
+                  )}
+                </div>
+                <span className="text-muted small">
                   <i className="bi bi-calendar3 me-1"></i>
                   {new Date(zone.created_at).toLocaleDateString()}
                 </span>

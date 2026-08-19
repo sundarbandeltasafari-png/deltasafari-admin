@@ -56,3 +56,11 @@ export const getAllContactQueriesUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}adm
 export const getParticularContactQueryUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getParticularContactQuery`;
 export const updateContactQueryUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/updateContactQuery`;
 export const deleteContactQueryUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/deleteContactQuery`;
+
+// Hotels / Reference Hotels
+export const getAllHotelsUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getHotels`;
+export const getAllHotelsDropdownUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getAllHotelsDropdown`;
+export const getParticularHotelUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/getParticularHotel`;
+export const createHotelUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/createHotel`;
+export const updateHotelUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/updateHotel`;
+export const deleteHotelUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/service/deleteHotel`;

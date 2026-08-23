@@ -20,3 +20,6 @@ export const createUsersUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/i
 export const getParticulerUsersUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/getParticularUser`;
 export const getAdminUserSearchUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/getAdminUserSearch`;
 export const getReferralOverviewUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/getReferralOverview`;
+export const releaseWalletPayoutUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/releaseWalletPayout`;
+export const processWithdrawalRequestUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/processWithdrawalRequest`;
+

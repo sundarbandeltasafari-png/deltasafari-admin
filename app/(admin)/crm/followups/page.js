@@ -2,20 +2,26 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSelector } from 'react-redux';
 import { 
     getFollowupsListUrl, 
     getFollowupStatsUrl, 
     saveLeadFollowupUrl, 
+    convertLeadUrl,
+    reopenLeadUrl,
     getFollowupLogsUrl, 
     getLeadManagersUrl 
 } from '@/app/routes/whatsappRoutes';
+import { getAllPackageUrl } from '@/app/routes/packageRoutes';
 import { axiosGet, axiosPost } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
 
 export default function LeadFollowupsPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const initialTabParam = searchParams?.get('tab');
+
     const token = useSelector((state) => state.adminAuth?.token);
     const user = useSelector((state) => state.adminAuth?.user);
     const isSuperAdmin = user?.admin === 1;
@@ -29,18 +35,20 @@ export default function LeadFollowupsPage() {
         upcoming_followups: 0,
         hot_leads: 0,
         warm_leads: 0,
-        cold_leads: 0
+        cold_leads: 0,
+        converted_leads: 0
     });
     const [managers, setManagers] = useState([]);
+    const [packageSuggestions, setPackageSuggestions] = useState([]);
     const [loading, setLoading] = useState(true);
     const [loadingStats, setLoadingStats] = useState(true);
 
     // Filters State
     const [searchTerm, setSearchTerm] = useState('');
-    const [activeTab, setActiveTab] = useState('all'); // 'all', 'today', 'hot', 'warm', 'cold'
+    const [activeTab, setActiveTab] = useState(initialTabParam === 'converted' ? 'converted' : 'all'); // 'all', 'today', 'hot', 'warm', 'cold', 'converted'
     const [fromDate, setFromDate] = useState('');
     const [toDate, setToDate] = useState('');
-    const [dateFilterType, setDateFilterType] = useState('next_followup'); // 'next_followup', 'travel_date', 'last_followup'
+    const [dateFilterType, setDateFilterType] = useState('next_followup'); // 'next_followup', 'travel_date', 'last_followup', 'converted_at'
     const [filterAssignee, setFilterAssignee] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
@@ -48,8 +56,11 @@ export default function LeadFollowupsPage() {
 
     // Modals State
     const [editModalOpen, setEditModalOpen] = useState(false);
+    const [convertModalOpen, setConvertModalOpen] = useState(false);
     const [logsModalOpen, setLogsModalOpen] = useState(false);
     const [savingFollowup, setSavingFollowup] = useState(false);
+    const [convertingLead, setConvertingLead] = useState(false);
+    const [reopeningLeadId, setReopeningLeadId] = useState(null);
     const [loadingLogs, setLoadingLogs] = useState(false);
     const [selectedContactLogs, setSelectedContactLogs] = useState([]);
     const [selectedContactInfo, setSelectedContactInfo] = useState(null);
@@ -65,8 +76,22 @@ export default function LeadFollowupsPage() {
         travel_destination: '',
         number_of_persons: 1,
         total_rooms: 1,
+        package_name: '',
+        package_rate: '',
         next_followup_date: '',
         extra_note: ''
+    });
+
+    // Convert Lead Form State
+    const [convertFormData, setConvertFormData] = useState({
+        contact_id: null,
+        lead_name: '',
+        phone: '',
+        email: '',
+        package_name: '',
+        converted_amount: '',
+        travel_date: '',
+        conversion_note: ''
     });
 
     // Fetch Follow-up Stats
@@ -98,6 +123,19 @@ export default function LeadFollowupsPage() {
         }
     };
 
+    // Fetch Package Suggestions
+    const fetchPackages = async () => {
+        if (!token) return;
+        try {
+            const res = await axiosGet(getAllPackageUrl, token);
+            if (res?.status && Array.isArray(res.packages)) {
+                setPackageSuggestions(res.packages);
+            }
+        } catch (err) {
+            console.error('Error loading package suggestions:', err);
+        }
+    };
+
     // Fetch Follow-ups List
     const fetchFollowups = async (page = 1, currentTab = activeTab) => {
         if (!token) return;
@@ -110,10 +148,15 @@ export default function LeadFollowupsPage() {
                 `date_filter_type=${encodeURIComponent(dateFilterType)}`
             ];
 
-            if (currentTab === 'today') {
-                queryParams.push(`is_today_only=true`);
-            } else if (['hot', 'warm', 'cold'].includes(currentTab)) {
-                queryParams.push(`lead_type=${currentTab}`);
+            if (currentTab === 'converted') {
+                queryParams.push(`is_converted=true`);
+            } else {
+                queryParams.push(`is_converted=false`);
+                if (currentTab === 'today') {
+                    queryParams.push(`is_today_only=true`);
+                } else if (['hot', 'warm', 'cold'].includes(currentTab)) {
+                    queryParams.push(`lead_type=${currentTab}`);
+                }
             }
 
             if (fromDate) queryParams.push(`from_date=${encodeURIComponent(fromDate)}`);
@@ -124,9 +167,13 @@ export default function LeadFollowupsPage() {
             const res = await axiosGet(url, token);
 
             if (res?.status && Array.isArray(res.followups)) {
-                setFollowups(res.followups);
+                // Double safety filter: strictly exclude converted leads from active tabs
+                const filtered = currentTab === 'converted' 
+                    ? res.followups.filter(f => f.is_converted == 1)
+                    : res.followups.filter(f => f.is_converted != 1);
+                setFollowups(filtered);
                 setTotalPages(res.totalPages || 1);
-                setTotalItems(res.total || 0);
+                setTotalItems(res.total || filtered.length);
                 setCurrentPage(res.page || 1);
             } else {
                 setFollowups([]);
@@ -145,6 +192,7 @@ export default function LeadFollowupsPage() {
         if (token) {
             fetchStats();
             fetchFollowups(1, activeTab);
+            fetchPackages();
             if (isSuperAdmin) {
                 fetchLeadManagers();
             }
@@ -162,6 +210,12 @@ export default function LeadFollowupsPage() {
     const handleTabChange = (tabName) => {
         setActiveTab(tabName);
         setCurrentPage(1);
+        // Default appropriate date filter type if switching
+        if (tabName === 'converted' && dateFilterType === 'next_followup') {
+            setDateFilterType('converted_at');
+        } else if (tabName !== 'converted' && dateFilterType === 'converted_at') {
+            setDateFilterType('next_followup');
+        }
         fetchFollowups(1, tabName);
     };
 
@@ -177,6 +231,81 @@ export default function LeadFollowupsPage() {
         setTimeout(() => {
             fetchFollowups(1, 'all');
         }, 50);
+    };
+
+    // Open Convert Lead Modal
+    const handleOpenConvertModal = (item) => {
+        const formatDateVal = (d) => {
+            if (!d) return '';
+            try {
+                return new Date(d).toISOString().split('T')[0];
+            } catch (e) {
+                return '';
+            }
+        };
+
+        setConvertFormData({
+            contact_id: item.contact_id || item.id,
+            lead_name: item.lead_name || item.name || '',
+            phone: item.phone || item.wa_id || '',
+            email: item.email || '',
+            package_name: item.package_name || '',
+            converted_amount: item.package_rate || item.converted_amount || '',
+            travel_date: formatDateVal(item.travel_date),
+            conversion_note: ''
+        });
+        setConvertModalOpen(true);
+    };
+
+    // Confirm Convert Lead
+    const handleConfirmConvert = async (e) => {
+        e.preventDefault();
+        if (!convertFormData.contact_id) {
+            showMessage('error', 'Contact ID is missing.');
+            return;
+        }
+
+        setConvertingLead(true);
+        try {
+            const res = await axiosPost(convertLeadUrl, convertFormData, token);
+            if (res?.status) {
+                showMessage('success', '🎉 Lead marked as Converted successfully! Moved to Converted Leads section.');
+                setConvertModalOpen(false);
+                fetchFollowups(currentPage, activeTab);
+                fetchStats();
+            } else {
+                showMessage('error', res?.msg || 'Failed to convert lead.');
+            }
+        } catch (err) {
+            showMessage('error', err.response?.data?.msg || err.message || 'Error converting lead.');
+        } finally {
+            setConvertingLead(false);
+        }
+    };
+
+    // Reopen Lead (Unmark Converted)
+    const handleReopenLead = async (item) => {
+        const contactId = item.contact_id || item.id;
+        const leadName = item.lead_name || item.name || 'this lead';
+        if (!window.confirm(`Are you sure you want to reopen "${leadName}" and return it to the active follow-up pipeline?`)) {
+            return;
+        }
+
+        setReopeningLeadId(contactId);
+        try {
+            const res = await axiosPost(reopenLeadUrl, { contact_id: contactId }, token);
+            if (res?.status) {
+                showMessage('success', 'Lead re-opened successfully and returned to active follow-ups.');
+                fetchFollowups(currentPage, activeTab);
+                fetchStats();
+            } else {
+                showMessage('error', res?.msg || 'Failed to reopen lead.');
+            }
+        } catch (err) {
+            showMessage('error', err.response?.data?.msg || err.message || 'Error reopening lead.');
+        } finally {
+            setReopeningLeadId(null);
+        }
     };
 
     // Open Edit/Add Follow-up Modal
@@ -200,6 +329,8 @@ export default function LeadFollowupsPage() {
             travel_destination: item.travel_destination || 'Sundarban',
             number_of_persons: item.number_of_persons || 2,
             total_rooms: item.total_rooms || 1,
+            package_name: item.package_name || '',
+            package_rate: item.package_rate || '',
             next_followup_date: formatDateVal(item.next_followup_date),
             extra_note: ''
         });
@@ -405,7 +536,7 @@ export default function LeadFollowupsPage() {
 
             {/* 2. Top Summary KPI Cards */}
             <div className="row g-3 mb-4">
-                {/* Total Followups */}
+                {/* Total Active Followups */}
                 <div className="col-6 col-md-4 col-xl-2">
                     <div 
                         className={`card border-0 shadow-sm h-100 rounded-3 cursor-pointer ${activeTab === 'all' ? 'border-primary border-2' : ''}`}
@@ -413,10 +544,10 @@ export default function LeadFollowupsPage() {
                         style={{ transition: 'transform 0.15s ease' }}
                     >
                         <div className="card-body p-3">
-                            <span className="text-muted small text-uppercase fw-semibold d-block">Total Leads</span>
+                            <span className="text-muted small text-uppercase fw-semibold d-block">Active Pipeline</span>
                             <h3 className="fw-bold mb-0 text-dark mt-1">{stats.total_followups}</h3>
                             <small className="text-primary d-inline-flex align-items-center gap-1 mt-1">
-                                <i className="ri ri-list-check"></i> In Pipeline
+                                <i className="ri ri-list-check"></i> In Follow-up
                             </small>
                         </div>
                     </div>
@@ -442,19 +573,6 @@ export default function LeadFollowupsPage() {
                             </h3>
                             <small className={`d-inline-flex align-items-center gap-1 mt-1 ${activeTab === 'today' ? 'text-white-50' : 'text-danger'}`}>
                                 <i className="ri ri-alarm-warning-line"></i> Due Today
-                            </small>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Overdue Followups */}
-                <div className="col-6 col-md-4 col-xl-2">
-                    <div className="card border-0 shadow-sm h-100 rounded-3" style={{ backgroundColor: '#fff7ed' }}>
-                        <div className="card-body p-3">
-                            <span className="text-muted small text-uppercase fw-semibold d-block">Overdue</span>
-                            <h3 className="fw-bold mb-0 text-dark mt-1">{stats.overdue_followups}</h3>
-                            <small className="text-warning d-inline-flex align-items-center gap-1 mt-1">
-                                <i className="ri ri-time-line"></i> Past Scheduled Date
                             </small>
                         </div>
                     </div>
@@ -507,6 +625,31 @@ export default function LeadFollowupsPage() {
                         </div>
                     </div>
                 </div>
+
+                {/* Converted Won Leads Highlight Card */}
+                <div className="col-6 col-md-4 col-xl-2">
+                    <div 
+                        className={`card border-0 shadow-sm h-100 rounded-3 cursor-pointer ${activeTab === 'converted' ? 'bg-success text-white' : ''}`}
+                        onClick={() => handleTabChange('converted')}
+                        style={{ 
+                            backgroundColor: activeTab === 'converted' ? '#16a34a' : '#f0fdf4',
+                            borderColor: '#86efac',
+                            transition: 'transform 0.15s ease'
+                        }}
+                    >
+                        <div className="card-body p-3">
+                            <span className={`small text-uppercase fw-semibold d-block ${activeTab === 'converted' ? 'text-white' : 'text-success'}`}>
+                                🎉 Converted Leads
+                            </span>
+                            <h3 className={`fw-bold mb-0 mt-1 ${activeTab === 'converted' ? 'text-white' : 'text-success'}`}>
+                                {stats.converted_leads || 0}
+                            </h3>
+                            <small className={`d-inline-flex align-items-center gap-1 mt-1 ${activeTab === 'converted' ? 'text-white-50' : 'text-success'}`}>
+                                <i className="ri ri-checkbox-circle-fill"></i> Won Deals
+                            </small>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* 3. Comprehensive Filter Toolbar */}
@@ -521,7 +664,7 @@ export default function LeadFollowupsPage() {
                             onClick={() => handleTabChange('all')}
                             className={`btn btn-sm rounded-pill px-3 ${activeTab === 'all' ? 'btn-primary shadow-sm' : 'btn-outline-secondary'}`}
                         >
-                            All Leads ({stats.total_followups})
+                            All Active Leads ({stats.total_followups})
                         </button>
 
                         <button
@@ -556,6 +699,15 @@ export default function LeadFollowupsPage() {
                         >
                             <span>❄️ Cold ({stats.cold_leads})</span>
                         </button>
+
+                        <button
+                            type="button"
+                            onClick={() => handleTabChange('converted')}
+                            className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 ${activeTab === 'converted' ? 'btn-success text-white shadow-sm' : 'btn-outline-success'}`}
+                        >
+                            <i className="ri ri-checkbox-circle-fill"></i>
+                            <span>🎉 Converted Leads ({stats.converted_leads || 0})</span>
+                        </button>
                     </div>
 
                     {/* Detailed Filter Form */}
@@ -570,7 +722,7 @@ export default function LeadFollowupsPage() {
                                 <input
                                     type="text"
                                     className="form-control rounded-end-pill border-start-0 ps-0"
-                                    placeholder="Name, Phone, Destination..."
+                                    placeholder="Name, Phone, Destination, Package..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                 />
@@ -585,9 +737,12 @@ export default function LeadFollowupsPage() {
                                 value={dateFilterType}
                                 onChange={(e) => setDateFilterType(e.target.value)}
                             >
-                                <option value="next_followup">Next Follow-up</option>
+                                {activeTab === 'converted' && (
+                                    <option value="converted_at">Date Converted</option>
+                                )}
+                                <option value="next_followup">Next Follow-up Date</option>
                                 <option value="travel_date">Travel Date</option>
-                                <option value="last_followup">Last Contacted</option>
+                                <option value="last_followup">Last Contacted Date</option>
                             </select>
                         </div>
 
@@ -659,10 +814,19 @@ export default function LeadFollowupsPage() {
             <div className="card shadow-sm border-0 rounded-4 overflow-hidden">
                 <div className="card-header bg-transparent border-bottom py-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
                     <div>
-                        <h5 className="mb-0 fw-bold text-heading d-flex align-items-center gap-2">
-                            <span>Follow-up Leads</span>
-                            <span className="badge bg-label-secondary rounded-pill px-2.5 py-0.5 small">{totalItems} leads</span>
-                        </h5>
+                        {activeTab === 'converted' ? (
+                            <h5 className="mb-0 fw-bold text-success d-flex align-items-center gap-2">
+                                <i className="ri ri-trophy-line fs-4 text-warning"></i>
+                                <span>🎉 Converted Leads (Closed / Won Deals)</span>
+                                <span className="badge bg-label-success rounded-pill px-2.5 py-0.5 small">{totalItems} Won Deals</span>
+                            </h5>
+                        ) : (
+                            <h5 className="mb-0 fw-bold text-heading d-flex align-items-center gap-2">
+                                <i className="ri ri-calendar-check-line text-primary"></i>
+                                <span>Active Follow-up Pipeline</span>
+                                <span className="badge bg-label-secondary rounded-pill px-2.5 py-0.5 small">{totalItems} leads</span>
+                            </h5>
+                        )}
                     </div>
                 </div>
 
@@ -677,17 +841,174 @@ export default function LeadFollowupsPage() {
                             <div className="avatar avatar-xl rounded-circle bg-label-warning mx-auto mb-3 d-flex align-items-center justify-content-center">
                                 <i className="ri ri-calendar-close-line fs-2 text-warning"></i>
                             </div>
-                            <h5 className="fw-semibold mb-1">No follow-ups found</h5>
+                            <h5 className="fw-semibold mb-1">
+                                {activeTab === 'converted' ? 'No converted leads yet' : 'No follow-ups found'}
+                            </h5>
                             <p className="text-muted small mb-3">
-                                {activeTab === 'today' 
-                                    ? 'No follow-up calls or messages are scheduled for today.' 
-                                    : 'No leads match your selected filters. Start by adding a follow-up to any WhatsApp lead.'}
+                                {activeTab === 'converted' 
+                                    ? 'Leads marked as Converted will appear here. Convert hot leads into won bookings.'
+                                    : activeTab === 'today' 
+                                        ? 'No follow-up calls or messages are scheduled for today.' 
+                                        : 'No leads match your selected filters. Start by adding a follow-up to any WhatsApp lead.'}
                             </p>
                             <Link href="/crm/whatsapp" className="btn btn-primary btn-sm rounded-pill px-4">
                                 View WhatsApp Leads
                             </Link>
                         </div>
+                    ) : activeTab === 'converted' ? (
+                        /* Converted Leads Table View */
+                        <table className="table table-hover align-middle mb-0">
+                            <thead className="table-light">
+                                <tr>
+                                    <th className="ps-4">Customer &amp; Contact</th>
+                                    <th>Won Package &amp; Final Deal</th>
+                                    <th>Travel Destination &amp; Details</th>
+                                    <th>Converted Date &amp; Staff</th>
+                                    <th>Conversion Remarks</th>
+                                    <th className="text-center pe-4">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {followups.filter(item => item.is_converted == 1).map((item) => (
+                                    <tr key={item.followup_id} className="bg-success bg-opacity-10 border-bottom">
+                                        {/* Customer Name & Contact */}
+                                        <td className="ps-4">
+                                            <div className="d-flex align-items-center gap-2.5">
+                                                <div 
+                                                    className="avatar avatar-md rounded-circle text-white d-flex align-items-center justify-content-center fw-bold shadow-xs flex-shrink-0"
+                                                    style={{ backgroundColor: '#16a34a', fontSize: '13px', width: '38px', height: '38px' }}
+                                                >
+                                                    {(item.lead_name || 'WA').substring(0, 2).toUpperCase()}
+                                                </div>
+                                                <div>
+                                                    <span className="fw-bold text-dark d-block mb-0.5 d-flex align-items-center gap-1">
+                                                        <span>{item.lead_name || 'WhatsApp Customer'}</span>
+                                                        <span className="badge bg-success text-white rounded-pill px-2 py-0.5" style={{ fontSize: '10px' }}>
+                                                            Won Deal
+                                                        </span>
+                                                    </span>
+                                                    <a
+                                                        href={`https://wa.me/${item.phone || item.wa_id}`}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="text-decoration-none small text-success font-monospace d-inline-flex align-items-center gap-1"
+                                                        title="Chat on WhatsApp"
+                                                    >
+                                                        <i className="ri ri-whatsapp-fill"></i>
+                                                        <span>+{item.phone || item.wa_id}</span>
+                                                    </a>
+                                                    {item.email && (
+                                                        <small className="text-muted d-block font-monospace" style={{ fontSize: '11px' }}>
+                                                            {item.email}
+                                                        </small>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </td>
+
+                                        {/* Booked Package & Rate */}
+                                        <td>
+                                            <div>
+                                                <span className="badge bg-success text-white px-2.5 py-1 rounded-pill d-inline-flex align-items-center gap-1 fw-semibold mb-1">
+                                                    <i className="ri ri-suitcase-fill"></i> {item.package_name || 'Safari Package'}
+                                                </span>
+                                                {(item.converted_amount || item.package_rate) && (
+                                                    <span className="fw-bold text-dark d-block fs-6">
+                                                        ₹{item.converted_amount || item.package_rate}
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </td>
+
+                                        {/* Travel Destination & Details */}
+                                        <td>
+                                            <div>
+                                                <span className="fw-semibold text-dark d-block small">
+                                                    <i className="ri ri-map-pin-2-line text-danger me-1"></i>
+                                                    {item.travel_destination || 'Sundarban'}
+                                                </span>
+                                                <small className="text-muted d-block mt-0.5">
+                                                    <i className="ri ri-calendar-line me-1"></i>
+                                                    Travel: <strong>{formatDate(item.travel_date)}</strong>
+                                                </small>
+                                                <div className="d-flex align-items-center gap-2 mt-1">
+                                                    <span className="badge bg-light text-dark border px-2 py-0.5 rounded-pill" style={{ fontSize: '10.5px' }}>
+                                                        <i className="ri ri-group-line me-1"></i>{item.number_of_persons || 1} Persons
+                                                    </span>
+                                                    <span className="badge bg-light text-dark border px-2 py-0.5 rounded-pill" style={{ fontSize: '10.5px' }}>
+                                                        <i className="ri ri-hotel-bed-line me-1"></i>{item.total_rooms || 1} Rooms
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </td>
+
+                                        {/* Converted Date & Staff */}
+                                        <td>
+                                            <div>
+                                                <span className="fw-semibold text-dark d-block small font-monospace">
+                                                    <i className="ri ri-calendar-check-line text-success me-1"></i>
+                                                    {formatDateTime(item.converted_at || item.updated_at)}
+                                                </span>
+                                                <small className="text-muted d-block mt-1">
+                                                    By: <span className="badge bg-label-primary rounded-pill">{item.converted_by_name || item.assigned_user_name || 'Admin'}</span>
+                                                </small>
+                                            </div>
+                                        </td>
+
+                                        {/* Remarks */}
+                                        <td style={{ maxWidth: '240px' }}>
+                                            <div 
+                                                className="text-dark small" 
+                                                style={{ maxWidth: '230px', whiteSpace: 'pre-wrap' }}
+                                                title={item.conversion_note || item.extra_note || ''}
+                                            >
+                                                {item.conversion_note || item.extra_note || <span className="fst-italic text-muted opacity-75">No conversion notes</span>}
+                                            </div>
+                                        </td>
+
+                                        {/* Actions */}
+                                        <td className="text-center pe-4">
+                                            <div className="d-inline-flex align-items-center gap-1.5">
+                                                {/* History Logs Button */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleOpenLogsModal(item)}
+                                                    className="btn btn-sm btn-outline-secondary rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"
+                                                    title="View Follow-up Timeline Logs"
+                                                >
+                                                    <i className="ri ri-history-line"></i>
+                                                    <span>Logs ({item.total_followup_logs || 1})</span>
+                                                </button>
+
+                                                {/* Re-open Lead Button */}
+                                                <button
+                                                    type="button"
+                                                    disabled={reopeningLeadId === (item.contact_id || item.id)}
+                                                    onClick={() => handleReopenLead(item)}
+                                                    className="btn btn-sm btn-outline-warning rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"
+                                                    title="Re-open lead back to active follow-up pipeline"
+                                                >
+                                                    <i className="ri ri-restart-line"></i>
+                                                    <span>Re-open</span>
+                                                </button>
+
+                                                {/* WhatsApp Chat Link */}
+                                                <Link
+                                                    href="/crm/whatsapp"
+                                                    className="btn btn-sm btn-outline-success rounded-circle p-1.5 d-inline-flex align-items-center justify-content-center"
+                                                    title="Go to WhatsApp Chat"
+                                                    style={{ width: '32px', height: '32px' }}
+                                                >
+                                                    <i className="ri ri-chat-1-line"></i>
+                                                </Link>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     ) : (
+                        /* Active Follow-up Leads Table View */
                         <table className="table table-hover align-middle mb-0">
                             <thead className="table-light">
                                 <tr>
@@ -701,7 +1022,7 @@ export default function LeadFollowupsPage() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {followups.map((item) => (
+                                {followups.filter(item => item.is_converted != 1).map((item) => (
                                     <tr key={item.followup_id}>
                                         {/* Lead Name & Contact */}
                                         <td className="ps-4">
@@ -759,6 +1080,14 @@ export default function LeadFollowupsPage() {
                                                         <i className="ri ri-hotel-bed-line me-1"></i>{item.total_rooms || 1} Rooms
                                                     </span>
                                                 </div>
+                                                {item.package_name && (
+                                                    <div className="mt-1">
+                                                        <span className="badge bg-label-primary text-primary border px-2 py-0.5 rounded-pill d-inline-flex align-items-center gap-1" style={{ fontSize: '10.5px' }}>
+                                                            <i className="ri ri-suitcase-line"></i> {item.package_name}
+                                                            {item.package_rate && <strong className="text-dark ms-1">• ₹{item.package_rate}</strong>}
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
                                         </td>
 
@@ -810,6 +1139,17 @@ export default function LeadFollowupsPage() {
                                         {/* Actions */}
                                         <td className="text-center pe-4">
                                             <div className="d-inline-flex align-items-center gap-1.5">
+                                                {/* Mark Converted Button */}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleOpenConvertModal(item)}
+                                                    className="btn btn-sm btn-success rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1 shadow-xs"
+                                                    title="Mark Lead as Converted (Won Deal)"
+                                                >
+                                                    <i className="ri ri-checkbox-circle-fill"></i>
+                                                    <span>Convert</span>
+                                                </button>
+
                                                 {/* Update Follow-up Button */}
                                                 <button
                                                     type="button"
@@ -887,7 +1227,172 @@ export default function LeadFollowupsPage() {
                 )}
             </div>
 
-            {/* 5. Add / Update Follow-up Modal */}
+            {/* 5. Convert Lead Modal (Mark as Converted / Won Deal) */}
+            {convertModalOpen && (
+                <div 
+                    className="modal fade show d-block" 
+                    tabIndex="-1" 
+                    style={{ backgroundColor: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', zIndex: 1055 }}
+                >
+                    <div className="modal-dialog modal-dialog-centered modal-lg">
+                        <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                            {/* Modal Header */}
+                            <div className="modal-header bg-success text-white py-3 px-4 d-flex align-items-center justify-content-between">
+                                <div>
+                                    <h5 className="modal-title fw-bold text-white mb-0 d-flex align-items-center gap-2">
+                                        <i className="ri ri-trophy-fill fs-4 text-warning"></i>
+                                        <span>Mark Lead as Converted (Won Deal)</span>
+                                    </h5>
+                                    <small className="text-white-50">
+                                        Confirm closed booking and move from active follow-up queue to Converted section.
+                                    </small>
+                                </div>
+                                <button 
+                                    type="button" 
+                                    className="btn-close btn-close-white" 
+                                    onClick={() => setConvertModalOpen(false)}
+                                    aria-label="Close"
+                                ></button>
+                            </div>
+
+                            <form onSubmit={handleConfirmConvert}>
+                                <div className="modal-body p-4">
+                                    {/* Customer Overview Card */}
+                                    <div className="card bg-success bg-opacity-10 border-success border-opacity-25 rounded-3 p-3 mb-4">
+                                        <div className="row g-2 align-items-center">
+                                            <div className="col-12 col-md-6">
+                                                <span className="text-muted small text-uppercase fw-semibold d-block">Lead Name</span>
+                                                <span className="fw-bold text-dark fs-6">{convertFormData.lead_name || 'WhatsApp Customer'}</span>
+                                            </div>
+                                            <div className="col-12 col-md-6">
+                                                <span className="text-muted small text-uppercase fw-semibold d-block">WhatsApp Contact</span>
+                                                <span className="fw-bold text-success font-monospace">+{convertFormData.phone}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Final Package & Deal Rate */}
+                                    <div className="row g-3 mb-3">
+                                        <div className="col-12 col-md-6">
+                                            <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
+                                                <i className="ri ri-suitcase-line text-primary"></i>
+                                                <span>Booked Package Name</span>
+                                            </label>
+                                            <input 
+                                                type="text" 
+                                                list="convert_package_options"
+                                                className="form-control rounded-3"
+                                                placeholder="e.g. 2D1N Sundarban Safari, Luxury Boat Tour"
+                                                value={convertFormData.package_name}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    const matched = packageSuggestions.find(p => (p.name === val || p.title === val));
+                                                    if (matched && matched.price && !convertFormData.converted_amount) {
+                                                        setConvertFormData({ ...convertFormData, package_name: val, converted_amount: String(matched.price) });
+                                                    } else {
+                                                        setConvertFormData({ ...convertFormData, package_name: val });
+                                                    }
+                                                }}
+                                            />
+                                            <datalist id="convert_package_options">
+                                                {packageSuggestions.map((pkg) => (
+                                                    <option key={pkg.id} value={pkg.name || pkg.title}>
+                                                        {pkg.price ? `₹${pkg.price}` : ''}
+                                                    </option>
+                                                ))}
+                                            </datalist>
+                                        </div>
+                                        <div className="col-12 col-md-6">
+                                            <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
+                                                <i className="ri ri-money-rupee-circle-line text-success"></i>
+                                                <span>Final Agreed Booking Amount / Rate</span>
+                                            </label>
+                                            <div className="input-group">
+                                                <span className="input-group-text bg-light fw-bold">₹</span>
+                                                <input 
+                                                    type="text" 
+                                                    className="form-control rounded-end-3"
+                                                    placeholder="e.g. 15000 or 4500/pax"
+                                                    value={convertFormData.converted_amount}
+                                                    onChange={(e) => setConvertFormData({ ...convertFormData, converted_amount: e.target.value })}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Confirmed Travel Date */}
+                                    <div className="row g-3 mb-3">
+                                        <div className="col-12 col-md-6">
+                                            <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
+                                                <i className="ri ri-calendar-check-line text-primary"></i>
+                                                <span>Confirmed / Estimated Travel Date</span>
+                                            </label>
+                                            <input 
+                                                type="date" 
+                                                className="form-control rounded-3"
+                                                value={convertFormData.travel_date}
+                                                onChange={(e) => setConvertFormData({ ...convertFormData, travel_date: e.target.value })}
+                                            />
+                                        </div>
+                                        <div className="col-12 col-md-6">
+                                            <div className="alert alert-success d-flex align-items-center gap-2 mb-0 py-2.5 px-3 rounded-3" style={{ fontSize: '12.5px' }}>
+                                                <i className="ri ri-checkbox-circle-fill fs-5 text-success"></i>
+                                                <div>
+                                                    <strong>Status Change:</strong> Lead will move to <strong>Converted Leads</strong> and be removed from the daily follow-up queue.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Conversion Remarks / Booking Notes */}
+                                    <div className="mb-2">
+                                        <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
+                                            <i className="ri ri-file-text-line text-secondary"></i>
+                                            <span>Conversion Remarks &amp; Booking Details</span>
+                                        </label>
+                                        <textarea
+                                            className="form-control rounded-3"
+                                            rows="3"
+                                            placeholder="e.g. Booking confirmed! Advance payment of ₹5,000 received via GPay. Booked AC Cottage for 4 pax. Client requested pickup at Canning station."
+                                            value={convertFormData.conversion_note}
+                                            onChange={(e) => setConvertFormData({ ...convertFormData, conversion_note: e.target.value })}
+                                        ></textarea>
+                                    </div>
+                                </div>
+
+                                <div className="modal-footer bg-light py-3 px-4 d-flex justify-content-between align-items-center">
+                                    <button 
+                                        type="button" 
+                                        className="btn btn-outline-secondary rounded-pill px-4" 
+                                        onClick={() => setConvertModalOpen(false)}
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button 
+                                        type="submit" 
+                                        disabled={convertingLead}
+                                        className="btn btn-success rounded-pill px-4 d-inline-flex align-items-center gap-2 shadow-sm"
+                                    >
+                                        {convertingLead ? (
+                                            <>
+                                                <span className="spinner-border spinner-border-sm" role="status"></span>
+                                                <span>Marking Converted...</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <i className="ri ri-checkbox-circle-fill"></i>
+                                                <span>🎉 Confirm &amp; Mark as Converted</span>
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 6. Add / Update Follow-up Modal */}
             {editModalOpen && (
                 <div 
                     className="modal fade show d-block" 
@@ -1063,7 +1568,53 @@ export default function LeadFollowupsPage() {
                                         </div>
                                     </div>
 
-                                    {/* 4. Next Follow-up Date & Extra Note */}
+                                    {/* 4. Package Information */}
+                                    <div className="row g-3 mb-3">
+                                        <div className="col-12 col-md-6">
+                                            <label className="form-label small fw-semibold d-flex align-items-center gap-1">
+                                                <i className="ri ri-suitcase-line text-primary"></i>
+                                                <span>Package Name</span>
+                                            </label>
+                                            <input 
+                                                type="text" 
+                                                list="followup_package_options"
+                                                className="form-control rounded-3"
+                                                placeholder="e.g. 2D1N Sundarban Safari, Luxury Boat Tour"
+                                                value={formData.package_name}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    const matched = packageSuggestions.find(p => (p.name === val || p.title === val));
+                                                    if (matched && matched.price && !formData.package_rate) {
+                                                        setFormData({ ...formData, package_name: val, package_rate: String(matched.price) });
+                                                    } else {
+                                                        setFormData({ ...formData, package_name: val });
+                                                    }
+                                                }}
+                                            />
+                                            <datalist id="followup_package_options">
+                                                {packageSuggestions.map((pkg) => (
+                                                    <option key={pkg.id} value={pkg.name || pkg.title}>
+                                                        {pkg.price ? `₹${pkg.price}` : ''}
+                                                    </option>
+                                                ))}
+                                            </datalist>
+                                        </div>
+                                        <div className="col-12 col-md-6">
+                                            <label className="form-label small fw-semibold d-flex align-items-center gap-1">
+                                                <i className="ri ri-money-rupee-circle-line text-success"></i>
+                                                <span>Package Rate</span>
+                                            </label>
+                                            <input 
+                                                type="text" 
+                                                className="form-control rounded-3"
+                                                placeholder="e.g. 4500, 6000/person, or ₹15,000"
+                                                value={formData.package_rate}
+                                                onChange={(e) => setFormData({ ...formData, package_rate: e.target.value })}
+                                            />
+                                        </div>
+                                    </div>
+
+                                    {/* 5. Next Follow-up Date & Extra Note */}
                                     <div className="row g-3">
                                         <div className="col-12 col-md-6">
                                             <label className="form-label small fw-bold text-danger">
@@ -1227,6 +1778,13 @@ export default function LeadFollowupsPage() {
                                                                 <span>
                                                                     <i className="ri ri-flight-takeoff-line text-info me-1"></i>
                                                                     Travel Date: <strong>{formatDate(log.travel_date)}</strong>
+                                                                </span>
+                                                            )}
+                                                            {log.package_name && (
+                                                                <span>
+                                                                    <i className="ri ri-suitcase-line text-warning me-1"></i>
+                                                                    Pkg: <strong>{log.package_name}</strong>
+                                                                    {log.package_rate && <span className="ms-1">(₹{log.package_rate})</span>}
                                                                 </span>
                                                             )}
                                                             <span>

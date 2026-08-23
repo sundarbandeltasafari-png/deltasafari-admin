@@ -12,8 +12,10 @@ import {
     getLeadManagersUrl,
     assignLeadUrl,
     saveLeadFollowupUrl,
+    convertLeadUrl,
     getSingleLeadFollowupUrl
 } from '@/app/routes/whatsappRoutes';
+import { getAllPackageUrl } from '@/app/routes/packageRoutes';
 import { axiosGet, axiosPost } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
 import LoadingComponent from '@/components/common/LoadingComponent';
@@ -37,6 +39,7 @@ export default function WhatsAppLeadsPage() {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterAssignee, setFilterAssignee] = useState('');
     const [managers, setManagers] = useState([]);
+    const [packageSuggestions, setPackageSuggestions] = useState([]);
 
     // Follow-up Modal State
     const [followupModalOpen, setFollowupModalOpen] = useState(false);
@@ -51,8 +54,24 @@ export default function WhatsAppLeadsPage() {
         travel_destination: '',
         number_of_persons: 1,
         total_rooms: 1,
+        package_name: '',
+        package_rate: '',
         next_followup_date: '',
         extra_note: ''
+    });
+
+    // Convert Lead Modal State
+    const [convertModalOpen, setConvertModalOpen] = useState(false);
+    const [convertingLead, setConvertingLead] = useState(false);
+    const [convertFormData, setConvertFormData] = useState({
+        contact_id: null,
+        lead_name: '',
+        phone: '',
+        email: '',
+        package_name: '',
+        converted_amount: '',
+        travel_date: '',
+        conversion_note: ''
     });
 
     // Chat Drawer / Modal State
@@ -83,11 +102,24 @@ export default function WhatsAppLeadsPage() {
     useEffect(() => {
         fetchContacts();
         fetchStats();
+        fetchPackages();
         if (isSuperAdmin) {
             fetchConfigStatus();
             fetchLeadManagers();
         }
     }, [token, user]);
+
+    const fetchPackages = async () => {
+        if (!token) return;
+        try {
+            const res = await axiosGet(getAllPackageUrl, token);
+            if (res?.status && Array.isArray(res.packages)) {
+                setPackageSuggestions(res.packages);
+            }
+        } catch (err) {
+            console.error('Error fetching packages:', err);
+        }
+    };
 
     const fetchLeadManagers = async () => {
         if (!token || !isSuperAdmin) return;
@@ -260,6 +292,8 @@ export default function WhatsAppLeadsPage() {
             travel_destination: 'Sundarban',
             number_of_persons: 2,
             total_rooms: 1,
+            package_name: '',
+            package_rate: '',
             next_followup_date: '',
             extra_note: ''
         });
@@ -279,6 +313,8 @@ export default function WhatsAppLeadsPage() {
                     travel_destination: f.travel_destination || 'Sundarban',
                     number_of_persons: f.number_of_persons || 2,
                     total_rooms: f.total_rooms || 1,
+                    package_name: f.package_name || '',
+                    package_rate: f.package_rate || '',
                     next_followup_date: formatDateVal(f.next_followup_date),
                     extra_note: ''
                 });
@@ -303,6 +339,50 @@ export default function WhatsAppLeadsPage() {
             showMessage('error', err.response?.data?.msg || err.message || 'Error saving follow-up');
         } finally {
             setSavingFollowup(false);
+        }
+    };
+
+    const handleOpenConvertModal = (item) => {
+        const formatDateVal = (d) => {
+            if (!d) return '';
+            try { return new Date(d).toISOString().split('T')[0]; } catch (e) { return ''; }
+        };
+
+        setConvertFormData({
+            contact_id: item.contact_id || item.id,
+            lead_name: item.lead_name || item.name || '',
+            phone: item.phone || item.wa_id || '',
+            email: item.email || '',
+            package_name: item.package_name || '',
+            converted_amount: item.package_rate || item.converted_amount || '',
+            travel_date: formatDateVal(item.travel_date),
+            conversion_note: ''
+        });
+        setConvertModalOpen(true);
+    };
+
+    const handleConfirmConvert = async (e) => {
+        e.preventDefault();
+        if (!convertFormData.contact_id) {
+            showMessage('error', 'Contact ID is missing.');
+            return;
+        }
+
+        setConvertingLead(true);
+        try {
+            const res = await axiosPost(convertLeadUrl, convertFormData, token);
+            if (res?.status) {
+                showMessage('success', '🎉 Lead marked as Converted successfully! Moved to Converted Leads section.');
+                setConvertModalOpen(false);
+                fetchContacts(searchTerm, filterAssignee);
+                fetchStats();
+            } else {
+                showMessage('error', res?.msg || 'Failed to convert lead.');
+            }
+        } catch (err) {
+            showMessage('error', err.response?.data?.msg || err.message || 'Error converting lead.');
+        } finally {
+            setConvertingLead(false);
         }
     };
 
@@ -681,6 +761,15 @@ export default function WhatsAppLeadsPage() {
                                             {/* Action Buttons */}
                                             <td className="text-center pe-3">
                                                 <div className="d-inline-flex align-items-center gap-1.5">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleOpenConvertModal(contact)}
+                                                        className="btn btn-sm btn-outline-success rounded-pill px-2.5 d-inline-flex align-items-center gap-1 shadow-xs fw-semibold"
+                                                        title="Mark Lead as Converted (Won Deal)"
+                                                    >
+                                                        <i className="ri ri-checkbox-circle-fill text-success"></i>
+                                                        <span>Convert</span>
+                                                    </button>
                                                     <button
                                                         type="button"
                                                         onClick={() => handleOpenFollowupModal(contact)}
@@ -1147,6 +1236,52 @@ export default function WhatsAppLeadsPage() {
                                         </div>
                                     </div>
 
+                                    {/* Package Information */}
+                                    <div className="row g-3 mb-3">
+                                        <div className="col-12 col-md-6">
+                                            <label className="form-label small fw-semibold d-flex align-items-center gap-1">
+                                                <i className="ri ri-suitcase-line text-primary"></i>
+                                                <span>Package Name</span>
+                                            </label>
+                                            <input 
+                                                type="text" 
+                                                list="wa_followup_package_options"
+                                                className="form-control rounded-3"
+                                                placeholder="e.g. 2D1N Sundarban Safari, Luxury Boat Tour"
+                                                value={followupFormData.package_name}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    const matched = packageSuggestions.find(p => (p.name === val || p.title === val));
+                                                    if (matched && matched.price && !followupFormData.package_rate) {
+                                                        setFollowupFormData({ ...followupFormData, package_name: val, package_rate: String(matched.price) });
+                                                    } else {
+                                                        setFollowupFormData({ ...followupFormData, package_name: val });
+                                                    }
+                                                }}
+                                            />
+                                            <datalist id="wa_followup_package_options">
+                                                {packageSuggestions.map((pkg) => (
+                                                    <option key={pkg.id} value={pkg.name || pkg.title}>
+                                                        {pkg.price ? `₹${pkg.price}` : ''}
+                                                    </option>
+                                                ))}
+                                            </datalist>
+                                        </div>
+                                        <div className="col-12 col-md-6">
+                                            <label className="form-label small fw-semibold d-flex align-items-center gap-1">
+                                                <i className="ri ri-money-rupee-circle-line text-success"></i>
+                                                <span>Package Rate</span>
+                                            </label>
+                                            <input 
+                                                type="text" 
+                                                className="form-control rounded-3"
+                                                placeholder="e.g. 4500, 6000/person, or ₹15,000"
+                                                value={followupFormData.package_rate}
+                                                onChange={(e) => setFollowupFormData({ ...followupFormData, package_rate: e.target.value })}
+                                            />
+                                        </div>
+                                    </div>
+
                                     {/* Next Follow-up Date & Extra Note */}
                                     <div className="row g-3">
                                         <div className="col-12 col-md-6">
@@ -1174,29 +1309,209 @@ export default function WhatsAppLeadsPage() {
                                     </div>
                                 </div>
 
-                                <div className="modal-footer bg-light py-3 px-4">
+                                <div className="modal-footer bg-light py-3 px-4 d-flex justify-content-between align-items-center">
+                                    <button 
+                                        type="button" 
+                                        onClick={() => {
+                                            const item = { ...followupFormData };
+                                            setFollowupModalOpen(false);
+                                            handleOpenConvertModal(item);
+                                        }}
+                                        className="btn btn-outline-success rounded-pill px-3 d-inline-flex align-items-center gap-1.5"
+                                        title="Mark as Converted"
+                                    >
+                                        <i className="ri ri-checkbox-circle-fill"></i>
+                                        <span>🎉 Mark Converted</span>
+                                    </button>
+                                    <div className="d-flex align-items-center gap-2">
+                                        <button 
+                                            type="button" 
+                                            className="btn btn-outline-secondary rounded-pill px-4" 
+                                            onClick={() => setFollowupModalOpen(false)}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button 
+                                            type="submit" 
+                                            disabled={savingFollowup}
+                                            className="btn btn-primary rounded-pill px-4 d-inline-flex align-items-center gap-1.5"
+                                            style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
+                                        >
+                                            {savingFollowup ? (
+                                                <>
+                                                    <span className="spinner-border spinner-border-sm" role="status"></span>
+                                                    <span>Saving...</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <i className="ri ri-save-line"></i>
+                                                    <span>Save Follow-up &amp; Log</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 6. Convert Lead Modal (Mark as Converted / Won Deal) */}
+            {convertModalOpen && (
+                <div 
+                    className="modal fade show d-block" 
+                    tabIndex="-1" 
+                    style={{ backgroundColor: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', zIndex: 1060 }}
+                >
+                    <div className="modal-dialog modal-dialog-centered modal-lg">
+                        <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                            {/* Modal Header */}
+                            <div className="modal-header bg-success text-white py-3 px-4 d-flex align-items-center justify-content-between">
+                                <div>
+                                    <h5 className="modal-title fw-bold text-white mb-0 d-flex align-items-center gap-2">
+                                        <i className="ri ri-trophy-fill fs-4 text-warning"></i>
+                                        <span>Mark Lead as Converted (Won Deal)</span>
+                                    </h5>
+                                    <small className="text-white-50">
+                                        Confirm closed booking and move from active follow-up queue to Converted section.
+                                    </small>
+                                </div>
+                                <button 
+                                    type="button" 
+                                    className="btn-close btn-close-white" 
+                                    onClick={() => setConvertModalOpen(false)}
+                                    aria-label="Close"
+                                ></button>
+                            </div>
+
+                            <form onSubmit={handleConfirmConvert}>
+                                <div className="modal-body p-4">
+                                    {/* Customer Overview Card */}
+                                    <div className="card bg-success bg-opacity-10 border-success border-opacity-25 rounded-3 p-3 mb-4">
+                                        <div className="row g-2 align-items-center">
+                                            <div className="col-12 col-md-6">
+                                                <span className="text-muted small text-uppercase fw-semibold d-block">Lead Name</span>
+                                                <span className="fw-bold text-dark fs-6">{convertFormData.lead_name || 'WhatsApp Customer'}</span>
+                                            </div>
+                                            <div className="col-12 col-md-6">
+                                                <span className="text-muted small text-uppercase fw-semibold d-block">WhatsApp Contact</span>
+                                                <span className="fw-bold text-success font-monospace">+{convertFormData.phone}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Final Package & Deal Rate */}
+                                    <div className="row g-3 mb-3">
+                                        <div className="col-12 col-md-6">
+                                            <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
+                                                <i className="ri ri-suitcase-line text-primary"></i>
+                                                <span>Booked Package Name</span>
+                                            </label>
+                                            <input 
+                                                type="text" 
+                                                list="wa_convert_package_options"
+                                                className="form-control rounded-3"
+                                                placeholder="e.g. 2D1N Sundarban Safari, Luxury Boat Tour"
+                                                value={convertFormData.package_name}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    const matched = packageSuggestions.find(p => (p.name === val || p.title === val));
+                                                    if (matched && matched.price && !convertFormData.converted_amount) {
+                                                        setConvertFormData({ ...convertFormData, package_name: val, converted_amount: String(matched.price) });
+                                                    } else {
+                                                        setConvertFormData({ ...convertFormData, package_name: val });
+                                                    }
+                                                }}
+                                            />
+                                            <datalist id="wa_convert_package_options">
+                                                {packageSuggestions.map((pkg) => (
+                                                    <option key={pkg.id} value={pkg.name || pkg.title}>
+                                                        {pkg.price ? `₹${pkg.price}` : ''}
+                                                    </option>
+                                                ))}
+                                            </datalist>
+                                        </div>
+                                        <div className="col-12 col-md-6">
+                                            <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
+                                                <i className="ri ri-money-rupee-circle-line text-success"></i>
+                                                <span>Final Agreed Booking Amount / Rate</span>
+                                            </label>
+                                            <div className="input-group">
+                                                <span className="input-group-text bg-light fw-bold">₹</span>
+                                                <input 
+                                                    type="text" 
+                                                    className="form-control rounded-end-3"
+                                                    placeholder="e.g. 15000 or 4500/pax"
+                                                    value={convertFormData.converted_amount}
+                                                    onChange={(e) => setConvertFormData({ ...convertFormData, converted_amount: e.target.value })}
+                                                />
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Confirmed Travel Date */}
+                                    <div className="row g-3 mb-3">
+                                        <div className="col-12 col-md-6">
+                                            <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
+                                                <i className="ri ri-calendar-check-line text-primary"></i>
+                                                <span>Confirmed / Estimated Travel Date</span>
+                                            </label>
+                                            <input 
+                                                type="date" 
+                                                className="form-control rounded-3"
+                                                value={convertFormData.travel_date}
+                                                onChange={(e) => setConvertFormData({ ...convertFormData, travel_date: e.target.value })}
+                                            />
+                                        </div>
+                                        <div className="col-12 col-md-6">
+                                            <div className="alert alert-success d-flex align-items-center gap-2 mb-0 py-2.5 px-3 rounded-3" style={{ fontSize: '12.5px' }}>
+                                                <i className="ri ri-checkbox-circle-fill fs-5 text-success"></i>
+                                                <div>
+                                                    <strong>Status Change:</strong> Lead will move to <strong>Converted Leads</strong> and be removed from the active follow-up queue.
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Conversion Remarks / Booking Notes */}
+                                    <div className="mb-2">
+                                        <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
+                                            <i className="ri ri-file-text-line text-secondary"></i>
+                                            <span>Conversion Remarks &amp; Booking Details</span>
+                                        </label>
+                                        <textarea
+                                            className="form-control rounded-3"
+                                            rows="3"
+                                            placeholder="e.g. Booking confirmed! Advance payment of ₹5,000 received via UPI. Booked AC Cottage for 4 pax. Client requested pickup at Canning station."
+                                            value={convertFormData.conversion_note}
+                                            onChange={(e) => setConvertFormData({ ...convertFormData, conversion_note: e.target.value })}
+                                        ></textarea>
+                                    </div>
+                                </div>
+
+                                <div className="modal-footer bg-light py-3 px-4 d-flex justify-content-between align-items-center">
                                     <button 
                                         type="button" 
                                         className="btn btn-outline-secondary rounded-pill px-4" 
-                                        onClick={() => setFollowupModalOpen(false)}
+                                        onClick={() => setConvertModalOpen(false)}
                                     >
                                         Cancel
                                     </button>
                                     <button 
                                         type="submit" 
-                                        disabled={savingFollowup}
-                                        className="btn btn-primary rounded-pill px-4 d-inline-flex align-items-center gap-1.5"
-                                        style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
+                                        disabled={convertingLead}
+                                        className="btn btn-success rounded-pill px-4 d-inline-flex align-items-center gap-2 shadow-sm"
                                     >
-                                        {savingFollowup ? (
+                                        {convertingLead ? (
                                             <>
                                                 <span className="spinner-border spinner-border-sm" role="status"></span>
-                                                <span>Saving...</span>
+                                                <span>Marking Converted...</span>
                                             </>
                                         ) : (
                                             <>
-                                                <i className="ri ri-save-line"></i>
-                                                <span>Save Follow-up &amp; Log</span>
+                                                <i className="ri ri-checkbox-circle-fill"></i>
+                                                <span>🎉 Confirm &amp; Mark as Converted</span>
                                             </>
                                         )}
                                     </button>

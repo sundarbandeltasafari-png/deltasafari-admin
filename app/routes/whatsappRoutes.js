@@ -15,7 +15,60 @@ export const assignLeadUrl = `${SERVER_URL}admin/whatsapp/assign-lead`;
 
 // Lead Follow-up & Pipeline Endpoints
 export const saveLeadFollowupUrl = `${SERVER_URL}admin/crm/followups/save`;
+export const convertLeadUrl = `${SERVER_URL}admin/crm/followups/convert`;
+export const reopenLeadUrl = `${SERVER_URL}admin/crm/followups/reopen`;
 export const getFollowupsListUrl = `${SERVER_URL}admin/crm/followups`;
 export const getFollowupStatsUrl = `${SERVER_URL}admin/crm/followups/stats`;
 export const getSingleLeadFollowupUrl = `${SERVER_URL}admin/crm/followups/contact/`;
 export const getFollowupLogsUrl = `${SERVER_URL}admin/crm/followups/logs/`;
+
+// WhatsApp Marketing & Broadcast Campaign Endpoints
+export const getMarketingAudienceLeadsUrl = `${SERVER_URL}admin/whatsapp/marketing/leads`;
+export const createMarketingCampaignUrl = `${SERVER_URL}admin/whatsapp/marketing/campaigns`;
+export const getMarketingCampaignsUrl = `${SERVER_URL}admin/whatsapp/marketing/campaigns`;
+export const getMarketingCampaignDetailsUrl = `${SERVER_URL}admin/whatsapp/marketing/campaigns/`;
+
+// Safari Peak Dates & Calendar Endpoints
+export const getPeakDatesUrl = `${SERVER_URL}admin/crm/peak-dates`;
+export const createPeakDateUrl = `${SERVER_URL}admin/crm/peak-dates`;
+export const updatePeakDateUrl = `${SERVER_URL}admin/crm/peak-dates/`;
+export const deletePeakDateUrl = `${SERVER_URL}admin/crm/peak-dates/`;
+
+// Billing & Customer Invoice Endpoints
+export const getInvoicesListUrl = `${SERVER_URL}admin/crm/invoices`;
+export const createInvoiceUrl = `${SERVER_URL}admin/crm/invoices`;
+export const getSingleInvoiceUrl = `${SERVER_URL}admin/crm/invoices/`;
+export const deleteInvoiceUrl = `${SERVER_URL}admin/crm/invoices/`;
+export const getInvoiceConfigUrl = `${SERVER_URL}admin/crm/invoices/config`;
+export const updateInvoiceConfigUrl = `${SERVER_URL}admin/crm/invoices/config`;
+export const getNextInvoiceNumberUrl = `${SERVER_URL}admin/crm/invoices/next-number`;
+export const getBillingStatsUrl = `${SERVER_URL}admin/crm/invoices/stats`;
+
+// Task Management & Kanban Board Endpoints
+export const getTasksListUrl = `${SERVER_URL}admin/crm/tasks`;
+export const createTaskUrl = `${SERVER_URL}admin/crm/tasks`;
+export const getSingleTaskUrl = `${SERVER_URL}admin/crm/tasks/`;
+export const updateTaskStatusUrl = `${SERVER_URL}admin/crm/tasks/`; // append :id/status
+export const updateTaskUrl = `${SERVER_URL}admin/crm/tasks/`; // append :id
+export const deleteTaskUrl = `${SERVER_URL}admin/crm/tasks/`; // append :id
+export const getTaskStatsUrl = `${SERVER_URL}admin/crm/tasks/stats`;
+export const getTaskUsersUrl = `${SERVER_URL}admin/crm/tasks/users`;
+export const addTaskCommentUrl = `${SERVER_URL}admin/crm/tasks/`; // append :id/comments
+
+// Notice Board Endpoints (All Admin Users)
+export const getNoticesListUrl = `${SERVER_URL}admin/crm/notices`;
+export const createNoticeUrl = `${SERVER_URL}admin/crm/notices`;
+export const getSingleNoticeUrl = `${SERVER_URL}admin/crm/notices/`; // append :id
+export const updateNoticeUrl = `${SERVER_URL}admin/crm/notices/`; // append :id
+export const togglePinNoticeUrl = `${SERVER_URL}admin/crm/notices/`; // append :id/pin
+export const deleteNoticeUrl = `${SERVER_URL}admin/crm/notices/`; // append :id
+export const getNoticeStatsUrl = `${SERVER_URL}admin/crm/notices/stats`;
+
+// Real-Time Team Chat Endpoints (Socket.io + REST)
+export const getChatUsersUrl = `${SERVER_URL}admin/crm/chat/users`;
+export const getChatConversationsUrl = `${SERVER_URL}admin/crm/chat/conversations`;
+export const createDirectChatUrl = `${SERVER_URL}admin/crm/chat/conversations/direct`;
+export const getChatMessagesUrl = `${SERVER_URL}admin/crm/chat/conversations/`; // append :id/messages
+export const sendChatMessageUrl = `${SERVER_URL}admin/crm/chat/conversations/`; // append :id/messages
+export const markChatReadUrl = `${SERVER_URL}admin/crm/chat/conversations/`; // append :id/read
+export const uploadChatFileUrl = `${SERVER_URL}admin/crm/chat/upload`;

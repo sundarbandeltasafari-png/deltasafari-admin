@@ -215,12 +215,6 @@ function HeaderAdmin() {
                                 <div data-i18n="WhatsApp Leads">WhatsApp Leads</div>
                             </Link>
                         </li>
-                        <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/followups") ? 'active' : ''}`} onClick={openParentmenu}>
-                            <Link href="/crm/followups" className="menu-link">
-                                <i className="menu-icon icon-base ri ri-calendar-check-line text-warning"></i>
-                                <div data-i18n="Lead Follow-ups">Lead Follow-ups</div>
-                            </Link>
-                        </li>
                         {user?.admin === 1 && (
                             <li className={`menu-item menu-item-parent ${pathname == "/crm/assign-leads" ? 'active' : ''}`} onClick={openParentmenu}>
                                 <Link href="/crm/assign-leads" className="menu-link">
@@ -229,6 +223,64 @@ function HeaderAdmin() {
                                 </Link>
                             </li>
                         )}
+                        <li className={`menu-item menu-item-parent ${pathname === "/crm/followups" ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/crm/followups" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-calendar-check-line text-warning"></i>
+                                <div data-i18n="Lead Follow-ups">Lead Follow-ups</div>
+                            </Link>
+                        </li>
+                        <li className={`menu-item menu-item-parent ${pathname === "/crm/converted" ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/crm/converted" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-checkbox-circle-line text-success"></i>
+                                <div data-i18n="Converted Leads">Converted Leads</div>
+                            </Link>
+                        </li>
+                        {user?.admin === 1 && (
+                            <>
+                                <li className={`menu-item menu-item-parent ${pathname === "/crm/invoices" ? 'active' : ''}`} onClick={openParentmenu}>
+                                    <Link href="/crm/invoices" className="menu-link">
+                                        <i className="menu-icon icon-base ri ri-bill-line text-primary"></i>
+                                        <div data-i18n="Invoices & Billing">Invoices &amp; Billing</div>
+                                    </Link>
+                                </li>
+                                <li className={`menu-item menu-item-parent ${pathname === "/crm/invoices/config" ? 'active' : ''}`} onClick={openParentmenu}>
+                                    <Link href="/crm/invoices/config" className="menu-link">
+                                        <i className="menu-icon icon-base ri ri-settings-3-line text-secondary"></i>
+                                        <div data-i18n="Invoice Configuration">Invoice Configuration</div>
+                                    </Link>
+                                </li>
+                            </>
+                        )}
+                        <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/marketing") ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/crm/marketing" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-megaphone-line text-info"></i>
+                                <div data-i18n="WhatsApp Marketing">WhatsApp Marketing</div>
+                            </Link>
+                        </li>
+                        <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/calendar") ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/crm/calendar" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-calendar-event-line text-danger"></i>
+                                <div data-i18n="Safari Peak Calendar">Safari Peak Calendar</div>
+                            </Link>
+                        </li>
+                        <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/tasks") ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/crm/tasks" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-kanban-view-2 text-warning"></i>
+                                <div data-i18n="Tasks & Kanban">Tasks &amp; Kanban</div>
+                            </Link>
+                        </li>
+                        <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/notices") ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/crm/notices" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-notification-badge-line text-info"></i>
+                                <div data-i18n="Notice Board">Notice Board</div>
+                            </Link>
+                        </li>
+                        <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/chat") ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/crm/chat" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-chat-smile-2-line text-success"></i>
+                                <div data-i18n="Team Chat">Team Chat</div>
+                            </Link>
+                        </li>
 
                         {/* Common Section */}
                         {showCommonSection && (

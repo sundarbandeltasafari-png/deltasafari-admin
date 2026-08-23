@@ -491,25 +491,6 @@ export default function InvoicesPage() {
         setPrintModalOpen(true);
     };
 
-    if (user && user.admin !== 1) {
-        return (
-            <div className="container-xxl flex-grow-1 container-p-y text-center py-5">
-                <div className="card p-5 border-0 shadow-sm rounded-4 mx-auto bg-white" style={{ maxWidth: '500px' }}>
-                    <div className="avatar avatar-xl rounded-circle bg-label-danger mx-auto mb-3 d-flex align-items-center justify-content-center">
-                        <i className="ri ri-lock-2-fill fs-2 text-danger"></i>
-                    </div>
-                    <h4 className="fw-bold mb-2 text-dark">Access Restricted</h4>
-                    <p className="text-muted small mb-4">
-                        Billing and Invoice Generation is restricted to Super Administrators. Regular staff accounts cannot view or create customer invoices.
-                    </p>
-                    <Link href="/crm/whatsapp" className="btn btn-primary rounded-pill px-4">
-                        Back to WhatsApp CRM
-                    </Link>
-                </div>
-            </div>
-        );
-    }
-
     return (
         <div className="container-xxl flex-grow-1 container-p-y">
             {/* 1. Header Banner */}
@@ -550,10 +531,12 @@ export default function InvoicesPage() {
                         <i className="ri ri-add-circle-fill"></i>
                         <span>+ Create Invoice</span>
                     </button>
-                    <Link href="/crm/invoices/config" className="btn btn-outline-secondary rounded-pill px-3 d-inline-flex align-items-center gap-1.5 shadow-xs">
-                        <i className="ri ri-settings-4-line"></i>
-                        <span>Settings</span>
-                    </Link>
+                    {Number(user?.admin) === 1 && (
+                        <Link href="/crm/invoices/config" className="btn btn-outline-secondary rounded-pill px-3 d-inline-flex align-items-center gap-1.5 shadow-xs">
+                            <i className="ri ri-settings-4-line"></i>
+                            <span>Settings</span>
+                        </Link>
+                    )}
                 </div>
             </div>
 
@@ -861,16 +844,18 @@ export default function InvoicesPage() {
                                                     <i className="ri ri-whatsapp-fill"></i>
                                                 </a>
 
-                                                {/* Delete */}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleDeleteInvoice(inv.id, inv.invoice_no)}
-                                                    className="btn btn-sm btn-outline-danger rounded-circle p-1.5"
-                                                    title="Delete Invoice"
-                                                    style={{ width: '32px', height: '32px' }}
-                                                >
-                                                    <i className="ri ri-delete-bin-line"></i>
-                                                </button>
+                                                {/* Delete (Super Admin only) */}
+                                                {Number(user?.admin) === 1 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleDeleteInvoice(inv.id, inv.invoice_no)}
+                                                        className="btn btn-sm btn-outline-danger rounded-circle p-1.5"
+                                                        title="Delete Invoice"
+                                                        style={{ width: '32px', height: '32px' }}
+                                                    >
+                                                        <i className="ri ri-delete-bin-line"></i>
+                                                    </button>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>

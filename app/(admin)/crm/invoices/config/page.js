@@ -104,7 +104,7 @@ export default function InvoiceConfigPage() {
         }
     };
 
-    if (user && user.admin !== 1) {
+    if (user && Number(user.admin) !== 1) {
         return (
             <div className="container-xxl flex-grow-1 container-p-y text-center py-5">
                 <div className="card p-5 border-0 shadow-sm rounded-4 mx-auto bg-white" style={{ maxWidth: '500px' }}>
@@ -115,8 +115,8 @@ export default function InvoiceConfigPage() {
                     <p className="text-muted small mb-4">
                         Invoice and Billing Configuration is restricted to Super Administrators. Regular staff accounts cannot modify invoice template settings.
                     </p>
-                    <Link href="/crm/whatsapp" className="btn btn-primary rounded-pill px-4">
-                        Back to WhatsApp CRM
+                    <Link href="/crm/invoices" className="btn btn-primary rounded-pill px-4">
+                        Back to Invoices
                     </Link>
                 </div>
             </div>

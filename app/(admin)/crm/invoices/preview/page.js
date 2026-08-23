@@ -77,25 +77,6 @@ export default function DummyInvoicePreviewPage() {
         }
     }, [token]);
 
-    if (user && user.admin !== 1) {
-        return (
-            <div className="container-xxl flex-grow-1 container-p-y text-center py-5">
-                <div className="card p-5 border-0 shadow-sm rounded-4 mx-auto bg-white" style={{ maxWidth: '500px' }}>
-                    <div className="avatar avatar-xl rounded-circle bg-label-danger mx-auto mb-3 d-flex align-items-center justify-content-center">
-                        <i className="ri ri-lock-2-fill fs-2 text-danger"></i>
-                    </div>
-                    <h4 className="fw-bold mb-2 text-dark">Access Restricted</h4>
-                    <p className="text-muted small mb-4">
-                        Only Super Administrators can view and configure customer invoices.
-                    </p>
-                    <Link href="/crm/whatsapp" className="btn btn-primary rounded-pill px-4">
-                        Back to CRM
-                    </Link>
-                </div>
-            </div>
-        );
-    }
-
     return (
         <div className="container-xxl flex-grow-1 container-p-y">
             {/* Header Control Toolbar */}

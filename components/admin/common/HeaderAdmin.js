@@ -235,21 +235,19 @@ function HeaderAdmin() {
                                 <div data-i18n="Converted Leads">Converted Leads</div>
                             </Link>
                         </li>
-                        {user?.admin === 1 && (
-                            <>
-                                <li className={`menu-item menu-item-parent ${pathname === "/crm/invoices" ? 'active' : ''}`} onClick={openParentmenu}>
-                                    <Link href="/crm/invoices" className="menu-link">
-                                        <i className="menu-icon icon-base ri ri-bill-line text-primary"></i>
-                                        <div data-i18n="Invoices & Billing">Invoices &amp; Billing</div>
-                                    </Link>
-                                </li>
-                                <li className={`menu-item menu-item-parent ${pathname === "/crm/invoices/config" ? 'active' : ''}`} onClick={openParentmenu}>
-                                    <Link href="/crm/invoices/config" className="menu-link">
-                                        <i className="menu-icon icon-base ri ri-settings-3-line text-secondary"></i>
-                                        <div data-i18n="Invoice Configuration">Invoice Configuration</div>
-                                    </Link>
-                                </li>
-                            </>
+                        <li className={`menu-item menu-item-parent ${pathname === "/crm/invoices" ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/crm/invoices" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-bill-line text-primary"></i>
+                                <div data-i18n="Invoices & Billing">Invoices &amp; Billing</div>
+                            </Link>
+                        </li>
+                        {Number(user?.admin) === 1 && (
+                            <li className={`menu-item menu-item-parent ${pathname === "/crm/invoices/config" ? 'active' : ''}`} onClick={openParentmenu}>
+                                <Link href="/crm/invoices/config" className="menu-link">
+                                    <i className="menu-icon icon-base ri ri-settings-3-line text-secondary"></i>
+                                    <div data-i18n="Invoice Configuration">Invoice Configuration</div>
+                                </Link>
+                            </li>
                         )}
                         <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/marketing") ? 'active' : ''}`} onClick={openParentmenu}>
                             <Link href="/crm/marketing" className="menu-link">

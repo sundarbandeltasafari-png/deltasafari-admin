@@ -8,8 +8,9 @@ function FilterUser({ type, allPermisions, setUserStatus, setRoleChange }) {
       <div className="d-flex justify-content-start align-items-center row gx-5 pt-4 gap-5 gap-md-0">
         {type == 'adminuser' && <div className="col-md-4 user_role">
           <select id="UserRole" onChange={(e)=> { setRoleChange(e.target.value) }} className="form-select text-capitalize">
+            <option value="">All Roles</option>
             {
-              allPermisions.map((per, index) => {
+              allPermisions && allPermisions.map((per, index) => {
                 return <option key={index} value={per?.id}>{per?.name}</option>
               })
             }

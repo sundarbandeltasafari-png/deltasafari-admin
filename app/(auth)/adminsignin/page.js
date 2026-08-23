@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useDispatch } from 'react-redux';
 import { setUser } from '@/services/reducers/adminAuthSlices';
+import { updatePermision } from '@/services/reducers/permisionSlice';
 import { showMessage } from '@/libs/commonHelper';
 import { loginUrl } from '../../routes/authRoutes';
 
@@ -49,8 +50,14 @@ const SignIn = () => {
         setLoading(false);
         if (res?.status) {
           dispatch(setUser({ user: res?.userDetails, token: res?.token }));
+          const userPerms = res?.permissions || [];
+          dispatch(updatePermision({ permisions: userPerms }));
           showMessage("success", "Admin authentication successful!");
-          route.push("/");
+          if (res?.userDetails?.admin === 2 && !userPerms.includes('/dashboard') && !userPerms.includes('*')) {
+            route.push("/crm/whatsapp");
+          } else {
+            route.push("/");
+          }
         } else {
           const msg = res?.msg || "Authentication failed. Please verify credentials.";
           setServerError(msg);

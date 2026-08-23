@@ -4,3 +4,4 @@ export const createPermisionUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/us
 export const getPermisionsUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/getPermisions`;
 export const getParticularPermisionUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/getParticularPermisions`;
 export const editPermisionUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/editPermision`;
+export const deletePermisionUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/deletePermision`;

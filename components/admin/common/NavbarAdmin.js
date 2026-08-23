@@ -82,59 +82,68 @@ function NavbarAdmin() {
                         <li className="nav-item navbar-dropdown dropdown-user dropdown">
                             <a className="nav-link dropdown-toggle hide-arrow" href="javascript:void(0);" data-bs-toggle="dropdown">
                                 <div className="avatar avatar-online">
-                                    <img src="../../assets/img/avatars/1.png" alt="avatar" className="rounded-circle" />
+                                    <img 
+                                        src={user?.profile_picture ? (user.profile_picture.startsWith('data:') || user.profile_picture.startsWith('http') ? user.profile_picture : process.env.NEXT_PUBLIC_SERVER_URL + user.profile_picture) : "/assets/img/avatars/1.png"} 
+                                        alt="avatar" 
+                                        className="rounded-circle" 
+                                        style={{ width: "38px", height: "38px", objectFit: "cover" }}
+                                    />
                                 </div>
                             </a>
                             <ul className="dropdown-menu dropdown-menu-end mt-3 py-2">
                                 <li>
-                                    <a className="dropdown-item" href="pages-account-settings-account.html">
+                                    <Link className="dropdown-item" href={user?.id ? `/adminusers/view?id=${user.id}` : '#'}>
                                         <div className="d-flex align-items-center">
                                             <div className="flex-shrink-0 me-2">
                                                 <div className="avatar avatar-online">
                                                     <img
-                                                        src="../../assets/img/avatars/1.png"
+                                                        src={user?.profile_picture ? (user.profile_picture.startsWith('data:') || user.profile_picture.startsWith('http') ? user.profile_picture : process.env.NEXT_PUBLIC_SERVER_URL + user.profile_picture) : "/assets/img/avatars/1.png"} 
                                                         alt="alt"
-                                                        className="w-px-40 h-auto rounded-circle" />
+                                                        className="w-px-40 h-auto rounded-circle" 
+                                                        style={{ width: "40px", height: "40px", objectFit: "cover" }}
+                                                    />
                                                 </div>
                                             </div>
                                             <div className="flex-grow-1">
-                                                <h6 className="mb-0 small">{user?.first_name+' '+user?.last_name}</h6>
+                                                <h6 className="mb-0 small">{user?.first_name ? `${user.first_name} ${user?.last_name || ''}` : 'Admin User'}</h6>
                                                 <small className="text-body-secondary">
                                                     {
                                                         user?.admin == 1 ?
-                                                        'Admin'
+                                                        'Super Admin'
                                                         :
                                                         user?.admin == 2 ?
-                                                        'Sub Admin'
+                                                        'Admin User'
                                                         :
                                                         'Unauthorised User'
                                                     }
                                                 </small>
                                             </div>
                                         </div>
-                                    </a>
+                                    </Link>
                                 </li>
                                 <li>
                                     <div className="dropdown-divider"></div>
                                 </li>
                                 <li>
-                                    <a className="dropdown-item" href="pages-profile-user.html">
-                                        <i className="icon-base ri ri-user-3-line icon-22px me-3"></i
-                                        ><span className="align-middle">My Profile</span>
-                                    </a>
+                                    <Link className="dropdown-item" href={user?.id ? `/adminusers/view?id=${user.id}` : '/adminusers'}>
+                                        <i className="icon-base ri ri-user-3-line icon-22px me-3"></i>
+                                        <span className="align-middle">My Profile</span>
+                                    </Link>
                                 </li>
-                                <li>
-                                    <a className="dropdown-item" href="pages-account-settings-account.html">
-                                        <i className="icon-base ri ri-settings-4-line icon-22px me-3"></i
-                                        ><span className="align-middle">Settings</span>
-                                    </a>
-                                </li>
+                                {user?.admin === 1 && (
+                                    <li>
+                                        <Link className="dropdown-item" href="/generalsettings">
+                                            <i className="icon-base ri ri-settings-4-line icon-22px me-3"></i>
+                                            <span className="align-middle">Settings</span>
+                                        </Link>
+                                    </li>
+                                )}
                                 <li>
                                     <div className="dropdown-divider"></div>
                                 </li>
                                 <li>
                                     <div className="d-grid px-4 pt-2 pb-1">
-                                        <Link className="btn btn-sm btn-danger d-flex" href="/logout">
+                                        <Link className="btn btn-sm btn-danger d-flex justify-content-center align-items-center" href="/logout">
                                             <small className="align-middle">Logout</small>
                                             <i className="icon-base ri ri-logout-box-r-line ms-2 icon-16px"></i>
                                         </Link>

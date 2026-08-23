@@ -8,6 +8,8 @@ export const createReporter = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/i
 export const getAllAdminUsersUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/getAllAdminUser`;
 export const getAdminUserStatusUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/adminUserStatus?user=2`;
 export const createAdminUser = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/insertAdminUser`;
+export const getParticularAdminUserUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/getParticularAdminUser`;
+export const updateAdminUserUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/updateAdminUser`;
 export const getUserSearchUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/getUserSearch`;
 
 

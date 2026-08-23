@@ -6,4 +6,5 @@ export const adminResetPasswordReqUrl = `${SERVER_URL}admin/resetpassword`;
 export const adminVerifyOtpUrl = `${SERVER_URL}admin/verify-otp`;
 export const adminResetPasswordUrl = `${SERVER_URL}admin/otpvalidate`;
 export const adminResendOtpUrl = `${SERVER_URL}admin/resend-otp`;
+export const adminGetUserDetailsUrl = `${SERVER_URL}admin/getUserDetails`;
 

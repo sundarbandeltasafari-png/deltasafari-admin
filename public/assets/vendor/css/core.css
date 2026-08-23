@@ -27276,7 +27276,7 @@ body:not(.modal-open) .layout-navbar-full .layout-navbar {
   z-index: 1080;
 }
 body:not(.modal-open) .layout-content-navbar .layout-navbar {
-  z-index: 1075;
+  z-index: 555;
 }
 
 /* Menu horizontal */

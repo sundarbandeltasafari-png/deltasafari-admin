@@ -21,11 +21,12 @@ function page() {
     const [loading, setLoading] = useState(true);
     const [users, setusers] = useState([]);
     const token = useSelector((state) => state.adminAuth?.token);
+    const currentUser = useSelector((state) => state.adminAuth?.user);
     const [loadingStatus, setLoadingStatus] = useState(true);
     const [usersStatus, setusersStatus] = useState();
     const [usersFilterStatus, setUsersFilterStatus] = useState();
     const [searchData, setSearchData] = useState('')
-    const permisions = useSelector((state) => state.permision?.permisions);
+    const permisions = useSelector((state) => state.permision?.permisions || []);
 
     useEffect(() => {
         if(searchData || usersFilterStatus){
@@ -149,7 +150,7 @@ function page() {
                                                             <span className="dt-column-title" role="button">Status / Approval</span>
                                                             <span className="dt-column-order"></span>
                                                         </th>
-                                                        <th data-dt-column="7" rowSpan="1" colSpan="1" className="dt-orderable-none" aria-label="Actions">
+                                                        <th data-dt-column="7" rowSpan="1" colSpan="1" className="dt-orderable-none text-center pe-4" aria-label="Actions" style={{ minWidth: '140px' }}>
                                                             <span className="dt-column-title">Actions</span>
                                                             <span className="dt-column-order"></span>
                                                         </th>
@@ -166,7 +167,7 @@ function page() {
                                                                         </div>
                                                                     </div>
                                                                     <div className="d-flex flex-column">
-                                                                        <a href="app-user-view-account.html" className="text-heading text-truncate">
+                                                                        <a href={`/users/view?id=${urlEncode(user?.id)}`} className="text-heading text-truncate text-decoration-none hover-primary">
                                                                             <span className="fw-medium">{user?.first_name + " " + user?.last_name}</span>
                                                                         </a>
                                                                         <small className="text-muted">
@@ -197,20 +198,40 @@ function page() {
                                                                     </button>
                                                                 )}
                                                             </td>
-                                                            <td>
-                                                                <div className="d-flex align-items-center">
-                                                                    <ViewButton hrefPath={`/users/view?id=${urlEncode(user?.id)}`} viewPath={"/users"} />
-                                                                    {permisions.includes('/users/edit') && <>
-                                                                        <a href="javascript:;" className="btn btn-icon btn-text-secondary rounded-pill dropdown-toggle hide-arrow" data-bs-toggle="dropdown">
-                                                                            <i className="icon-base ri ri-more-2-line icon-md"></i>
+                                                            <td className="text-center pe-4">
+                                                                <div className="d-flex justify-content-center align-items-center gap-2">
+                                                                    {/* View Details */}
+                                                                    <a 
+                                                                        onClick={() => { route.push(`/users/view?id=${urlEncode(user?.id)}`) }} 
+                                                                        className="btn btn-icon btn-sm btn-text-secondary rounded-pill text-primary"
+                                                                        style={{ cursor: 'pointer', width: '38px', height: '38px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                                                                        title="View User Details"
+                                                                    >
+                                                                        <i className="icon-base ri ri-eye-line fs-4"></i>
+                                                                    </a>
+
+                                                                    {/* Edit User */}
+                                                                    {(currentUser?.admin === 1 || permisions.includes('*') || permisions.includes('/users/edit') || permisions.includes('/users')) && (
+                                                                        <a 
+                                                                            onClick={() => { route.push(`/users/edit?id=${urlEncode(user?.id)}`) }} 
+                                                                            className="btn btn-icon btn-sm btn-text-secondary rounded-pill text-info"
+                                                                            style={{ cursor: 'pointer', width: '38px', height: '38px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                                                                            title="Edit User"
+                                                                        >
+                                                                            <i className="icon-base ri ri-edit-box-line fs-4"></i>
                                                                         </a>
-                                                                        <div className="dropdown-menu dropdown-menu-end m-0">
-                                                                            <a onClick={() => { route.push(`/users/edit?id=${urlEncode(user?.id)}`) }} className="dropdown-item text-primary" style={{cursor: 'pointer'}}>Edit</a>
-                                                                            <a onClick={() => handleToggleStatus(user)} className="dropdown-item text-warning" style={{cursor: 'pointer'}}>
-                                                                                {user.status == 1 ? 'Deactivate' : 'Activate Account'}
-                                                                            </a>
-                                                                        </div>
-                                                                    </>}
+                                                                    )}
+
+                                                                    {/* Toggle Status */}
+                                                                    <button 
+                                                                        type="button" 
+                                                                        onClick={() => handleToggleStatus(user)}
+                                                                        className={`btn btn-icon btn-sm btn-text-secondary rounded-pill ${user.status == 1 ? "text-danger" : "text-success"}`}
+                                                                        style={{ cursor: 'pointer', width: '38px', height: '38px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                                                                        title={user.status == 1 ? "Deactivate User" : "Activate User"}
+                                                                    >
+                                                                        <i className={`icon-base ri ${user.status == 1 ? "ri-user-forbid-line" : "ri-user-follow-line"} fs-4`}></i>
+                                                                    </button>
                                                                 </div>
                                                             </td>
                                                         </tr>

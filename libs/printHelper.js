@@ -33,24 +33,26 @@ export function printInvoiceDocument({ invoice, config }) {
         ? (invoice.terms_text || config?.terms_conditions).split('\n').filter(t => t.trim() !== '')
         : defaultTerms;
 
-    const items = Array.isArray(invoice.items) && invoice.items.length > 0
-        ? invoice.items
-        : [
+    let items = [];
+    if (Array.isArray(invoice.items) && invoice.items.length > 0) {
+        items = invoice.items;
+    } else if (typeof invoice.items === 'string') {
+        try { items = JSON.parse(invoice.items); } catch (e) { items = []; }
+    } else if (typeof invoice.items_json === 'string') {
+        try { items = JSON.parse(invoice.items_json); } catch (e) { items = []; }
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
+        items = [
             {
                 sn: 1,
-                description: '2N 3D Sundarban Hilsa Festivle Special(5 Sharing)',
-                rate: 2700,
-                person: 5,
-                amount: 13500
-            },
-            {
-                sn: 2,
-                description: 'AC Charges',
-                rate: 1000,
-                person: '',
-                amount: 1000
+                description: invoice.package_name || 'Sundarban Tour Package',
+                rate: invoice.subtotal || invoice.total_due_amount || 0,
+                person: invoice.number_of_pax || 1,
+                amount: invoice.subtotal || invoice.total_due_amount || 0
             }
         ];
+    }
 
     const formatDate = (dStr) => {
         if (!dStr) return '';
@@ -85,7 +87,7 @@ export function printInvoiceDocument({ invoice, config }) {
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Invoice - ${invoice.invoice_no || 'INV-0030018'}</title>
+    <title>Invoice - ${invoice.invoice_no || 'INV-2026-09-056962'}</title>
     <style>
         @page {
             size: A4 portrait;
@@ -143,7 +145,7 @@ export function printInvoiceDocument({ invoice, config }) {
         <div style="border: 1px solid #000000; margin-bottom: -1px;">
             <div style="display: flex; border-bottom: 1px solid #000000;">
                 <div style="width: 50%; padding: 4px 8px; border-right: 1px solid #000000; font-size: 11.5px; font-weight: 500;">
-                    Invoice No : <span style="font-weight: normal;">${invoice.invoice_no || 'INV-0030018'}</span>
+                    Invoice No : <span style="font-weight: normal;">${invoice.invoice_no || 'INV-2026-09-056962'}</span>
                 </div>
                 <div style="width: 50%; padding: 4px 8px; font-size: 11.5px; font-weight: 500;">
                     Date : <span style="font-weight: normal;">${formatDate(invoice.invoice_date) || '20/08/2026'}</span>
@@ -233,7 +235,7 @@ export function printInvoiceDocument({ invoice, config }) {
                         <tr style="border-bottom: 1px solid #000000;">
                             <td colspan="4" style="border-right: 1px solid #000000;"></td>
                             <td style="width: 110px; text-align: center; padding: 4px 6px; font-weight: 500;">
-                                ${invoice.subtotal || 14500}
+                                ${invoice.subtotal !== undefined && invoice.subtotal !== null ? invoice.subtotal : (invoice.total_amount || 0)}
                             </td>
                         </tr>
                         <tr>
@@ -241,10 +243,27 @@ export function printInvoiceDocument({ invoice, config }) {
                             <td style="width: 40px; padding: 3px 0 3px 6px; font-weight: 500;">Add :</td>
                             <td style="padding: 3px 4px;">GST</td>
                             <td style="width: 60px; text-align: right; padding: 3px 12px 3px 4px; border-right: 1px solid #000000;">
-                                ${invoice.gst_percent > 0 ? `${invoice.gst_percent}%` : '5%'}
+                                ${(() => {
+                                    const rawGst = invoice.gst_percent !== undefined && invoice.gst_percent !== null && invoice.gst_percent !== ''
+                                        ? invoice.gst_percent
+                                        : (config?.default_gst_percent !== undefined && config?.default_gst_percent !== null ? config.default_gst_percent : 0);
+                                    const parsedGst = parseFloat(rawGst);
+                                    return `${isNaN(parsedGst) ? 0 : parsedGst}%`;
+                                })()}
                             </td>
                             <td style="width: 110px; text-align: center; padding: 3px 6px;">
-                                ${invoice.gst_amount > 0 ? invoice.gst_amount : 'N/A'}
+                                ${(() => {
+                                    if (invoice.gst_amount !== undefined && invoice.gst_amount !== null && invoice.gst_amount !== '') {
+                                        const amt = parseFloat(invoice.gst_amount);
+                                        return isNaN(amt) ? 0 : amt;
+                                    }
+                                    const rawGst = invoice.gst_percent !== undefined && invoice.gst_percent !== null && invoice.gst_percent !== ''
+                                        ? invoice.gst_percent
+                                        : (config?.default_gst_percent !== undefined && config?.default_gst_percent !== null ? config.default_gst_percent : 0);
+                                    const parsedGst = parseFloat(rawGst);
+                                    if (isNaN(parsedGst) || parsedGst <= 0) return 0;
+                                    return Math.round((parseFloat(invoice.subtotal) || 0) * (parsedGst / 100));
+                                })()}
                             </td>
                         </tr>
                         <tr>
@@ -252,17 +271,17 @@ export function printInvoiceDocument({ invoice, config }) {
                             <td style="padding: 3px 0 3px 6px; font-weight: 500;">Add :</td>
                             <td colspan="2" style="padding: 3px 4px; border-right: 1px solid #000000;">Discount</td>
                             <td style="width: 110px; text-align: center; padding: 3px 6px;">
-                                ${invoice.discount_amount || 0}
+                                ${invoice.discount_amount !== undefined && invoice.discount_amount !== null ? invoice.discount_amount : 0}
                             </td>
                         </tr>
                         <tr style="border-bottom: 1px solid #000000;">
                             <td style="border-right: 1px solid #000000;"></td>
                             <td style="padding: 3px 0 3px 6px; font-weight: 500;">Add :</td>
                             <td colspan="2" style="padding: 3px 4px; border-right: 1px solid #000000;">
-                                Advance Received(-) ${invoice.advance_note || '700/pax'}
+                                Advance Received(-) ${invoice.advance_note || ''}
                             </td>
                             <td style="width: 110px; text-align: center; padding: 3px 6px;">
-                                ${invoice.advance_received || 2500}
+                                ${invoice.advance_received !== undefined && invoice.advance_received !== null ? invoice.advance_received : 0}
                             </td>
                         </tr>
                         <tr>
@@ -270,7 +289,7 @@ export function printInvoiceDocument({ invoice, config }) {
                                 Total Due Amount
                             </td>
                             <td style="width: 110px; text-align: center; padding: 5px 6px; font-weight: bold; font-size: 11.5px; border-bottom: 2px solid #000000;">
-                                ${invoice.total_due_amount || 12000}
+                                ${invoice.total_due_amount !== undefined && invoice.total_due_amount !== null ? invoice.total_due_amount : 0}
                             </td>
                         </tr>
                     </tbody>

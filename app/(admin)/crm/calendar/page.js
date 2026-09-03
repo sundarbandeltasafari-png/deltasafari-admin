@@ -3,18 +3,30 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { 
     getPeakDatesUrl, 
     createPeakDateUrl, 
     updatePeakDateUrl, 
-    deletePeakDateUrl 
+    deletePeakDateUrl,
+    getFollowupsListUrl
 } from '@/app/routes/whatsappRoutes';
-import { getIndianHoliday, getIndianHolidaysForMonth, INDIAN_HOLIDAYS_DATA } from '@/libs/indianHolidays';
-import { axiosGet, axiosPost, axiosDelete } from '@/libs/axiosHelper';
+import { 
+    getAllBookingsUrl, 
+    getCombinedBookingsUrl 
+} from '@/app/routes/serviceRoutes';
+import { getIndianHoliday, getIndianHolidaysForMonth } from '@/libs/indianHolidays';
+import { axiosGet, axiosPost, axiosPut, axiosDelete } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
 import LoadingComponent from '@/components/common/LoadingComponent';
+import { 
+    unifyBookings, 
+    normalizeDateStr, 
+    formatDisplayDate 
+} from '@/libs/bookingHelper';
 
 export default function PeakCalendarPage() {
+    const router = useRouter();
     const token = useSelector((state) => state.adminAuth?.token);
     const user = useSelector((state) => state.adminAuth?.user);
     const isSuperAdmin = user?.admin === 1;
@@ -23,12 +35,26 @@ export default function PeakCalendarPage() {
     const today = new Date();
     const [currentYear, setCurrentYear] = useState(today.getFullYear());
     const [currentMonth, setCurrentMonth] = useState(today.getMonth()); // 0-indexed (0 = Jan, 11 = Dec)
-    const [viewMode, setViewMode] = useState('grid'); // 'grid' (Google Calendar Month) or 'list' (Upcoming Schedule)
+    const [viewMode, setViewMode] = useState('grid'); // 'grid' (Month View) or 'list' (Schedule View)
 
     // Peak Dates Data
-    const [loading, setLoading] = useState(true);
+    const [loadingPeaks, setLoadingPeaks] = useState(true);
     const [peakDates, setPeakDates] = useState([]);
-    const [searchTerm, setSearchTerm] = useState('');
+
+    // Bookings Data (Both Package Reservations & Manual CRM Converted Leads)
+    const [bookingsData, setBookingsData] = useState({ 
+        all: [], 
+        reservations: [], 
+        convertedLeads: [], 
+        stats: {
+            totalCombinedCount: 0,
+            totalReservationsCount: 0,
+            totalConvertedLeadsCount: 0,
+            totalCombinedRevenue: 0
+        } 
+    });
+    const [bookingsLoading, setBookingsLoading] = useState(true);
+    const [dateCountMode, setDateCountMode] = useState('travel'); // 'travel' (Safari Departure Date) vs 'booking' (Won / Creation Date)
 
     // Selected Day View / Modal State
     const [selectedDateStr, setSelectedDateStr] = useState(null);
@@ -55,12 +81,11 @@ export default function PeakCalendarPage() {
 
     const dayNames = ["SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT"];
 
-    // Fetch Peak Dates from Backend
+    // 1. Fetch Peak Dates from Backend
     const fetchPeakDates = async () => {
         if (!token) return;
-        setLoading(true);
+        setLoadingPeaks(true);
         try {
-            // Fetch dates for current year window
             const startYearStr = `${currentYear - 1}-01-01`;
             const endYearStr = `${currentYear + 1}-12-31`;
             const res = await axiosGet(`${getPeakDatesUrl}?start_date=${startYearStr}&end_date=${endYearStr}`, token);
@@ -74,13 +99,58 @@ export default function PeakCalendarPage() {
             console.error("Error fetching peak dates:", err);
             setPeakDates([]);
         } finally {
-            setLoading(false);
+            setLoadingPeaks(false);
+        }
+    };
+
+    // 2. Fetch All Bookings: Reservations + Converted Leads
+    const fetchAllBookings = async () => {
+        if (!token) return;
+        setBookingsLoading(true);
+        try {
+            // Try combined API
+            let combinedRes = null;
+            try {
+                combinedRes = await axiosGet(getCombinedBookingsUrl, token);
+            } catch (cErr) {
+                // Ignore fallback
+            }
+
+            if (combinedRes?.status && (combinedRes.reservations || combinedRes.converted_leads)) {
+                const unified = unifyBookings(combinedRes.reservations || [], combinedRes.converted_leads || []);
+                setBookingsData(unified);
+                setBookingsLoading(false);
+                return;
+            }
+
+            // Fallback: Parallel fetch
+            const [resResult, leadResult] = await Promise.allSettled([
+                axiosGet(getAllBookingsUrl, token),
+                axiosGet(`${getFollowupsListUrl}?is_converted=true&limit=1000`, token)
+            ]);
+
+            const rawReservations = resResult.status === 'fulfilled' && Array.isArray(resResult.value?.bookings)
+                ? resResult.value.bookings
+                : [];
+
+            const rawLeads = leadResult.status === 'fulfilled' && Array.isArray(leadResult.value?.followups)
+                ? leadResult.value.followups.filter(f => f.is_converted == 1)
+                : [];
+
+            const unified = unifyBookings(rawReservations, rawLeads);
+            setBookingsData(unified);
+        } catch (err) {
+            console.error("Error fetching bookings for calendar:", err);
+            setBookingsData(unifyBookings([], []));
+        } finally {
+            setBookingsLoading(false);
         }
     };
 
     useEffect(() => {
         if (token) {
             fetchPeakDates();
+            fetchAllBookings();
         }
     }, [token, currentYear]);
 
@@ -124,7 +194,7 @@ export default function PeakCalendarPage() {
         for (let i = startingDayOfWeek - 1; i >= 0; i--) {
             const d = prevMonthLastDay - i;
             const prevMonthDate = new Date(currentYear, currentMonth - 1, d);
-            const dateStr = prevMonthDate.toISOString().split('T')[0];
+            const dateStr = normalizeDateStr(prevMonthDate);
             days.push({
                 date: prevMonthDate,
                 dayNumber: d,
@@ -135,7 +205,7 @@ export default function PeakCalendarPage() {
         }
 
         // Current month days
-        const todayStr = new Date().toISOString().split('T')[0];
+        const todayStr = normalizeDateStr(new Date());
         for (let day = 1; day <= totalDaysInMonth; day++) {
             const dateObj = new Date(currentYear, currentMonth, day);
             const dateStr = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
@@ -152,7 +222,7 @@ export default function PeakCalendarPage() {
         const remainingCells = (7 - (days.length % 7)) % 7;
         for (let nextDay = 1; nextDay <= remainingCells; nextDay++) {
             const nextMonthDate = new Date(currentYear, currentMonth + 1, nextDay);
-            const dateStr = nextMonthDate.toISOString().split('T')[0];
+            const dateStr = normalizeDateStr(nextMonthDate);
             days.push({
                 date: nextMonthDate,
                 dayNumber: nextDay,
@@ -173,10 +243,28 @@ export default function PeakCalendarPage() {
         });
     };
 
+    // Get all bookings for a specific date string
+    const getBookingsForDate = (dateStr) => {
+        if (!dateStr || !bookingsData?.all) return [];
+        return bookingsData.all.filter(b => {
+            if (dateCountMode === 'travel') {
+                return b.travel_date === dateStr || (!b.travel_date && b.effective_date === dateStr);
+            } else {
+                return b.booking_date === dateStr;
+            }
+        });
+    };
+
     // Open Day Detail Modal
     const handleDayClick = (dateStr) => {
         setSelectedDateStr(dateStr);
         setDayDetailModalOpen(true);
+    };
+
+    // Redirect to Booking List for a specific date
+    const handleRedirectToBookingList = (dateStr) => {
+        if (!dateStr) return;
+        router.push(`/crm/bookings?date=${dateStr}`);
     };
 
     // Open Add Peak Date Modal
@@ -213,7 +301,7 @@ export default function PeakCalendarPage() {
     // Submit Add / Edit Peak Date
     const handleSavePeakDate = async (e) => {
         e.preventDefault();
-        if (!peakFormData.title.trim()) {
+        if (!peakFormData.title?.trim()) {
             showMessage('error', 'Please enter peak date title.');
             return;
         }
@@ -228,19 +316,35 @@ export default function PeakCalendarPage() {
 
         setSubmittingPeak(true);
         try {
+            const payload = {
+                title: peakFormData.title.trim(),
+                start_date: peakFormData.start_date,
+                end_date: peakFormData.end_date || peakFormData.start_date,
+                peak_type: peakFormData.peak_type || 'peak',
+                surge_percentage: parseInt(peakFormData.surge_percentage) || 0,
+                color: peakFormData.color || '#dc2626',
+                notes: peakFormData.notes ? peakFormData.notes.trim() : ''
+            };
+
             let res;
             if (editingPeakId) {
-                res = await axiosPost(`${updatePeakDateUrl}${editingPeakId}`, peakFormData, token);
+                res = await axiosPut(`${updatePeakDateUrl}${editingPeakId}`, payload, token);
+                if (res instanceof Error || !res?.status) {
+                    res = await axiosPost(`${updatePeakDateUrl}${editingPeakId}`, payload, token);
+                }
             } else {
-                res = await axiosPost(createPeakDateUrl, peakFormData, token);
+                res = await axiosPost(createPeakDateUrl, payload, token);
             }
 
-            if (res?.status) {
-                showMessage('success', res?.msg || 'Peak date saved successfully!');
+            if (res && res.status) {
+                showMessage('success', res.msg || 'Peak date saved successfully!');
                 setPeakModalOpen(false);
                 fetchPeakDates();
             } else {
-                showMessage('error', res?.msg || 'Failed to save peak date.');
+                const errorMsg = res instanceof Error 
+                    ? (res.response?.data?.msg || res.message || 'Failed to save peak date.')
+                    : (res?.msg || 'Failed to save peak date.');
+                showMessage('error', errorMsg);
             }
         } catch (err) {
             showMessage('error', err.response?.data?.msg || err.message || 'Error saving peak date.');
@@ -284,15 +388,38 @@ export default function PeakCalendarPage() {
         });
     }, [peakDates, currentYear, currentMonth]);
 
+    // Current Month Bookings Summary (Combined Reservations + Converted Leads)
+    const monthBookings = useMemo(() => {
+        const monthPrefix = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}`;
+        if (!bookingsData?.all) return [];
+        return bookingsData.all.filter(b => {
+            const dateVal = dateCountMode === 'travel' ? (b.travel_date || b.effective_date) : b.booking_date;
+            return dateVal && dateVal.startsWith(monthPrefix);
+        });
+    }, [bookingsData, currentYear, currentMonth, dateCountMode]);
+
+    const monthReservationsCount = useMemo(() => {
+        return monthBookings.filter(b => b.source_type === 'RESERVATION').length;
+    }, [monthBookings]);
+
+    const monthLeadsCount = useMemo(() => {
+        return monthBookings.filter(b => b.source_type === 'MANUAL_LEAD').length;
+    }, [monthBookings]);
+
+    const monthBookingsRevenue = useMemo(() => {
+        return monthBookings.reduce((sum, b) => sum + (b.total_cost || 0), 0);
+    }, [monthBookings]);
+
     const formatFullDate = (dStr) => {
         if (!dStr) return '';
-        try {
-            const d = new Date(dStr);
-            return d.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
-        } catch (e) {
-            return dStr;
-        }
+        return formatDisplayDate(dStr, true);
     };
+
+    // Selected Day Bookings
+    const selectedDayBookings = useMemo(() => {
+        if (!selectedDateStr) return [];
+        return getBookingsForDate(selectedDateStr);
+    }, [selectedDateStr, bookingsData, dateCountMode]);
 
     return (
         <div className="container-xxl flex-grow-1 container-p-y">
@@ -301,17 +428,25 @@ export default function PeakCalendarPage() {
                 <div>
                     <h4 className="fw-bold mb-1 d-flex align-items-center gap-2 text-heading">
                         <i className="ri ri-calendar-event-fill text-danger fs-3"></i>
-                        <span>Safari Peak Dates &amp; Indian Holiday Calendar</span>
+                        <span>Safari Booking &amp; Peak Calendar</span>
                     </h4>
                     <p className="text-muted small mb-0">
-                        Interactive Google Calendar view marking all Indian public holidays, festival rush periods, and peak safari booking dates.
+                        Visual interactive calendar showing daily bookings count (Reservations + Converted Leads), Indian public holidays, and peak demand dates.
                     </p>
                 </div>
-                <div className="d-flex gap-2">
+                <div className="d-flex gap-2 flex-wrap">
+                    <Link 
+                        href="/crm/bookings" 
+                        className="btn btn-primary rounded-pill px-3.5 d-inline-flex align-items-center gap-1.5 shadow-sm fw-bold"
+                        style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
+                    >
+                        <i className="ri ri-ticket-2-fill"></i>
+                        <span>CRM Booking List</span>
+                    </Link>
                     <button
                         type="button"
                         onClick={() => handleOpenAddPeakModal()}
-                        className="btn btn-danger rounded-pill px-4 d-inline-flex align-items-center gap-2 shadow-sm"
+                        className="btn btn-danger rounded-pill px-3.5 d-inline-flex align-items-center gap-1.5 shadow-sm"
                         style={{ backgroundColor: '#dc2626', borderColor: '#dc2626' }}
                     >
                         <i className="ri ri-fire-fill"></i>
@@ -324,7 +459,94 @@ export default function PeakCalendarPage() {
                 </div>
             </div>
 
-            {/* 2. Google Calendar Control Navigation Card */}
+            {/* 2. Top Monthly KPI Overview Cards */}
+            <div className="row g-3 mb-4">
+                {/* Month Total Bookings */}
+                <div className="col-12 col-sm-6 col-lg-3">
+                    <div className="card border-0 shadow-sm rounded-4 p-3 bg-white h-100 border-start border-4 border-primary">
+                        <div className="d-flex justify-content-between align-items-center">
+                            <div>
+                                <span className="text-muted small fw-bold text-uppercase d-block mb-1">
+                                    {monthNames[currentMonth]} Bookings
+                                </span>
+                                <h3 className="fw-bold text-primary mb-0">{monthBookings.length}</h3>
+                                <small className="text-muted d-block mt-1" style={{ fontSize: '11px' }}>
+                                    {monthReservationsCount} Reservations • {monthLeadsCount} Converted Leads
+                                </small>
+                            </div>
+                            <Link
+                                href="/crm/bookings"
+                                className="badge bg-primary bg-opacity-10 rounded-circle p-3 text-primary"
+                                title="Open Full Booking List"
+                            >
+                                <i className="ri ri-ticket-2-fill fs-3"></i>
+                            </Link>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Month Booking Value */}
+                <div className="col-12 col-sm-6 col-lg-3">
+                    <div className="card border-0 shadow-sm rounded-4 p-3 bg-white h-100 border-start border-4 border-success">
+                        <div className="d-flex justify-content-between align-items-center">
+                            <div>
+                                <span className="text-muted small fw-bold text-uppercase d-block mb-1">
+                                    Month Bookings Value
+                                </span>
+                                <h3 className="fw-bold text-success mb-0">₹{monthBookingsRevenue.toLocaleString('en-IN')}</h3>
+                                <small className="text-muted d-block mt-1" style={{ fontSize: '11px' }}>
+                                    Combined Revenue for {monthNames[currentMonth]}
+                                </small>
+                            </div>
+                            <span className="badge bg-success bg-opacity-10 rounded-circle p-3 text-success">
+                                <i className="ri ri-wallet-3-fill fs-3"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Configured Peak Dates */}
+                <div className="col-12 col-sm-6 col-lg-3">
+                    <div className="card border-0 shadow-sm rounded-4 p-3 bg-white h-100 border-start border-4 border-danger">
+                        <div className="d-flex justify-content-between align-items-center">
+                            <div>
+                                <span className="text-muted small fw-bold text-uppercase d-block mb-1">
+                                    Peak Surge Periods
+                                </span>
+                                <h3 className="fw-bold text-danger mb-0">{monthPeaks.length}</h3>
+                                <small className="text-muted d-block mt-1" style={{ fontSize: '11px' }}>
+                                    Surge periods marked in this month
+                                </small>
+                            </div>
+                            <span className="badge bg-danger bg-opacity-10 rounded-circle p-3 text-danger">
+                                <i className="ri ri-fire-fill fs-3"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Indian Public Holidays */}
+                <div className="col-12 col-sm-6 col-lg-3">
+                    <div className="card border-0 shadow-sm rounded-4 p-3 bg-white h-100 border-start border-4 border-warning">
+                        <div className="d-flex justify-content-between align-items-center">
+                            <div>
+                                <span className="text-muted small fw-bold text-uppercase d-block mb-1">
+                                    Indian Holidays
+                                </span>
+                                <h3 className="fw-bold text-warning mb-0">{monthHolidays.length}</h3>
+                                <small className="text-muted d-block mt-1" style={{ fontSize: '11px' }}>
+                                    Gazetted &amp; festival rush dates
+                                </small>
+                            </div>
+                            <span className="badge bg-warning bg-opacity-10 rounded-circle p-3 text-warning">
+                                <i className="ri ri-flag-fill fs-3"></i>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            {/* 3. Calendar Control & Filter Navigation Card */}
             <div className="card border-0 shadow-sm rounded-4 mb-4">
                 <div className="card-body p-3.5">
                     <div className="d-flex justify-content-between align-items-center flex-wrap gap-3">
@@ -362,8 +584,8 @@ export default function PeakCalendarPage() {
                             </h3>
                         </div>
 
-                        {/* Middle: Month & Year Fast Jump Dropdowns */}
-                        <div className="d-flex align-items-center gap-2">
+                        {/* Middle: Month & Year Fast Jump Dropdowns + Date Count Mode */}
+                        <div className="d-flex align-items-center gap-2 flex-wrap">
                             <select
                                 className="form-select form-select-sm rounded-pill bg-light"
                                 value={currentMonth}
@@ -385,18 +607,37 @@ export default function PeakCalendarPage() {
                                     <option key={yr} value={yr}>{yr}</option>
                                 ))}
                             </select>
+
+                            {/* Date Mode Selector */}
+                            <div className="btn-group p-1 bg-light rounded-pill border ms-md-2" role="group" title="Choose which date determines daily booking count">
+                                <button
+                                    type="button"
+                                    onClick={() => setDateCountMode('travel')}
+                                    className={`btn btn-xs rounded-pill px-2.5 py-1 ${dateCountMode === 'travel' ? 'btn-primary text-white shadow-xs fw-bold' : 'btn-transparent text-muted'}`}
+                                    style={{ fontSize: '11.5px' }}
+                                >
+                                    🗓️ Safari Travel Date
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setDateCountMode('booking')}
+                                    className={`btn btn-xs rounded-pill px-2.5 py-1 ${dateCountMode === 'booking' ? 'btn-primary text-white shadow-xs fw-bold' : 'btn-transparent text-muted'}`}
+                                    style={{ fontSize: '11.5px' }}
+                                >
+                                    📝 Booking Date
+                                </button>
+                            </div>
                         </div>
 
-                        {/* Right: Legend & View Switcher */}
+                        {/* Right: View Switcher */}
                         <div className="d-flex align-items-center gap-2 flex-wrap">
-                            {/* View Switcher */}
                             <div className="btn-group p-1 bg-light rounded-pill border" role="group">
                                 <button
                                     type="button"
                                     onClick={() => setViewMode('grid')}
                                     className={`btn btn-sm rounded-pill px-3 py-1 ${viewMode === 'grid' ? 'btn-primary text-white shadow-xs' : 'btn-transparent text-muted'}`}
                                 >
-                                    <i className="ri ri-grid-fill me-1"></i> Month
+                                    <i className="ri ri-grid-fill me-1"></i> Month Grid
                                 </button>
                                 <button
                                     type="button"
@@ -413,26 +654,28 @@ export default function PeakCalendarPage() {
                     <div className="d-flex align-items-center gap-3 mt-3 pt-3 border-top flex-wrap text-muted small">
                         <span className="fw-semibold text-dark">Legend:</span>
                         <span className="d-inline-flex align-items-center gap-1.5">
+                            <span className="badge rounded-pill text-white px-2 py-0.5" style={{ backgroundColor: '#0284c7', fontSize: '10.5px' }}>
+                                <i className="ri ri-ticket-2-fill me-1"></i> X Bookings
+                            </span>
+                            <span className="text-dark fw-semibold">Daily Bookings (Click to Redirect to Booking List)</span>
+                        </span>
+                        <span className="d-inline-flex align-items-center gap-1.5">
                             <span className="badge rounded-circle p-1" style={{ backgroundColor: '#dc2626', width: '10px', height: '10px' }}></span>
-                            <span className="text-danger fw-semibold">🔥 Safari Peak Season / Surge (+20% - 50%)</span>
+                            <span className="text-danger fw-semibold">🔥 Safari Peak Season / Surge</span>
                         </span>
                         <span className="d-inline-flex align-items-center gap-1.5">
                             <span className="badge rounded-circle p-1" style={{ backgroundColor: '#16a34a', width: '10px', height: '10px' }}></span>
-                            <span className="text-success fw-semibold">🇮🇳 Indian National &amp; Gazetted Holidays</span>
-                        </span>
-                        <span className="d-inline-flex align-items-center gap-1.5">
-                            <span className="badge rounded-circle p-1" style={{ backgroundColor: '#f59e0b', width: '10px', height: '10px' }}></span>
-                            <span className="text-warning fw-semibold">🪔 Major Festivals (Durga Puja, Diwali, Holi)</span>
+                            <span className="text-success fw-semibold">🇮🇳 Indian Holidays</span>
                         </span>
                         <span className="d-inline-flex align-items-center gap-1.5 ms-auto">
                             <i className="ri ri-cursor-line text-primary"></i>
-                            <span>Click on any date to view details or mark peak season</span>
+                            <span>Click any booking badge to jump straight to Booking List for that date</span>
                         </span>
                     </div>
                 </div>
             </div>
 
-            {/* 3. GOOGLE CALENDAR MONTH GRID VIEW */}
+            {/* 4. GOOGLE CALENDAR MONTH GRID VIEW */}
             {viewMode === 'grid' && (
                 <div className="card border-0 shadow-sm rounded-4 overflow-hidden mb-4">
                     {/* Day Headers (Sun - Sat) */}
@@ -450,11 +693,17 @@ export default function PeakCalendarPage() {
                             const holiday = getIndianHoliday(cell.dateStr);
                             const peaks = getPeakDatesForDate(cell.dateStr);
                             const isPeakDay = peaks.length > 0;
+                            const dayBookings = getBookingsForDate(cell.dateStr);
+                            const hasBookings = dayBookings.length > 0;
+                            const resCount = dayBookings.filter(b => b.source_type === 'RESERVATION').length;
+                            const leadCount = dayBookings.filter(b => b.source_type === 'MANUAL_LEAD').length;
 
                             // Cell Background Styling
                             let cellBg = cell.isCurrentMonth ? '#ffffff' : '#f8fafc';
                             if (isPeakDay) {
-                                cellBg = 'rgba(239, 68, 68, 0.06)';
+                                cellBg = 'rgba(239, 68, 68, 0.05)';
+                            } else if (hasBookings) {
+                                cellBg = 'rgba(2, 132, 199, 0.03)';
                             }
 
                             return (
@@ -465,12 +714,16 @@ export default function PeakCalendarPage() {
                                     style={{
                                         flex: '1 0 14.28%',
                                         maxWidth: '14.28%',
-                                        minHeight: '115px',
+                                        minHeight: '120px',
                                         backgroundColor: cellBg,
                                         cursor: 'pointer',
                                         transition: 'all 0.15s ease'
                                     }}
-                                    onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = isPeakDay ? 'rgba(239, 68, 68, 0.12)' : '#f1f5f9'; }}
+                                    onMouseEnter={(e) => { 
+                                        e.currentTarget.style.backgroundColor = isPeakDay 
+                                            ? 'rgba(239, 68, 68, 0.12)' 
+                                            : (hasBookings ? 'rgba(2, 132, 199, 0.08)' : '#f1f5f9'); 
+                                    }}
                                     onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = cellBg; }}
                                 >
                                     {/* Top Row: Date Number & Peak Flame Badge */}
@@ -507,9 +760,35 @@ export default function PeakCalendarPage() {
                                         )}
                                     </div>
 
-                                    {/* Middle Event Pills (Indian Holidays & Peak Dates) */}
-                                    <div className="d-flex flex-column gap-1 overflow-hidden" style={{ maxHeight: '72px' }}>
-                                        {/* 1. Indian Holiday Badge */}
+                                    {/* Middle Section 1: Prominent Booking Count Badge (CLICKABLE DIRECT REDIRECT) */}
+                                    {hasBookings && (
+                                        <button
+                                            type="button"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleRedirectToBookingList(cell.dateStr);
+                                            }}
+                                            className="btn btn-sm w-100 p-1 px-2 rounded-2 text-white d-flex align-items-center justify-content-between mb-1 shadow-2xs border-0 text-start"
+                                            style={{
+                                                backgroundColor: '#0284c7', // vibrant sky blue
+                                                fontSize: '11px',
+                                                fontWeight: 700,
+                                                cursor: 'pointer',
+                                                lineHeight: '1.2'
+                                            }}
+                                            title={`Click to view all ${dayBookings.length} booking(s) on ${cell.dateStr} in Booking List`}
+                                        >
+                                            <span className="d-flex align-items-center gap-1 text-truncate">
+                                                <i className="ri ri-ticket-2-fill"></i>
+                                                <span>{dayBookings.length} {dayBookings.length === 1 ? 'Booking' : 'Bookings'}</span>
+                                            </span>
+                                            <i className="ri ri-arrow-right-line" style={{ fontSize: '10px' }}></i>
+                                        </button>
+                                    )}
+
+                                    {/* Middle Section 2: Indian Holidays & Peak Dates Pills */}
+                                    <div className="d-flex flex-column gap-1 overflow-hidden" style={{ maxHeight: '60px' }}>
+                                        {/* Indian Holiday Badge */}
                                         {holiday && (
                                             <div
                                                 className="px-1.5 py-0.5 rounded-1 text-truncate fw-semibold text-white d-flex align-items-center gap-1 shadow-2xs"
@@ -524,7 +803,7 @@ export default function PeakCalendarPage() {
                                             </div>
                                         )}
 
-                                        {/* 2. Peak Safari Dates Badges */}
+                                        {/* Peak Safari Dates Badges */}
                                         {peaks.map((p) => (
                                             <div
                                                 key={p.id}
@@ -542,10 +821,30 @@ export default function PeakCalendarPage() {
                                         ))}
                                     </div>
 
-                                    {/* Bottom Hint */}
-                                    <div className="text-end opacity-0 hover-show">
-                                        <small className="text-muted" style={{ fontSize: '9px' }}>+ Add</small>
-                                    </div>
+                                    {/* Bottom: Breakdown badges (Res vs Lead) or subtle "+ Add" hint */}
+                                    {hasBookings ? (
+                                        <div className="d-flex align-items-center justify-content-between mt-auto pt-1" style={{ fontSize: '9.5px' }}>
+                                            <div className="d-flex align-items-center gap-1">
+                                                {resCount > 0 && (
+                                                    <span className="badge bg-primary bg-opacity-25 text-primary rounded-pill px-1 py-0.2" title={`${resCount} Reservation(s)`}>
+                                                        {resCount} Res
+                                                    </span>
+                                                )}
+                                                {leadCount > 0 && (
+                                                    <span className="badge bg-success bg-opacity-25 text-success rounded-pill px-1 py-0.2" title={`${leadCount} Manual Lead(s)`}>
+                                                        {leadCount} Lead
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <span className="text-muted font-monospace" style={{ fontSize: '9px' }}>
+                                                ₹{(dayBookings.reduce((sum, b) => sum + (b.total_cost || 0), 0) / 1000).toFixed(0)}k
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <div className="text-end opacity-0 hover-show mt-auto">
+                                            <small className="text-muted" style={{ fontSize: '9px' }}>+ View</small>
+                                        </div>
+                                    )}
                                 </div>
                             );
                         })}
@@ -553,28 +852,95 @@ export default function PeakCalendarPage() {
                 </div>
             )}
 
-            {/* 4. SCHEDULE / LIST VIEW */}
+            {/* 5. SCHEDULE / LIST VIEW */}
             {viewMode === 'list' && (
                 <div className="row g-4 mb-4">
-                    {/* Left Column: Peak Safari Dates List */}
-                    <div className="col-12 col-lg-6">
+                    {/* Left Column: Scheduled Safari Bookings in Selected Month */}
+                    <div className="col-12 col-lg-4">
+                        <div className="card border-0 shadow-sm rounded-4 h-100 overflow-hidden">
+                            <div className="card-header bg-primary bg-opacity-10 border-bottom py-3 d-flex justify-content-between align-items-center">
+                                <h5 className="mb-0 fw-bold text-primary d-flex align-items-center gap-2" style={{ fontSize: '1rem' }}>
+                                    <i className="ri ri-ticket-2-fill"></i>
+                                    <span>{monthNames[currentMonth]} Bookings ({monthBookings.length})</span>
+                                </h5>
+                                <Link
+                                    href="/crm/bookings"
+                                    className="btn btn-sm btn-primary rounded-pill px-2.5 py-1"
+                                    style={{ fontSize: '11px' }}
+                                >
+                                    Full List &rarr;
+                                </Link>
+                            </div>
+
+                            <div className="card-body p-0" style={{ maxHeight: '550px', overflowY: 'auto' }}>
+                                {bookingsLoading ? (
+                                    <div className="p-4 text-center">
+                                        <LoadingComponent />
+                                    </div>
+                                ) : monthBookings.length === 0 ? (
+                                    <div className="p-4 text-center text-muted">
+                                        <p className="mb-2">No bookings scheduled in {monthNames[currentMonth]} {currentYear}.</p>
+                                        <Link href="/crm/bookings" className="btn btn-sm btn-outline-primary rounded-pill px-3">
+                                            View CRM Booking List
+                                        </Link>
+                                    </div>
+                                ) : (
+                                    <div className="list-group list-group-flush">
+                                        {monthBookings.map((b) => (
+                                            <div key={b.unique_id} className="list-group-item p-3 border-bottom d-flex justify-content-between align-items-center">
+                                                <div className="text-truncate me-2">
+                                                    <div className="d-flex align-items-center gap-1.5 mb-1">
+                                                        <span className={`badge rounded-pill ${b.source_type === 'MANUAL_LEAD' ? 'bg-success' : 'bg-primary'} text-white px-2 py-0.5`} style={{ fontSize: '10px' }}>
+                                                            {b.source_type === 'MANUAL_LEAD' ? 'Manual Lead' : 'Reservation'}
+                                                        </span>
+                                                        <strong className="text-dark small text-truncate">{b.customer_name}</strong>
+                                                    </div>
+                                                    <div className="small text-muted d-flex align-items-center gap-2">
+                                                        <i className="ri ri-calendar-line text-primary"></i>
+                                                        <strong>{formatDisplayDate(b.travel_date || b.effective_date)}</strong>
+                                                        <span>• {b.package_title}</span>
+                                                    </div>
+                                                    <small className="text-dark fw-bold d-block mt-0.5">
+                                                        ₹{b.total_cost.toLocaleString('en-IN')}
+                                                    </small>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRedirectToBookingList(b.travel_date || b.effective_date)}
+                                                    className="btn btn-sm btn-outline-primary rounded-pill px-2.5 py-1 flex-shrink-0"
+                                                    style={{ fontSize: '11px' }}
+                                                    title="View in Booking List"
+                                                >
+                                                    View &rarr;
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Middle Column: Peak Safari Dates List */}
+                    <div className="col-12 col-lg-4">
                         <div className="card border-0 shadow-sm rounded-4 h-100 overflow-hidden">
                             <div className="card-header bg-danger bg-opacity-10 border-bottom py-3 d-flex justify-content-between align-items-center">
-                                <h5 className="mb-0 fw-bold text-danger d-flex align-items-center gap-2">
+                                <h5 className="mb-0 fw-bold text-danger d-flex align-items-center gap-2" style={{ fontSize: '1rem' }}>
                                     <i className="ri ri-fire-fill"></i>
-                                    <span>Configured Safari Peak Dates ({peakDates.length})</span>
+                                    <span>Peak Safari Dates ({peakDates.length})</span>
                                 </h5>
                                 <button 
                                     type="button" 
                                     onClick={() => handleOpenAddPeakModal()}
-                                    className="btn btn-sm btn-danger rounded-pill px-3 shadow-xs"
+                                    className="btn btn-sm btn-danger rounded-pill px-2.5 py-1"
+                                    style={{ fontSize: '11px' }}
                                 >
                                     + Add Peak
                                 </button>
                             </div>
 
-                            <div className="card-body p-0">
-                                {loading ? (
+                            <div className="card-body p-0" style={{ maxHeight: '550px', overflowY: 'auto' }}>
+                                {loadingPeaks ? (
                                     <div className="p-4 text-center">
                                         <LoadingComponent />
                                     </div>
@@ -647,19 +1013,19 @@ export default function PeakCalendarPage() {
                     </div>
 
                     {/* Right Column: Indian Holidays in Current Month & Year */}
-                    <div className="col-12 col-lg-6">
+                    <div className="col-12 col-lg-4">
                         <div className="card border-0 shadow-sm rounded-4 h-100 overflow-hidden">
                             <div className="card-header bg-success bg-opacity-10 border-bottom py-3 d-flex justify-content-between align-items-center">
-                                <h5 className="mb-0 fw-bold text-success d-flex align-items-center gap-2">
+                                <h5 className="mb-0 fw-bold text-success d-flex align-items-center gap-2" style={{ fontSize: '1rem' }}>
                                     <i className="ri ri-flag-fill"></i>
-                                    <span>Indian Holidays in {monthNames[currentMonth]} {currentYear}</span>
+                                    <span>Indian Holidays ({monthHolidays.length})</span>
                                 </h5>
                                 <span className="badge bg-success rounded-pill text-white px-2.5 py-1">
-                                    {monthHolidays.length} Holidays
+                                    {monthNames[currentMonth]}
                                 </span>
                             </div>
 
-                            <div className="card-body p-0">
+                            <div className="card-body p-0" style={{ maxHeight: '550px', overflowY: 'auto' }}>
                                 {monthHolidays.length === 0 ? (
                                     <div className="p-4 text-center text-muted">
                                         <p className="mb-0">No public holidays in this month.</p>
@@ -693,14 +1059,14 @@ export default function PeakCalendarPage() {
                 </div>
             )}
 
-            {/* 5. DAY DETAIL & EVENT MODAL (When clicking any calendar cell) */}
+            {/* 6. DAY DETAIL & EVENT MODAL (When clicking any calendar cell) */}
             {dayDetailModalOpen && selectedDateStr && (
                 <div 
                     className="modal fade show d-block" 
                     tabIndex="-1" 
                     style={{ backgroundColor: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', zIndex: 1055 }}
                 >
-                    <div className="modal-dialog modal-dialog-centered modal-md">
+                    <div className="modal-dialog modal-dialog-centered modal-lg">
                         <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
                             <div className="modal-header bg-white border-bottom py-3 px-4 d-flex align-items-center justify-content-between">
                                 <div>
@@ -714,7 +1080,91 @@ export default function PeakCalendarPage() {
                             </div>
 
                             <div className="modal-body p-4">
-                                {/* Indian Holiday Info */}
+                                {/* A. BOOKINGS SECTION FOR THIS DAY */}
+                                <div className="mb-4">
+                                    <h6 className="fw-bold text-dark mb-2.5 d-flex align-items-center justify-content-between">
+                                        <span className="d-flex align-items-center gap-1.5">
+                                            <i className="ri ri-ticket-2-fill text-primary"></i>
+                                            <span>Day's Safari Bookings &amp; Reservations ({selectedDayBookings.length})</span>
+                                        </span>
+                                        {selectedDayBookings.length > 0 && (
+                                            <span className="badge bg-primary rounded-pill text-white px-2.5 py-1" style={{ fontSize: '11px' }}>
+                                                Total: ₹{selectedDayBookings.reduce((sum, b) => sum + (b.total_cost || 0), 0).toLocaleString('en-IN')}
+                                            </span>
+                                        )}
+                                    </h6>
+
+                                    {selectedDayBookings.length > 0 ? (
+                                        <div className="card border-primary border-opacity-25 rounded-3 mb-3 overflow-hidden shadow-2xs" style={{ backgroundColor: '#f0f9ff' }}>
+                                            <div className="card-header bg-primary bg-opacity-10 py-2.5 px-3 d-flex justify-content-between align-items-center border-bottom border-primary border-opacity-25 flex-wrap gap-2">
+                                                <div className="d-flex align-items-center gap-2">
+                                                    <span className="badge bg-primary text-white rounded-pill px-2.5 py-1">
+                                                        {selectedDayBookings.filter(b => b.source_type === 'RESERVATION').length} Reservations
+                                                    </span>
+                                                    <span className="badge bg-success text-white rounded-pill px-2.5 py-1">
+                                                        {selectedDayBookings.filter(b => b.source_type === 'MANUAL_LEAD').length} Manual Converted Leads
+                                                    </span>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setDayDetailModalOpen(false);
+                                                        handleRedirectToBookingList(selectedDateStr);
+                                                    }}
+                                                    className="btn btn-sm btn-primary rounded-pill px-3 shadow-xs fw-bold"
+                                                    style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
+                                                >
+                                                    <i className="ri ri-external-link-line me-1"></i> Open in Booking List
+                                                </button>
+                                            </div>
+
+                                            <div className="card-body p-3">
+                                                <div className="d-flex flex-column gap-2 overflow-auto" style={{ maxHeight: '220px' }}>
+                                                    {selectedDayBookings.map((b) => (
+                                                        <div key={b.unique_id} className="p-2.5 bg-white rounded-3 border d-flex justify-content-between align-items-center flex-wrap gap-2">
+                                                            <div className="text-truncate me-2">
+                                                                <div className="d-flex align-items-center gap-1.5 mb-1">
+                                                                    <span className={`badge rounded-pill ${b.source_type === 'MANUAL_LEAD' ? 'bg-success' : 'bg-primary'} text-white px-2 py-0.5`} style={{ fontSize: '10px' }}>
+                                                                        {b.source_type === 'MANUAL_LEAD' ? '💬 Manual Lead' : '🌐 Reservation'}
+                                                                    </span>
+                                                                    <strong className="text-dark small">{b.customer_name}</strong>
+                                                                    <span className="text-muted small font-monospace">({b.customer_phone})</span>
+                                                                </div>
+                                                                <small className="text-muted d-block text-truncate" style={{ fontSize: '11.5px' }}>
+                                                                    <i className="ri ri-compass-3-line text-primary me-1"></i>
+                                                                    {b.package_title} • {b.total_travelers} Travelers • <strong className="text-dark">₹{b.total_cost.toLocaleString('en-IN')}</strong>
+                                                                </small>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setDayDetailModalOpen(false);
+                                                                    handleRedirectToBookingList(selectedDateStr);
+                                                                }}
+                                                                className="btn btn-xs btn-outline-primary rounded-pill px-2.5 py-1"
+                                                                style={{ fontSize: '11px' }}
+                                                            >
+                                                                Details &rarr;
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="p-3 bg-light rounded-3 mb-3 small text-muted d-flex align-items-center justify-content-between">
+                                            <span className="d-flex align-items-center gap-1.5">
+                                                <i className="ri ri-information-line text-secondary"></i>
+                                                <span>No bookings currently scheduled on this day.</span>
+                                            </span>
+                                            <Link href="/crm/bookings" className="text-primary text-decoration-none fw-semibold">
+                                                View CRM Booking List &rarr;
+                                            </Link>
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* B. INDIAN HOLIDAY INFO */}
                                 {getIndianHoliday(selectedDateStr) ? (
                                     <div className="alert alert-success d-flex align-items-center gap-2 rounded-3 p-3 mb-3 border-0 shadow-2xs" style={{ backgroundColor: '#ecfdf5' }}>
                                         <i className="ri ri-flag-fill fs-4 text-success"></i>
@@ -723,7 +1173,7 @@ export default function PeakCalendarPage() {
                                                 🇮🇳 {getIndianHoliday(selectedDateStr)?.name}
                                             </strong>
                                             <span className="small text-muted">
-                                                Official Indian {getIndianHoliday(selectedDateStr)?.type} Holiday / Festival.
+                                                Official Indian {getIndianHoliday(selectedDateStr)?.type} Holiday / Festival Rush.
                                             </span>
                                         </div>
                                     </div>
@@ -734,14 +1184,14 @@ export default function PeakCalendarPage() {
                                     </div>
                                 )}
 
-                                {/* Peak Safari Status on this date */}
+                                {/* C. PEAK SAFARI STATUS */}
                                 <h6 className="fw-bold text-dark mb-2 d-flex align-items-center gap-1.5">
                                     <i className="ri ri-fire-fill text-danger"></i>
                                     <span>Peak Safari Status</span>
                                 </h6>
 
                                 {getPeakDatesForDate(selectedDateStr).length === 0 ? (
-                                    <div className="p-3 bg-light rounded-3 text-center mb-3">
+                                    <div className="p-3 bg-light rounded-3 text-center mb-1">
                                         <p className="text-muted small mb-2">This date is currently marked as Regular Standard Season.</p>
                                         <button
                                             type="button"
@@ -755,7 +1205,7 @@ export default function PeakCalendarPage() {
                                         </button>
                                     </div>
                                 ) : (
-                                    <div className="d-flex flex-column gap-2 mb-3">
+                                    <div className="d-flex flex-column gap-2 mb-1">
                                         {getPeakDatesForDate(selectedDateStr).map((p) => (
                                             <div key={p.id} className="card border p-3 rounded-3 shadow-2xs" style={{ borderLeft: `4px solid ${p.color || '#dc2626'}` }}>
                                                 <div className="d-flex justify-content-between align-items-start mb-1">
@@ -803,23 +1253,37 @@ export default function PeakCalendarPage() {
                                 <button type="button" className="btn btn-secondary btn-sm rounded-pill px-4" onClick={() => setDayDetailModalOpen(false)}>
                                     Close
                                 </button>
-                                <button 
-                                    type="button" 
-                                    onClick={() => {
-                                        setDayDetailModalOpen(false);
-                                        handleOpenAddPeakModal(selectedDateStr);
-                                    }}
-                                    className="btn btn-danger btn-sm rounded-pill px-3 shadow-xs"
-                                >
-                                    + Add Another Peak
-                                </button>
+                                <div className="d-flex gap-2">
+                                    {selectedDayBookings.length > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                setDayDetailModalOpen(false);
+                                                handleRedirectToBookingList(selectedDateStr);
+                                            }}
+                                            className="btn btn-primary btn-sm rounded-pill px-3 shadow-xs fw-bold"
+                                        >
+                                            <i className="ri ri-ticket-2-fill me-1"></i> View {selectedDayBookings.length} Bookings
+                                        </button>
+                                    )}
+                                    <button 
+                                        type="button" 
+                                        onClick={() => {
+                                            setDayDetailModalOpen(false);
+                                            handleOpenAddPeakModal(selectedDateStr);
+                                        }}
+                                        className="btn btn-danger btn-sm rounded-pill px-3 shadow-xs"
+                                    >
+                                        + Mark Peak
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* 6. ADD / EDIT PEAK DATE MODAL */}
+            {/* 7. ADD / EDIT PEAK DATE MODAL */}
             {peakModalOpen && (
                 <div 
                     className="modal fade show d-block" 

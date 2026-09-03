@@ -20,7 +20,7 @@ import {
     formatDisplayDate 
 } from "@/libs/bookingHelper"
 
-function BookingsPageContent() {
+function CrmBookingsPageContent() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const urlDate = searchParams?.get('date') || '';
@@ -139,13 +139,10 @@ function BookingsPageContent() {
                 const effectiveDate = item.effective_date || '';
 
                 if (dateTypeFilter === 'travel') {
-                    // Match travel date (or effective date fallback)
                     if (travelDate !== targetDate && effectiveDate !== targetDate) return false;
                 } else if (dateTypeFilter === 'booking') {
-                    // Match booking/conversion date
                     if (bookingDate !== targetDate) return false;
                 } else {
-                    // Match any
                     if (travelDate !== targetDate && bookingDate !== targetDate && effectiveDate !== targetDate) return false;
                 }
             }
@@ -300,7 +297,7 @@ function BookingsPageContent() {
     // Clear date filter
     const handleClearDateFilter = () => {
         setDateFilter('');
-        router.replace('/bookings');
+        router.replace('/crm/bookings');
     };
 
     return (
@@ -310,11 +307,11 @@ function BookingsPageContent() {
             <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
                 <div>
                     <h4 className="fw-bold mb-1 text-dark d-flex align-items-center gap-2">
-                        <i className="ri ri-file-list-3-fill text-primary fs-3"></i>
-                        <span>Bookings, Reservations &amp; Converted Leads</span>
+                        <i className="ri ri-ticket-2-fill text-primary fs-3"></i>
+                        <span>CRM Bookings &amp; Won Deals</span>
                     </h4>
                     <p className="text-muted small mb-0">
-                        Complete master list of online Razorpay package reservations, B2B agent bookings, and CRM manual converted leads.
+                        Unified CRM booking registry combining online Razorpay reservations, B2B agent bookings, and WhatsApp converted leads.
                     </p>
                 </div>
                 <div className="d-flex gap-2 flex-wrap">
@@ -324,10 +321,14 @@ function BookingsPageContent() {
                     <Link href="/crm/converted" className="btn btn-outline-success d-flex align-items-center gap-2 rounded-pill px-3 shadow-xs">
                         <i className="ri ri-trophy-line"></i> Converted Leads
                     </Link>
+                    <Link href="/crm/followups" className="btn btn-outline-warning d-flex align-items-center gap-2 rounded-pill px-3 shadow-xs">
+                        <i className="ri ri-calendar-check-line"></i> Follow-ups
+                    </Link>
                     <button 
                         type="button" 
                         className="btn btn-primary d-flex align-items-center gap-2 rounded-pill px-4 shadow-sm" 
                         onClick={fetchAllBookings}
+                        style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
                     >
                         <i className="ri ri-refresh-line"></i> Refresh
                     </button>
@@ -719,7 +720,7 @@ function BookingsPageContent() {
                                                         {item.package_title}
                                                     </span>
                                                     <small className="text-muted">
-                                                        <i className="ri ri-map-pin-2-line me-1 text-danger"></i>
+                                                        <i className="ri ri-map-pin-2-line text-danger me-1"></i>
                                                         {item.travel_destination}
                                                     </small>
                                                 </div>
@@ -1409,10 +1410,10 @@ function BookingsPageContent() {
     );
 }
 
-export default function BookingsPage() {
+export default function CrmBookingsPage() {
     return (
         <Suspense fallback={<div className="p-5 text-center"><LoadingComponent /></div>}>
-            <BookingsPageContent />
+            <CrmBookingsPageContent />
         </Suspense>
     );
 }

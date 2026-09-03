@@ -4,13 +4,103 @@ import { toggleSidebar } from "@/services/reducers/themeSlices";
 import Link from "next/link"
 import { usePathname } from 'next/navigation'
 import { useDispatch, useSelector } from "react-redux";
+import { useEffect, useState, useCallback } from "react";
+import axios from "axios";
+import { getTaskStatsUrl, getNoticeStatsUrl, getChatUnreadCountUrl } from "@/app/routes/whatsappRoutes";
 
 function HeaderAdmin() {
     const pathname = usePathname();
     const sidebar = useSelector((state) => state?.theme?.sidebar);
     const user = useSelector((state) => state?.adminAuth?.user);
+    const token = useSelector((state) => state?.adminAuth?.token);
     const permisions = useSelector((state) => state?.permision?.permisions || []);
     const dispatch = useDispatch();
+    const [taskCount, setTaskCount] = useState(0);
+    const [noticeCount, setNoticeCount] = useState(0);
+    const [chatCount, setChatCount] = useState(0);
+
+    const fetchTaskCount = useCallback(async () => {
+        if (!token || !user?.id) return;
+        try {
+            const res = await axios.get(getTaskStatsUrl, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.data?.status && res.data?.stats) {
+                const stats = res.data.stats;
+                const unread = stats.unread_count !== undefined ? stats.unread_count : 0;
+                setTaskCount(unread);
+            }
+        } catch (err) {}
+    }, [token, user?.id]);
+
+    const fetchNoticeCount = useCallback(async () => {
+        if (!token || !user?.id) return;
+        try {
+            const res = await axios.get(getNoticeStatsUrl, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.data?.status && res.data?.stats) {
+                setNoticeCount(res.data.stats.unread_count || 0);
+            }
+        } catch (err) {}
+    }, [token, user?.id]);
+
+    const fetchChatCount = useCallback(async () => {
+        if (!token || !user?.id) return;
+        try {
+            const res = await axios.get(getChatUnreadCountUrl, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            if (res.data?.status && res.data?.unread_count !== undefined) {
+                setChatCount(res.data.unread_count || 0);
+            }
+        } catch (err) {}
+    }, [token, user?.id]);
+
+    useEffect(() => {
+        fetchTaskCount();
+        fetchNoticeCount();
+        fetchChatCount();
+
+        const handleTaskChange = (e) => {
+            if (e.detail?.count !== undefined) {
+                setTaskCount(e.detail.count);
+            } else if (e.detail?.delta !== undefined) {
+                setTaskCount(prev => Math.max(0, prev + e.detail.delta));
+            } else {
+                fetchTaskCount();
+            }
+        };
+
+        const handleNoticeChange = (e) => {
+            if (e.detail?.count !== undefined) {
+                setNoticeCount(e.detail.count);
+            } else if (e.detail?.delta !== undefined) {
+                setNoticeCount(prev => Math.max(0, prev + e.detail.delta));
+            } else {
+                fetchNoticeCount();
+            }
+        };
+
+        const handleChatChange = (e) => {
+            if (e.detail?.count !== undefined) {
+                setChatCount(e.detail.count);
+            } else if (e.detail?.delta !== undefined) {
+                setChatCount(prev => Math.max(0, prev + e.detail.delta));
+            } else {
+                fetchChatCount();
+            }
+        };
+
+        window.addEventListener('task_count_change', handleTaskChange);
+        window.addEventListener('notice_count_change', handleNoticeChange);
+        window.addEventListener('chat_count_change', handleChatChange);
+        return () => {
+            window.removeEventListener('task_count_change', handleTaskChange);
+            window.removeEventListener('notice_count_change', handleNoticeChange);
+            window.removeEventListener('chat_count_change', handleChatChange);
+        };
+    }, [fetchTaskCount, fetchNoticeCount, fetchChatCount]);
 
     function openParentmenu(e) {
         Array.from(document.getElementsByClassName('menu-item-parent')).forEach((elem) => {
@@ -209,6 +299,24 @@ function HeaderAdmin() {
                         <li className="menu-header small mt-5">
                             <span className="menu-header-text" data-i18n="CRM">CRM</span>
                         </li>
+                        <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/calendar") ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/crm/calendar" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-calendar-event-line text-danger"></i>
+                                <div data-i18n="Booking Calendar">Booking Calendar</div>
+                            </Link>
+                        </li>
+                        <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/bookings") ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/crm/bookings" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-ticket-2-line text-primary"></i>
+                                <div data-i18n="CRM Bookings">CRM Bookings</div>
+                            </Link>
+                        </li>
+                        <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/booking-users") ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/crm/booking-users" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-user-star-line text-info"></i>
+                                <div data-i18n="Booking Users">Booking Users</div>
+                            </Link>
+                        </li>
                         <li className={`menu-item menu-item-parent ${pathname == "/crm/whatsapp" || pathname == "/crm" ? 'active' : ''}`} onClick={openParentmenu}>
                             <Link href="/crm/whatsapp" className="menu-link">
                                 <i className="menu-icon icon-base ri ri-whatsapp-line text-success"></i>
@@ -255,28 +363,55 @@ function HeaderAdmin() {
                                 <div data-i18n="WhatsApp Marketing">WhatsApp Marketing</div>
                             </Link>
                         </li>
-                        <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/calendar") ? 'active' : ''}`} onClick={openParentmenu}>
-                            <Link href="/crm/calendar" className="menu-link">
-                                <i className="menu-icon icon-base ri ri-calendar-event-line text-danger"></i>
-                                <div data-i18n="Safari Peak Calendar">Safari Peak Calendar</div>
-                            </Link>
-                        </li>
                         <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/tasks") ? 'active' : ''}`} onClick={openParentmenu}>
                             <Link href="/crm/tasks" className="menu-link">
                                 <i className="menu-icon icon-base ri ri-kanban-view-2 text-warning"></i>
-                                <div data-i18n="Tasks & Kanban">Tasks &amp; Kanban</div>
+                                <div className="d-flex align-items-center justify-content-between w-100 pe-1">
+                                    <div data-i18n="Tasks & Kanban">Tasks &amp; Kanban</div>
+                                    {taskCount > 0 && (
+                                        <span 
+                                            className="badge rounded-pill bg-danger text-white px-2 py-0.5 ms-auto"
+                                            style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '0.2px' }}
+                                            title={`${taskCount} active task${taskCount > 1 ? 's' : ''}`}
+                                        >
+                                            {taskCount}
+                                        </span>
+                                    )}
+                                </div>
                             </Link>
                         </li>
                         <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/notices") ? 'active' : ''}`} onClick={openParentmenu}>
                             <Link href="/crm/notices" className="menu-link">
                                 <i className="menu-icon icon-base ri ri-notification-badge-line text-info"></i>
-                                <div data-i18n="Notice Board">Notice Board</div>
+                                <div className="d-flex align-items-center justify-content-between w-100 pe-1">
+                                    <div data-i18n="Notice Board">Notice Board</div>
+                                    {noticeCount > 0 && (
+                                        <span 
+                                            className="badge rounded-pill bg-info text-white px-2 py-0.5 ms-auto"
+                                            style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '0.2px' }}
+                                            title={`${noticeCount} unread notice${noticeCount > 1 ? 's' : ''}`}
+                                        >
+                                            {noticeCount}
+                                        </span>
+                                    )}
+                                </div>
                             </Link>
                         </li>
                         <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/chat") ? 'active' : ''}`} onClick={openParentmenu}>
                             <Link href="/crm/chat" className="menu-link">
                                 <i className="menu-icon icon-base ri ri-chat-smile-2-line text-success"></i>
-                                <div data-i18n="Team Chat">Team Chat</div>
+                                <div className="d-flex align-items-center justify-content-between w-100 pe-1">
+                                    <div data-i18n="Team Chat">Team Chat</div>
+                                    {chatCount > 0 && (
+                                        <span 
+                                            className="badge rounded-pill bg-success text-white px-2 py-0.5 ms-auto"
+                                            style={{ fontSize: '11px', fontWeight: '700', letterSpacing: '0.2px' }}
+                                            title={`${chatCount} unread message${chatCount > 1 ? 's' : ''}`}
+                                        >
+                                            {chatCount}
+                                        </span>
+                                    )}
+                                </div>
                             </Link>
                         </li>
 

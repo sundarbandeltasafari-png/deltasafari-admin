@@ -889,3 +889,23 @@ a, button, [role="button"], .btn, input[type="submit"], input[type="button"] {
 ::-webkit-scrollbar-corner {
     background: transparent !important;
 }
+
+.bg-light {
+    --bs-bg-opacity: 1;
+    background-color: rgb(251 251 251) !important;
+}
+
+/* Make entire date/time input box clickable with pointer cursor */
+input[type="date"],
+input[type="datetime-local"],
+input[type="month"],
+input[type="time"] {
+    cursor: pointer !important;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+    cursor: pointer !important;
+}

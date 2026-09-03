@@ -47,8 +47,8 @@ export default function DummyInvoicePreviewPage() {
             }
         ],
         subtotal: 14500,
-        gst_percent: 5,
-        gst_amount: 0, // In original PDF: "N/A"
+        gst_percent: 0,
+        gst_amount: 0,
         discount_amount: 0,
         advance_note: '700/pax',
         advance_received: 2500,

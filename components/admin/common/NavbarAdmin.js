@@ -79,6 +79,26 @@ function NavbarAdmin() {
             });
         });
 
+        // Sound chime helper via Web Audio API
+        const playNotificationSound = () => {
+            try {
+                if (typeof window !== 'undefined' && (window.AudioContext || window.webkitAudioContext)) {
+                    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+                    osc.frequency.setValueAtTime(880, ctx.currentTime + 0.12); // A5
+                    gain.gain.setValueAtTime(0.25, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.4);
+                }
+            } catch (e) {}
+        };
+
         // 📢 Notice Notification Handler (Received by ALL admin users)
         newSocket.on('notice_notification', (data) => {
             const newNotif = {
@@ -103,6 +123,19 @@ function NavbarAdmin() {
             });
             setUnreadCount((prev) => prev + 1);
 
+            // Play notification chime
+            playNotificationSound();
+
+            // Native browser desktop notification
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+                try {
+                    new Notification(`Delta Safari CRM: New Official Notice`, {
+                        body: `"${data.title}" by ${data.created_by_name || 'Super Admin'}`,
+                        icon: '/assets/img/favicon/favicon.ico'
+                    });
+                } catch (nErr) {}
+            }
+
             // Toast Alert
             toast.info(
                 <div style={{ cursor: 'pointer' }} onClick={() => router.push('/crm/notices')}>
@@ -112,6 +145,22 @@ function NavbarAdmin() {
                 </div>,
                 { autoClose: 6000 }
             );
+
+            // Dispatch event for real-time sidebar notice count update
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('notice_count_change', {
+                    detail: { delta: 1 }
+                }));
+            }
+        });
+
+        // 🔄 Real-time Notice Count Update Handler
+        newSocket.on('notice_count_updated', (data) => {
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('notice_count_change', {
+                    detail: data
+                }));
+            }
         });
 
         // 📋 Task Notification Handler (Received ONLY by the assigned admin user)
@@ -139,15 +188,112 @@ function NavbarAdmin() {
             });
             setUnreadCount((prev) => prev + 1);
 
+            // Play notification chime
+            playNotificationSound();
+
+            // Native browser desktop notification
+            if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+                try {
+                    new Notification(`Delta Safari CRM: New Task Assigned`, {
+                        body: `"${data.title}" assigned to you by ${data.assigned_by_name || 'Admin'}. Priority: ${data.priority?.toUpperCase()}`,
+                        icon: '/assets/img/favicon/favicon.ico'
+                    });
+                } catch (nErr) {}
+            }
+
             // Toast Alert
             toast.warn(
                 <div style={{ cursor: 'pointer' }} onClick={() => router.push('/crm/tasks')}>
                     <strong className="d-block" style={{ fontSize: '13px' }}>📋 New Task Assigned to You</strong>
                     <span style={{ fontSize: '12px' }}>{data.title}</span>
-                    <small className="d-block text-muted mt-1">Priority: {data.priority?.toUpperCase()} • Click to open Kanban</small>
+                    <small className="d-block text-muted mt-1">Assigned by {data.assigned_by_name || 'Admin'} • Priority: {data.priority?.toUpperCase()} • Click to view</small>
                 </div>,
-                { autoClose: 6000 }
+                { autoClose: 7000 }
             );
+
+            // Dispatch event for real-time sidebar task count update
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('task_count_change', {
+                    detail: { count: data.active_task_count }
+                }));
+            }
+        });
+
+        // 🔄 Real-time Task Count Update Handler
+        newSocket.on('task_count_updated', (data) => {
+            if (typeof window !== 'undefined' && data?.count !== undefined) {
+                window.dispatchEvent(new CustomEvent('task_count_change', {
+                    detail: { count: data.count }
+                }));
+            }
+        });
+
+        // 💬 Chat Notification Handler
+        newSocket.on('chat_notification', (data) => {
+            const isOnChatPage = typeof window !== 'undefined' && window.location.pathname === '/crm/chat';
+
+            const newNotif = {
+                id: `chat_${data.id || Date.now()}`,
+                type: 'chat',
+                title: `💬 Message from ${data.sender_name || 'Team Member'}`,
+                category: 'Team Chat',
+                author: data.sender_name || 'Team Member',
+                created_at: data.created_at || new Date().toISOString(),
+                read: false,
+                link: '/crm/chat'
+            };
+
+            setNotifications((prev) => {
+                const updated = [newNotif, ...prev.filter(n => n.id !== newNotif.id)].slice(0, 50);
+                if (user?.id) {
+                    try {
+                        localStorage.setItem(`admin_notifications_${user.id}`, JSON.stringify(updated));
+                    } catch (e) {}
+                }
+                return updated;
+            });
+            setUnreadCount((prev) => prev + 1);
+
+            if (!isOnChatPage) {
+                // Play notification chime
+                playNotificationSound();
+
+                // Native browser desktop notification
+                if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+                    try {
+                        new Notification(`Delta Safari CRM: ${data.sender_name || 'Team Member'}`, {
+                            body: data.message || 'New team chat message',
+                            icon: '/assets/img/favicon/favicon.ico'
+                        });
+                    } catch (nErr) {}
+                }
+
+                // Toast Alert
+                toast.info(
+                    <div style={{ cursor: 'pointer' }} onClick={() => router.push('/crm/chat')}>
+                        <strong className="d-block" style={{ fontSize: '13px' }}>💬 {data.sender_name || 'Team Member'}</strong>
+                        <span style={{ fontSize: '12px' }} className="text-truncate d-block">{data.message}</span>
+                        <small className="d-block text-muted mt-1">Click to open Team Chat</small>
+                    </div>,
+                    { autoClose: 5000 }
+                );
+            }
+
+            // Dispatch event for real-time sidebar chat count update
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('chat_count_change', {
+                    detail: { delta: 1 }
+                }));
+            }
+        });
+
+        // 🔄 Real-time Chat Count Update Handler
+        newSocket.on('chat_count_updated', (data) => {
+            if (typeof window !== 'undefined' && data?.unread_count !== undefined) {
+                window.dispatchEvent(new CustomEvent('chat_count_change', {
+                    detail: { count: data.unread_count }
+                }));
+            }
         });
 
         return () => {
@@ -165,6 +311,36 @@ function NavbarAdmin() {
         document.addEventListener('mousedown', handleClickOutside);
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
+
+    // Listen for task_read event to automatically mark task notifications as read
+    useEffect(() => {
+        const handleTaskRead = (e) => {
+            const taskId = e.detail?.taskId;
+            if (taskId) {
+                setNotifications(prev => {
+                    let hadUnread = false;
+                    const updated = prev.map(n => {
+                        if (n.type === 'task' && (n.id?.includes(`task_${taskId}`) || n.link?.includes(taskId))) {
+                            if (!n.read) hadUnread = true;
+                            return { ...n, read: true };
+                        }
+                        return n;
+                    });
+                    if (user?.id) {
+                        try {
+                            localStorage.setItem(`admin_notifications_${user.id}`, JSON.stringify(updated));
+                        } catch (err) {}
+                    }
+                    if (hadUnread) {
+                        setUnreadCount(c => Math.max(0, c - 1));
+                    }
+                    return updated;
+                });
+            }
+        };
+        window.addEventListener('task_read', handleTaskRead);
+        return () => window.removeEventListener('task_read', handleTaskRead);
+    }, [user?.id]);
 
     const markAllAsRead = () => {
         const updated = notifications.map(n => ({ ...n, read: true }));

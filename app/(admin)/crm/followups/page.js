@@ -64,6 +64,18 @@ export default function LeadFollowupsPage() {
     const [loadingLogs, setLoadingLogs] = useState(false);
     const [selectedContactLogs, setSelectedContactLogs] = useState([]);
     const [selectedContactInfo, setSelectedContactInfo] = useState(null);
+    const [activeDropdownId, setActiveDropdownId] = useState(null);
+
+    // Click outside to close actions dropdown
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (!e.target.closest('.followup-actions-dropdown')) {
+                setActiveDropdownId(null);
+            }
+        };
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, []);
 
     // Follow-up Form State
     const [formData, setFormData] = useState({
@@ -74,9 +86,14 @@ export default function LeadFollowupsPage() {
         lead_type: 'warm',
         travel_date: '',
         travel_destination: '',
-        number_of_persons: 1,
+        adults: 2,
+        children: 0,
+        infants: 0,
+        number_of_persons: 2,
         total_rooms: 1,
+        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0 }],
         package_name: '',
+        custom_package_name: '',
         package_rate: '',
         next_followup_date: '',
         extra_note: ''
@@ -89,6 +106,14 @@ export default function LeadFollowupsPage() {
         phone: '',
         email: '',
         package_name: '',
+        custom_package_name: '',
+        adults: 2,
+        children: 0,
+        infants: 0,
+        total_rooms: 1,
+        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0 }],
+        bed_type: 'Double Bed',
+        extra_discount: 0,
         converted_amount: '',
         travel_date: '',
         conversion_note: ''
@@ -233,6 +258,84 @@ export default function LeadFollowupsPage() {
         }, 50);
     };
 
+    // Helper to build default rooms array based on count
+    const createInitialRooms = (count = 1) => {
+        const roomCount = Math.max(1, parseInt(count, 10) || 1);
+        const arr = [];
+        for (let i = 1; i <= roomCount; i++) {
+            arr.push({ id: i, room_number: i, type: 'non_ac', extra_charge: 0 });
+        }
+        return arr;
+    };
+
+    // Helper to parse existing room details or fallback
+    const parseItemRooms = (item) => {
+        const loadedRoomsCount = Math.max(1, parseInt(item.total_rooms, 10) || 1);
+        let rawRooms = item.rooms || item.room_details;
+        if (typeof rawRooms === 'string') {
+            try { rawRooms = JSON.parse(rawRooms); } catch (e) { rawRooms = null; }
+        }
+
+        let loadedRooms = [];
+        if (Array.isArray(rawRooms) && rawRooms.length > 0) {
+            loadedRooms = rawRooms.map((r, i) => ({
+                id: r.id || i + 1,
+                room_number: r.room_number || i + 1,
+                type: r.type === 'ac' ? 'ac' : 'non_ac',
+                extra_charge: Number(r.extra_charge) || 0
+            }));
+        } else {
+            const effectivePkgName = item.package_name || '';
+            const matched = (packageSuggestions || []).find(p => (p.name === effectivePkgName || p.title === effectivePkgName));
+            const unitPrice = matched ? Number(matched.actual_price || matched.base_price || matched.price || 0) : 0;
+            const baseTotal = unitPrice > 0 ? (unitPrice * (parseInt(item.number_of_persons, 10) || 1)) : 0;
+            const currentRate = Number(item.package_rate) || 0;
+            const diff = (unitPrice > 0 && currentRate > baseTotal) ? (currentRate - baseTotal) : 0;
+            const noteText = `${item.extra_note || ''} ${item.conversion_note || ''}`;
+            const mentionsAc = /\bAC\b/i.test(noteText) && !/\bNon-AC\b/i.test(noteText);
+
+            if (diff > 0 || mentionsAc) {
+                loadedRooms = Array.from({ length: loadedRoomsCount }, (_, i) => ({
+                    id: i + 1,
+                    room_number: i + 1,
+                    type: i === 0 ? 'ac' : 'non_ac',
+                    extra_charge: i === 0 ? (diff > 0 ? diff : 0) : 0
+                }));
+            } else {
+                loadedRooms = createInitialRooms(loadedRoomsCount);
+            }
+        }
+        return loadedRooms;
+    };
+
+    // Helper to calculate total convert amount based on package price, adults, children, extra discount and rooms
+    // NOTE: Infants are free (₹0) and NOT included in price calculation as requested
+    const calculateConvertAutoAmount = (packageName, adultsCount, childrenCount, discountVal, roomsList) => {
+        const adults = Math.max(0, parseInt(adultsCount, 10) || 0);
+        const children = Math.max(0, parseInt(childrenCount, 10) || 0);
+        const billablePersons = adults + children;
+
+        const matched = (packageSuggestions || []).find(p => (p.name === packageName || p.title === packageName));
+        const unitPrice = matched ? Number(matched.actual_price || matched.base_price || matched.price || 0) : 0;
+        const baseTotal = unitPrice > 0 ? (unitPrice * billablePersons) : 0;
+        
+        const acExtraTotal = (roomsList || []).reduce((sum, r) => {
+            return sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0);
+        }, 0);
+
+        const discount = Math.max(0, Number(discountVal) || 0);
+        const finalTotal = (unitPrice > 0 || acExtraTotal > 0) ? Math.max(0, baseTotal + acExtraTotal - discount) : 0;
+
+        return {
+            unitPrice,
+            billablePersons,
+            baseTotal,
+            acExtraTotal,
+            discount,
+            finalTotal
+        };
+    };
+
     // Open Convert Lead Modal
     const handleOpenConvertModal = (item) => {
         const formatDateVal = (d) => {
@@ -244,35 +347,189 @@ export default function LeadFollowupsPage() {
             }
         };
 
+        const existingPkgName = item.package_name || '';
+        const isExistingPkgInList = (packageSuggestions || []).some(p => (p.name === existingPkgName || p.title === existingPkgName));
+        const selectedPkgVal = isExistingPkgInList ? existingPkgName : (existingPkgName ? '__custom__' : '');
+        const customPkgVal = isExistingPkgInList ? '' : existingPkgName;
+
+        const loadedRooms = parseItemRooms(item);
+        const initialAdults = item.adults !== undefined && item.adults !== null ? Number(item.adults) : Math.max(1, parseInt(item.number_of_persons, 10) || 2);
+        const initialChildren = item.children !== undefined && item.children !== null ? Number(item.children) : 0;
+        const initialInfants = item.infants !== undefined && item.infants !== null ? Number(item.infants) : 0;
+        const initialDiscount = 0;
+
+        const effectivePkg = selectedPkgVal === '__custom__' ? customPkgVal : selectedPkgVal;
+        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, initialAdults, initialChildren, initialDiscount, loadedRooms);
+
+        let initialAmount = item.package_rate || item.converted_amount || '';
+        if (!initialAmount && (unitPrice > 0 || acExtraTotal > 0)) {
+            initialAmount = String(finalTotal);
+        }
+
         setConvertFormData({
             contact_id: item.contact_id || item.id,
             lead_name: item.lead_name || item.name || '',
             phone: item.phone || item.wa_id || '',
             email: item.email || '',
-            package_name: item.package_name || '',
-            converted_amount: item.package_rate || item.converted_amount || '',
+            package_name: selectedPkgVal,
+            custom_package_name: customPkgVal,
+            adults: initialAdults,
+            children: initialChildren,
+            infants: initialInfants,
+            total_rooms: loadedRooms.length,
+            rooms: loadedRooms,
+            bed_type: 'Double Bed',
+            extra_discount: initialDiscount,
+            converted_amount: initialAmount,
             travel_date: formatDateVal(item.travel_date),
             conversion_note: ''
         });
         setConvertModalOpen(true);
     };
 
+    const handleConvertPackageChange = (val) => {
+        const effectivePkg = val === '__custom__' ? convertFormData.custom_package_name : val;
+        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, convertFormData.rooms);
+        setConvertFormData(prev => ({
+            ...prev,
+            package_name: val,
+            custom_package_name: val === '__custom__' ? prev.custom_package_name : '',
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+        }));
+    };
+
+    const handleConvertAdultsChange = (val) => {
+        const adults = Math.max(0, parseInt(val, 10) || 0);
+        const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
+        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, adults, convertFormData.children, convertFormData.extra_discount, convertFormData.rooms);
+        setConvertFormData(prev => ({
+            ...prev,
+            adults: val,
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+        }));
+    };
+
+    const handleConvertChildrenChange = (val) => {
+        const children = Math.max(0, parseInt(val, 10) || 0);
+        const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
+        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, children, convertFormData.extra_discount, convertFormData.rooms);
+        setConvertFormData(prev => ({
+            ...prev,
+            children: val,
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+        }));
+    };
+
+    const handleConvertInfantsChange = (val) => {
+        // Infants are 0 in price calculation (FREE)
+        setConvertFormData(prev => ({
+            ...prev,
+            infants: val
+        }));
+    };
+
+    const handleConvertDiscountChange = (val) => {
+        const discount = Math.max(0, Number(val) || 0);
+        const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
+        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, discount, convertFormData.rooms);
+        setConvertFormData(prev => ({
+            ...prev,
+            extra_discount: val,
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+        }));
+    };
+
+    const handleConvertAddRoom = () => {
+        const nextRooms = [...(convertFormData.rooms || [])];
+        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0 });
+        const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
+        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms);
+        setConvertFormData(prev => ({
+            ...prev,
+            total_rooms: nextRooms.length,
+            rooms: nextRooms,
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+        }));
+    };
+
+    const handleConvertRemoveRoom = (idx) => {
+        if ((convertFormData.rooms || []).length <= 1) return;
+        const nextRooms = convertFormData.rooms.filter((_, i) => i !== idx).map((r, i) => ({ ...r, room_number: i + 1 }));
+        const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
+        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms);
+        setConvertFormData(prev => ({
+            ...prev,
+            total_rooms: nextRooms.length,
+            rooms: nextRooms,
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+        }));
+    };
+
+    const handleConvertRoomChange = (idx, changes) => {
+        const nextRooms = convertFormData.rooms.map((r, i) => i === idx ? { ...r, ...changes } : r);
+        const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
+        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms);
+        setConvertFormData(prev => ({
+            ...prev,
+            total_rooms: nextRooms.length,
+            rooms: nextRooms,
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+        }));
+    };
+
     // Confirm Convert Lead
-    const handleConfirmConvert = async (e) => {
-        e.preventDefault();
+    const handleConfirmConvert = async (e, redirectToInvoice = false) => {
+        if (e) e.preventDefault();
         if (!convertFormData.contact_id) {
             showMessage('error', 'Contact ID is missing.');
             return;
         }
 
         setConvertingLead(true);
+
+        const finalPackageName = convertFormData.package_name === '__custom__'
+            ? (convertFormData.custom_package_name || 'Custom Package')
+            : convertFormData.package_name;
+
+        const totalPax = (parseInt(convertFormData.adults, 10) || 0) + (parseInt(convertFormData.children, 10) || 0) + (parseInt(convertFormData.infants, 10) || 0);
+
+        const roomsArr = convertFormData.rooms || [];
+        const roomsDesc = roomsArr.length > 0
+            ? roomsArr.map((r, i) => `Room #${i+1}: ${r.type === 'ac' ? `AC (+₹${r.extra_charge || 0})` : 'Non-AC'}`).join(', ')
+            : '1 Room';
+
+        const bookingDetailsSummary = `Package: ${finalPackageName || 'Standard Package'} | Rooms: ${roomsArr.length} (${roomsDesc}) | Total Members: ${totalPax} Pax (${convertFormData.adults || 0} Adults, ${convertFormData.children || 0} Children, ${convertFormData.infants || 0} Infants) | Bed Type: ${convertFormData.bed_type || 'Double Bed'}${Number(convertFormData.extra_discount) > 0 ? ` | Discount: ₹${convertFormData.extra_discount}` : ''}`;
+
+        const finalNote = convertFormData.conversion_note 
+            ? `${convertFormData.conversion_note.trim()}\n[${bookingDetailsSummary}]`
+            : `[${bookingDetailsSummary}]`;
+
+        const payload = {
+            contact_id: convertFormData.contact_id,
+            package_name: finalPackageName,
+            converted_amount: convertFormData.converted_amount,
+            travel_date: convertFormData.travel_date,
+            conversion_note: finalNote,
+            adults: convertFormData.adults,
+            children: convertFormData.children,
+            infants: convertFormData.infants,
+            number_of_persons: totalPax,
+            total_rooms: roomsArr.length || convertFormData.total_rooms || 1,
+            rooms: roomsArr,
+            room_details: roomsArr
+        };
+
         try {
-            const res = await axiosPost(convertLeadUrl, convertFormData, token);
+            const res = await axiosPost(convertLeadUrl, payload, token);
             if (res?.status) {
                 showMessage('success', '🎉 Lead marked as Converted successfully! Moved to Converted Leads section.');
                 setConvertModalOpen(false);
                 fetchFollowups(currentPage, activeTab);
                 fetchStats();
+
+                if (redirectToInvoice) {
+                    router.push(`/crm/invoices?create_for_lead=${convertFormData.contact_id}`);
+                }
             } else {
                 showMessage('error', res?.msg || 'Failed to convert lead.');
             }
@@ -308,6 +565,29 @@ export default function LeadFollowupsPage() {
         }
     };
 
+    // Helper to calculate total package rate based on package price, adults, children, and AC extra charges
+    const calculateAutoRate = (packageName, adultsCount, childrenCount, roomsList) => {
+        const adults = Math.max(0, parseInt(adultsCount, 10) || 0);
+        const children = Math.max(0, parseInt(childrenCount, 10) || 0);
+        const billablePersons = adults + children;
+        const matched = (packageSuggestions || []).find(p => (p.name === packageName || p.title === packageName));
+        const unitPrice = matched ? Number(matched.actual_price || matched.base_price || matched.price || 0) : 0;
+        const baseTotal = unitPrice > 0 ? (unitPrice * billablePersons) : 0;
+        
+        const acExtraTotal = (roomsList || []).reduce((sum, r) => {
+            return sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0);
+        }, 0);
+
+        const totalRate = (unitPrice > 0 || acExtraTotal > 0) ? (baseTotal + acExtraTotal) : 0;
+        return {
+            unitPrice,
+            billablePersons,
+            baseTotal,
+            acExtraTotal,
+            totalRate
+        };
+    };
+
     // Open Edit/Add Follow-up Modal
     const handleOpenEditModal = (item) => {
         const formatDateVal = (d) => {
@@ -319,6 +599,14 @@ export default function LeadFollowupsPage() {
             }
         };
 
+        const loadedRooms = parseItemRooms(item);
+        const isExistingPkgInList = (packageSuggestions || []).some(p => (p.name === item.package_name || p.title === item.package_name));
+
+        const loadedAdults = item.adults !== undefined && item.adults !== null ? Number(item.adults) : Math.max(1, parseInt(item.number_of_persons, 10) || 2);
+        const loadedChildren = item.children !== undefined && item.children !== null ? Number(item.children) : 0;
+        const loadedInfants = item.infants !== undefined && item.infants !== null ? Number(item.infants) : 0;
+        const totalPax = loadedAdults + loadedChildren + loadedInfants;
+
         setFormData({
             contact_id: item.contact_id || item.id,
             lead_name: item.lead_name || item.name || '',
@@ -327,14 +615,120 @@ export default function LeadFollowupsPage() {
             lead_type: item.lead_type || 'warm',
             travel_date: formatDateVal(item.travel_date),
             travel_destination: item.travel_destination || 'Sundarban',
-            number_of_persons: item.number_of_persons || 2,
-            total_rooms: item.total_rooms || 1,
-            package_name: item.package_name || '',
+            adults: loadedAdults,
+            children: loadedChildren,
+            infants: loadedInfants,
+            number_of_persons: totalPax,
+            total_rooms: loadedRooms.length,
+            rooms: loadedRooms,
+            package_name: isExistingPkgInList ? (item.package_name || '') : (item.package_name ? '__custom__' : ''),
+            custom_package_name: isExistingPkgInList ? '' : (item.package_name || ''),
             package_rate: item.package_rate || '',
             next_followup_date: formatDateVal(item.next_followup_date),
             extra_note: ''
         });
         setEditModalOpen(true);
+    };
+
+    const handlePackageChange = (val) => {
+        const effectivePkg = val === '__custom__' ? formData.custom_package_name : val;
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, formData.adults, formData.children, formData.rooms);
+        setFormData(prev => ({
+            ...prev,
+            package_name: val,
+            custom_package_name: val === '__custom__' ? prev.custom_package_name : '',
+            package_rate: unitPrice > 0 ? String(totalRate) : prev.package_rate
+        }));
+    };
+
+    const handleAdultsChange = (val) => {
+        const adults = Math.max(0, parseInt(val, 10) || 0);
+        const children = Math.max(0, parseInt(formData.children, 10) || 0);
+        const infants = Math.max(0, parseInt(formData.infants, 10) || 0);
+        const effectivePkg = formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name;
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, adults, children, formData.rooms);
+        setFormData(prev => ({
+            ...prev,
+            adults: val,
+            number_of_persons: adults + children + infants,
+            package_rate: unitPrice > 0 ? String(totalRate) : prev.package_rate
+        }));
+    };
+
+    const handleChildrenChange = (val) => {
+        const adults = Math.max(0, parseInt(formData.adults, 10) || 0);
+        const children = Math.max(0, parseInt(val, 10) || 0);
+        const infants = Math.max(0, parseInt(formData.infants, 10) || 0);
+        const effectivePkg = formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name;
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, adults, children, formData.rooms);
+        setFormData(prev => ({
+            ...prev,
+            children: val,
+            number_of_persons: adults + children + infants,
+            package_rate: unitPrice > 0 ? String(totalRate) : prev.package_rate
+        }));
+    };
+
+    const handleInfantsChange = (val) => {
+        const adults = Math.max(0, parseInt(formData.adults, 10) || 0);
+        const children = Math.max(0, parseInt(formData.children, 10) || 0);
+        const infants = Math.max(0, parseInt(val, 10) || 0);
+        setFormData(prev => ({
+            ...prev,
+            infants: val,
+            number_of_persons: adults + children + infants
+        }));
+    };
+
+    const handlePersonsChange = (val) => {
+        handleAdultsChange(val);
+    };
+
+    const handleAddRoom = () => {
+        const nextRooms = [...(formData.rooms || [])];
+        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0 });
+        const effectivePkg = formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name;
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, formData.adults, formData.children, nextRooms);
+        setFormData(prev => ({
+            ...prev,
+            total_rooms: nextRooms.length,
+            rooms: nextRooms,
+            package_rate: unitPrice > 0 ? String(totalRate) : prev.package_rate
+        }));
+    };
+
+    const handleRemoveRoom = (idx) => {
+        if ((formData.rooms || []).length <= 1) return;
+        const nextRooms = formData.rooms.filter((_, i) => i !== idx).map((r, i) => ({ ...r, room_number: i + 1 }));
+        const effectivePkg = formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name;
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, formData.adults, formData.children, nextRooms);
+        setFormData(prev => ({
+            ...prev,
+            total_rooms: nextRooms.length,
+            rooms: nextRooms,
+            package_rate: unitPrice > 0 ? String(totalRate) : prev.package_rate
+        }));
+    };
+
+    const handleRoomChange = (idx, changes) => {
+        const nextRooms = formData.rooms.map((r, i) => i === idx ? { ...r, ...changes } : r);
+        const effectivePkg = formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name;
+        const { totalRate, unitPrice, acExtraTotal } = calculateAutoRate(effectivePkg, formData.adults, formData.children, nextRooms);
+        setFormData(prev => {
+            let nextRate = prev.package_rate;
+            if (unitPrice > 0) {
+                nextRate = String(totalRate);
+            } else if (prev.package_rate && !isNaN(Number(prev.package_rate))) {
+                const prevAcTotal = (prev.rooms || []).reduce((sum, r) => sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0);
+                nextRate = String(Math.max(0, Number(prev.package_rate) + (acExtraTotal - prevAcTotal)));
+            }
+            return {
+                ...prev,
+                total_rooms: nextRooms.length,
+                rooms: nextRooms,
+                package_rate: nextRate
+            };
+        });
     };
 
     // Submit Follow-up Form
@@ -346,8 +740,27 @@ export default function LeadFollowupsPage() {
         }
 
         setSavingFollowup(true);
+
+        const finalPackageName = formData.package_name === '__custom__'
+            ? (formData.custom_package_name || 'Custom Package')
+            : formData.package_name;
+
+        const totalPax = (parseInt(formData.adults, 10) || 0) + (parseInt(formData.children, 10) || 0) + (parseInt(formData.infants, 10) || 0);
+
+        const payload = {
+            ...formData,
+            package_name: finalPackageName,
+            adults: formData.adults,
+            children: formData.children,
+            infants: formData.infants,
+            number_of_persons: totalPax,
+            total_rooms: (formData.rooms || []).length || formData.total_rooms || 1,
+            rooms: formData.rooms,
+            room_details: formData.rooms
+        };
+
         try {
-            const res = await axiosPost(saveLeadFollowupUrl, formData, token);
+            const res = await axiosPost(saveLeadFollowupUrl, payload, token);
             if (res?.status) {
                 showMessage('success', 'Follow-up details updated and log created successfully.');
                 setEditModalOpen(false);
@@ -830,7 +1243,7 @@ export default function LeadFollowupsPage() {
                     </div>
                 </div>
 
-                <div className="table-responsive">
+                <div className="table-responsive" style={{ minHeight: '380px' }}>
                     {loading ? (
                         <div className="text-center py-5">
                             <div className="spinner-border text-primary" role="status"></div>
@@ -865,7 +1278,7 @@ export default function LeadFollowupsPage() {
                                     <th>Travel Destination &amp; Details</th>
                                     <th>Converted Date &amp; Staff</th>
                                     <th>Conversion Remarks</th>
-                                    <th className="text-center pe-4">Actions</th>
+                                    <th className="text-center pe-4" style={{ width: '80px' }}>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -938,6 +1351,11 @@ export default function LeadFollowupsPage() {
                                                     <span className="badge bg-light text-dark border px-2 py-0.5 rounded-pill" style={{ fontSize: '10.5px' }}>
                                                         <i className="ri ri-hotel-bed-line me-1"></i>{item.total_rooms || 1} Rooms
                                                     </span>
+                                                    {Array.isArray(item.rooms) && item.rooms.filter(r => r.type === 'ac').length > 0 && (
+                                                        <span className="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-0.5 rounded-pill" style={{ fontSize: '10.5px' }}>
+                                                            <i className="ri ri-windy-fill me-1"></i>{item.rooms.filter(r => r.type === 'ac').length} AC
+                                                        </span>
+                                                    )}
                                                 </div>
                                             </div>
                                         </td>
@@ -966,41 +1384,114 @@ export default function LeadFollowupsPage() {
                                             </div>
                                         </td>
 
-                                        {/* Actions */}
-                                        <td className="text-center pe-4">
-                                            <div className="d-inline-flex align-items-center gap-1.5">
-                                                {/* History Logs Button */}
+                                        {/* Actions Dropdown (3 dots) */}
+                                        <td className="text-center pe-4" style={{ position: 'relative' }}>
+                                            <div className="dropdown followup-actions-dropdown d-inline-block position-relative">
                                                 <button
                                                     type="button"
-                                                    onClick={() => handleOpenLogsModal(item)}
-                                                    className="btn btn-sm btn-outline-secondary rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"
-                                                    title="View Follow-up Timeline Logs"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setActiveDropdownId(activeDropdownId === `conv_${item.followup_id}` ? null : `conv_${item.followup_id}`);
+                                                    }}
+                                                    className={`btn btn-sm ${activeDropdownId === `conv_${item.followup_id}` ? 'btn-primary text-white shadow-sm' : 'btn-light border'} rounded-circle p-0 d-inline-flex align-items-center justify-content-center`}
+                                                    style={{ width: '34px', height: '34px', transition: 'all 0.2s ease' }}
+                                                    title="More Actions"
+                                                    aria-expanded={activeDropdownId === `conv_${item.followup_id}`}
                                                 >
-                                                    <i className="ri ri-history-line"></i>
-                                                    <span>Logs ({item.total_followup_logs || 1})</span>
+                                                    <i className="ri ri-more-2-fill fs-5"></i>
                                                 </button>
 
-                                                {/* Re-open Lead Button */}
-                                                <button
-                                                    type="button"
-                                                    disabled={reopeningLeadId === (item.contact_id || item.id)}
-                                                    onClick={() => handleReopenLead(item)}
-                                                    className="btn btn-sm btn-outline-warning rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"
-                                                    title="Re-open lead back to active follow-up pipeline"
-                                                >
-                                                    <i className="ri ri-restart-line"></i>
-                                                    <span>Re-open</span>
-                                                </button>
+                                                {activeDropdownId === `conv_${item.followup_id}` && (
+                                                    <ul
+                                                        className="dropdown-menu dropdown-menu-end show border-0 shadow-lg rounded-3 py-2 position-absolute"
+                                                        style={{
+                                                            right: 0,
+                                                            top: '100%',
+                                                            marginTop: '6px',
+                                                            zIndex: 1050,
+                                                            minWidth: '235px',
+                                                            boxShadow: '0 12px 32px rgba(15, 23, 42, 0.15)',
+                                                            border: '1px solid rgba(0,0,0,0.08)'
+                                                        }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        {/* 1. Create Invoice */}
+                                                        <li>
+                                                            <Link
+                                                                href={`/crm/invoices?create_for_lead=${item.contact_id || item.id}`}
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                onClick={() => setActiveDropdownId(null)}
+                                                            >
+                                                                <span className="badge bg-primary bg-opacity-10 text-primary p-1.5 rounded-2">
+                                                                    <i className="ri ri-file-list-3-line fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">Create Invoice</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Generate invoice &amp; pay link</small>
+                                                                </div>
+                                                            </Link>
+                                                        </li>
 
-                                                {/* WhatsApp Chat Link */}
-                                                <Link
-                                                    href="/crm/whatsapp"
-                                                    className="btn btn-sm btn-outline-success rounded-circle p-1.5 d-inline-flex align-items-center justify-content-center"
-                                                    title="Go to WhatsApp Chat"
-                                                    style={{ width: '32px', height: '32px' }}
-                                                >
-                                                    <i className="ri ri-chat-1-line"></i>
-                                                </Link>
+                                                        {/* 2. Timeline Logs */}
+                                                        <li>
+                                                            <button
+                                                                type="button"
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                onClick={() => {
+                                                                    setActiveDropdownId(null);
+                                                                    handleOpenLogsModal(item);
+                                                                }}
+                                                            >
+                                                                <span className="badge bg-secondary bg-opacity-10 text-secondary p-1.5 rounded-2">
+                                                                    <i className="ri ri-history-line fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">Follow-up Logs</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>{item.total_followup_logs || 1} history log{(item.total_followup_logs || 1) > 1 ? 's' : ''}</small>
+                                                                </div>
+                                                            </button>
+                                                        </li>
+
+                                                        {/* 3. Re-open Lead */}
+                                                        <li>
+                                                            <button
+                                                                type="button"
+                                                                disabled={reopeningLeadId === (item.contact_id || item.id)}
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start text-warning-emphasis"
+                                                                onClick={() => {
+                                                                    setActiveDropdownId(null);
+                                                                    handleReopenLead(item);
+                                                                }}
+                                                            >
+                                                                <span className="badge bg-warning bg-opacity-15 text-warning-emphasis p-1.5 rounded-2">
+                                                                    <i className="ri ri-restart-line fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">Re-open Lead</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Move back to active pipeline</small>
+                                                                </div>
+                                                            </button>
+                                                        </li>
+
+                                                        {/* 4. WhatsApp Chat */}
+                                                        <li><hr className="dropdown-divider my-1" /></li>
+                                                        <li>
+                                                            <Link
+                                                                href={item.phone ? `/crm/whatsapp?phone=${item.phone}` : '/crm/whatsapp'}
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                onClick={() => setActiveDropdownId(null)}
+                                                            >
+                                                                <span className="badge bg-success bg-opacity-10 text-success p-1.5 rounded-2">
+                                                                    <i className="ri ri-whatsapp-fill fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">WhatsApp Chat</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Direct message lead</small>
+                                                                </div>
+                                                            </Link>
+                                                        </li>
+                                                    </ul>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
@@ -1018,7 +1509,7 @@ export default function LeadFollowupsPage() {
                                     <th>Next Follow-up</th>
                                     <th>Latest Note</th>
                                     {isSuperAdmin && <th>Assigned Admin</th>}
-                                    <th className="text-center pe-4">Actions</th>
+                                    <th className="text-center pe-4" style={{ width: '80px' }}>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -1079,6 +1570,11 @@ export default function LeadFollowupsPage() {
                                                     <span className="badge bg-light text-dark border px-2 py-0.5 rounded-pill" style={{ fontSize: '10.5px' }}>
                                                         <i className="ri ri-hotel-bed-line me-1"></i>{item.total_rooms || 1} Rooms
                                                     </span>
+                                                    {Array.isArray(item.rooms) && item.rooms.filter(r => r.type === 'ac').length > 0 && (
+                                                        <span className="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 px-2 py-0.5 rounded-pill" style={{ fontSize: '10.5px' }}>
+                                                            <i className="ri ri-windy-fill me-1"></i>{item.rooms.filter(r => r.type === 'ac').length} AC
+                                                        </span>
+                                                    )}
                                                 </div>
                                                 {item.package_name && (
                                                     <div className="mt-1">
@@ -1136,52 +1632,134 @@ export default function LeadFollowupsPage() {
                                             </td>
                                         )}
 
-                                        {/* Actions */}
-                                        <td className="text-center pe-4">
-                                            <div className="d-inline-flex align-items-center gap-1.5">
-                                                {/* Mark Converted Button */}
+                                        {/* Actions Dropdown (3 dots) */}
+                                        <td className="text-center pe-4" style={{ position: 'relative' }}>
+                                            <div className="dropdown followup-actions-dropdown d-inline-block position-relative">
                                                 <button
                                                     type="button"
-                                                    onClick={() => handleOpenConvertModal(item)}
-                                                    className="btn btn-sm btn-success rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1 shadow-xs"
-                                                    title="Mark Lead as Converted (Won Deal)"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setActiveDropdownId(activeDropdownId === item.followup_id ? null : item.followup_id);
+                                                    }}
+                                                    className={`btn btn-sm ${activeDropdownId === item.followup_id ? 'btn-primary text-white shadow-sm' : 'btn-light border'} rounded-circle p-0 d-inline-flex align-items-center justify-content-center`}
+                                                    style={{ width: '34px', height: '34px', transition: 'all 0.2s ease' }}
+                                                    title="More Actions"
+                                                    aria-expanded={activeDropdownId === item.followup_id}
                                                 >
-                                                    <i className="ri ri-checkbox-circle-fill"></i>
-                                                    <span>Convert</span>
+                                                    <i className="ri ri-more-2-fill fs-5"></i>
                                                 </button>
 
-                                                {/* Update Follow-up Button */}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleOpenEditModal(item)}
-                                                    className="btn btn-sm btn-primary rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"
-                                                    style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
-                                                    title="Update Follow-up Details"
-                                                >
-                                                    <i className="ri ri-edit-box-line"></i>
-                                                    <span>Follow-up</span>
-                                                </button>
+                                                {activeDropdownId === item.followup_id && (
+                                                    <ul
+                                                        className="dropdown-menu dropdown-menu-end show border-0 shadow-lg rounded-3 py-2 position-absolute"
+                                                        style={{
+                                                            right: 0,
+                                                            top: '100%',
+                                                            marginTop: '6px',
+                                                            zIndex: 1050,
+                                                            minWidth: '235px',
+                                                            boxShadow: '0 12px 32px rgba(15, 23, 42, 0.15)',
+                                                            border: '1px solid rgba(0,0,0,0.08)'
+                                                        }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        {/* 1. Convert Lead or Create Invoice */}
+                                                        {item.is_converted == 1 ? (
+                                                            <li>
+                                                                <Link
+                                                                    href={`/crm/invoices?create_for_lead=${item.contact_id || item.id}`}
+                                                                    className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                    onClick={() => setActiveDropdownId(null)}
+                                                                >
+                                                                    <span className="badge bg-primary bg-opacity-10 text-primary p-1.5 rounded-2">
+                                                                        <i className="ri ri-file-list-3-line fs-6"></i>
+                                                                    </span>
+                                                                    <div>
+                                                                        <div className="fw-semibold small text-dark">Create Invoice</div>
+                                                                        <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Generate invoice &amp; pay link</small>
+                                                                    </div>
+                                                                </Link>
+                                                            </li>
+                                                        ) : (
+                                                            <li>
+                                                                <button
+                                                                    type="button"
+                                                                    className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                    onClick={() => {
+                                                                        setActiveDropdownId(null);
+                                                                        handleOpenConvertModal(item);
+                                                                    }}
+                                                                >
+                                                                    <span className="badge bg-success bg-opacity-10 text-success p-1.5 rounded-2">
+                                                                        <i className="ri ri-checkbox-circle-fill fs-6"></i>
+                                                                    </span>
+                                                                    <div>
+                                                                        <div className="fw-semibold small text-dark">Convert Lead</div>
+                                                                        <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Mark won deal &amp; rate</small>
+                                                                    </div>
+                                                                </button>
+                                                            </li>
+                                                        )}
 
-                                                {/* History Logs Button */}
-                                                <button
-                                                    type="button"
-                                                    onClick={() => handleOpenLogsModal(item)}
-                                                    className="btn btn-sm btn-outline-secondary rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"
-                                                    title="View Follow-up Timeline Logs"
-                                                >
-                                                    <i className="ri ri-history-line"></i>
-                                                    <span>Logs ({item.total_followup_logs || 1})</span>
-                                                </button>
+                                                        {/* 2. Update Follow-up */}
+                                                        <li>
+                                                            <button
+                                                                type="button"
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                onClick={() => {
+                                                                    setActiveDropdownId(null);
+                                                                    handleOpenEditModal(item);
+                                                                }}
+                                                            >
+                                                                <span className="badge bg-primary bg-opacity-10 text-primary p-1.5 rounded-2">
+                                                                    <i className="ri ri-edit-box-line fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">Update Follow-up</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Record call note &amp; date</small>
+                                                                </div>
+                                                            </button>
+                                                        </li>
 
-                                                {/* WhatsApp Chat Link */}
-                                                <Link
-                                                    href="/crm/whatsapp"
-                                                    className="btn btn-sm btn-outline-success rounded-circle p-1.5 d-inline-flex align-items-center justify-content-center"
-                                                    title="Go to WhatsApp Chat"
-                                                    style={{ width: '32px', height: '32px' }}
-                                                >
-                                                    <i className="ri ri-chat-1-line"></i>
-                                                </Link>
+                                                        {/* 3. Timeline Logs */}
+                                                        <li>
+                                                            <button
+                                                                type="button"
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                onClick={() => {
+                                                                    setActiveDropdownId(null);
+                                                                    handleOpenLogsModal(item);
+                                                                }}
+                                                            >
+                                                                <span className="badge bg-secondary bg-opacity-10 text-secondary p-1.5 rounded-2">
+                                                                    <i className="ri ri-history-line fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">Timeline Logs</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>{item.total_followup_logs || 1} history log{(item.total_followup_logs || 1) > 1 ? 's' : ''}</small>
+                                                                </div>
+                                                            </button>
+                                                        </li>
+
+                                                        {/* 4. WhatsApp Chat */}
+                                                        <li><hr className="dropdown-divider my-1" /></li>
+                                                        <li>
+                                                            <Link
+                                                                href={item.phone ? `/crm/whatsapp?phone=${item.phone}` : '/crm/whatsapp'}
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                onClick={() => setActiveDropdownId(null)}
+                                                            >
+                                                                <span className="badge bg-success bg-opacity-10 text-success p-1.5 rounded-2">
+                                                                    <i className="ri ri-whatsapp-fill fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">WhatsApp Chat</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Direct message lead</small>
+                                                                </div>
+                                                            </Link>
+                                                        </li>
+                                                    </ul>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>
@@ -1271,80 +1849,351 @@ export default function LeadFollowupsPage() {
                                         </div>
                                     </div>
 
-                                    {/* Final Package & Deal Rate */}
-                                    <div className="row g-3 mb-3">
-                                        <div className="col-12 col-md-6">
-                                            <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
-                                                <i className="ri ri-suitcase-line text-primary"></i>
-                                                <span>Booked Package Name</span>
-                                            </label>
-                                            <input 
-                                                type="text" 
-                                                list="convert_package_options"
-                                                className="form-control rounded-3"
-                                                placeholder="e.g. 2D1N Sundarban Safari, Luxury Boat Tour"
-                                                value={convertFormData.package_name}
-                                                onChange={(e) => {
-                                                    const val = e.target.value;
-                                                    const matched = packageSuggestions.find(p => (p.name === val || p.title === val));
-                                                    if (matched && matched.price && !convertFormData.converted_amount) {
-                                                        setConvertFormData({ ...convertFormData, package_name: val, converted_amount: String(matched.price) });
-                                                    } else {
-                                                        setConvertFormData({ ...convertFormData, package_name: val });
-                                                    }
-                                                }}
-                                            />
-                                            <datalist id="convert_package_options">
-                                                {packageSuggestions.map((pkg) => (
-                                                    <option key={pkg.id} value={pkg.name || pkg.title}>
-                                                        {pkg.price ? `₹${pkg.price}` : ''}
-                                                    </option>
-                                                ))}
-                                            </datalist>
-                                        </div>
-                                        <div className="col-12 col-md-6">
-                                            <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
-                                                <i className="ri ri-money-rupee-circle-line text-success"></i>
-                                                <span>Final Agreed Booking Amount / Rate</span>
-                                            </label>
-                                            <div className="input-group">
-                                                <span className="input-group-text bg-light fw-bold">₹</span>
+                                    {/* 1. Booked Package Dropdown (Auto-selected from lead generation) */}
+                                    <div className="card bg-white border rounded-3 p-3 mb-3">
+                                        <div className="row g-3 align-items-center">
+                                            <div className="col-12 col-md-7">
+                                                <label className="form-label small fw-bold text-dark d-flex align-items-center justify-content-between">
+                                                    <span className="d-flex align-items-center gap-1">
+                                                        <i className="ri ri-suitcase-line text-primary"></i>
+                                                        <span>Booked Tour Package</span>
+                                                    </span>
+                                                    {(() => {
+                                                        const matched = packageSuggestions.find(p => (p.name === convertFormData.package_name || p.title === convertFormData.package_name));
+                                                        if (matched) {
+                                                            const pPrice = Number(matched.actual_price || matched.base_price || matched.price || 0);
+                                                            return pPrice > 0 ? (
+                                                                <span className="badge bg-label-success rounded-pill px-2 py-0.5" style={{ fontSize: '11px' }}>
+                                                                    ₹{pPrice.toLocaleString('en-IN')}/person
+                                                                </span>
+                                                            ) : null;
+                                                        }
+                                                        return null;
+                                                    })()}
+                                                </label>
+                                                <select
+                                                    className="form-select rounded-3"
+                                                    value={convertFormData.package_name}
+                                                    onChange={(e) => handleConvertPackageChange(e.target.value)}
+                                                >
+                                                    <option value="">-- Select Booked Package --</option>
+                                                    {packageSuggestions.map((pkg) => {
+                                                        const pkgName = pkg.name || pkg.title;
+                                                        const priceVal = Number(pkg.actual_price || pkg.base_price || pkg.price || 0);
+                                                        return (
+                                                            <option key={pkg.id || pkgName} value={pkgName}>
+                                                                {pkgName} {priceVal > 0 ? `(₹${priceVal.toLocaleString('en-IN')}/person)` : ''}
+                                                            </option>
+                                                        );
+                                                    })}
+                                                    <option value="__custom__">➕ Custom / Other Package...</option>
+                                                </select>
+
+                                                {convertFormData.package_name === '__custom__' && (
+                                                    <input
+                                                        type="text"
+                                                        className="form-control rounded-3 mt-2"
+                                                        placeholder="Enter custom package name..."
+                                                        value={convertFormData.custom_package_name || ''}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            setConvertFormData(prev => ({ ...prev, custom_package_name: val }));
+                                                        }}
+                                                        autoFocus
+                                                    />
+                                                )}
+                                            </div>
+
+                                            <div className="col-12 col-md-5">
+                                                <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
+                                                    <i className="ri ri-calendar-check-line text-primary"></i>
+                                                    <span>Confirmed Travel Date</span>
+                                                </label>
                                                 <input 
-                                                    type="text" 
-                                                    className="form-control rounded-end-3"
-                                                    placeholder="e.g. 15000 or 4500/pax"
-                                                    value={convertFormData.converted_amount}
-                                                    onChange={(e) => setConvertFormData({ ...convertFormData, converted_amount: e.target.value })}
+                                                    type="date" 
+                                                    className="form-control rounded-3"
+                                                    value={convertFormData.travel_date}
+                                                    onChange={(e) => setConvertFormData({ ...convertFormData, travel_date: e.target.value })}
                                                 />
                                             </div>
                                         </div>
                                     </div>
 
-                                    {/* Confirmed Travel Date */}
-                                    <div className="row g-3 mb-3">
-                                        <div className="col-12 col-md-6">
-                                            <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
-                                                <i className="ri ri-calendar-check-line text-primary"></i>
-                                                <span>Confirmed / Estimated Travel Date</span>
+                                    {/* 2. Passenger / Member Breakdown (Adults, Children, Infants) */}
+                                    <div className="card bg-white border rounded-3 p-3 mb-3">
+                                        <div className="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+                                            <label className="form-label small fw-bold text-dark mb-0 d-flex align-items-center gap-1">
+                                                <i className="ri ri-group-line text-primary"></i>
+                                                <span>Total Members Breakdown</span>
                                             </label>
-                                            <input 
-                                                type="date" 
-                                                className="form-control rounded-3"
-                                                value={convertFormData.travel_date}
-                                                onChange={(e) => setConvertFormData({ ...convertFormData, travel_date: e.target.value })}
-                                            />
+                                            <span className="badge bg-label-primary rounded-pill px-2.5 py-1" style={{ fontSize: '11.5px' }}>
+                                                Total: {(parseInt(convertFormData.adults, 10) || 0) + (parseInt(convertFormData.children, 10) || 0) + (parseInt(convertFormData.infants, 10) || 0)} Pax
+                                            </span>
                                         </div>
-                                        <div className="col-12 col-md-6">
-                                            <div className="alert alert-success d-flex align-items-center gap-2 mb-0 py-2.5 px-3 rounded-3" style={{ fontSize: '12.5px' }}>
-                                                <i className="ri ri-checkbox-circle-fill fs-5 text-success"></i>
-                                                <div>
-                                                    <strong>Status Change:</strong> Lead will move to <strong>Converted Leads</strong> and be removed from the daily follow-up queue.
+
+                                        <div className="row g-3">
+                                            {/* Adults */}
+                                            <div className="col-12 col-md-4">
+                                                <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                    <span>Adults (12+ yrs)</span>
+                                                    <small className="text-muted">Full price</small>
+                                                </label>
+                                                <input 
+                                                    type="number" 
+                                                    min="0"
+                                                    className="form-control rounded-3"
+                                                    value={convertFormData.adults}
+                                                    onChange={(e) => handleConvertAdultsChange(e.target.value)}
+                                                />
+                                            </div>
+
+                                            {/* Children */}
+                                            <div className="col-6 col-md-4">
+                                                <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                    <span>Children (5-11 yrs)</span>
+                                                    <small className="text-muted">Standard rate</small>
+                                                </label>
+                                                <input 
+                                                    type="number" 
+                                                    min="0"
+                                                    className="form-control rounded-3"
+                                                    value={convertFormData.children}
+                                                    onChange={(e) => handleConvertChildrenChange(e.target.value)}
+                                                />
+                                            </div>
+
+                                            {/* Infants */}
+                                            <div className="col-6 col-md-4">
+                                                <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                    <span>Infants (0-4 yrs)</span>
+                                                    <span className="badge bg-success bg-opacity-10 text-success" style={{ fontSize: '10px' }}>FREE (₹0)</span>
+                                                </label>
+                                                <input 
+                                                    type="number" 
+                                                    min="0"
+                                                    className="form-control rounded-3"
+                                                    value={convertFormData.infants}
+                                                    onChange={(e) => handleConvertInfantsChange(e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <small className="text-muted d-block mt-2" style={{ fontSize: '11px' }}>
+                                            <i className="ri ri-information-line me-1 text-info"></i>
+                                            Infants count is recorded for safari permits &amp; boat seating, but <strong>NOT calculated</strong> into the billing price.
+                                        </small>
+                                    </div>
+
+                                    {/* 3. Room Configuration (AC / Non-AC selected in Followup or Manual Lead) */}
+                                    <div className="card bg-white border rounded-3 p-3 mb-3">
+                                        <div className="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+                                            <div>
+                                                <label className="form-label small fw-bold text-dark mb-0 d-flex align-items-center gap-1.5">
+                                                    <i className="ri ri-hotel-bed-line text-primary"></i>
+                                                    <span>Room Configuration ({(convertFormData.rooms || []).length || 1} {((convertFormData.rooms || []).length || 1) === 1 ? 'Room' : 'Rooms'})</span>
+                                                </label>
+                                                <small className="text-muted d-block" style={{ fontSize: '11px' }}>
+                                                    Room option selected in follow-up / manual lead. You can modify AC/Non-AC or extra charge before converting.
+                                                </small>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleConvertAddRoom}
+                                                className="btn btn-outline-primary btn-sm rounded-pill d-inline-flex align-items-center gap-1 py-1 px-3 shadow-xs"
+                                            >
+                                                <i className="ri ri-add-line"></i>
+                                                <span>+ Add Room</span>
+                                            </button>
+                                        </div>
+
+                                        {/* Rooms List */}
+                                        <div className="d-flex flex-column gap-2 mt-2">
+                                            {(convertFormData.rooms || []).map((room, rIdx) => (
+                                                <div 
+                                                    key={room.id || rIdx} 
+                                                    className="p-2.5 rounded-3 border bg-light d-flex align-items-center justify-content-between flex-wrap gap-2"
+                                                >
+                                                    {/* Room Label */}
+                                                    <div className="d-flex align-items-center gap-2" style={{ minWidth: '95px' }}>
+                                                        <span className="badge bg-secondary bg-opacity-10 text-dark rounded-pill px-2.5 py-1 fw-bold" style={{ fontSize: '12px' }}>
+                                                            <i className="ri ri-door-open-line me-1 text-primary"></i> Room #{rIdx + 1}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* AC / Non-AC Tab Toggles */}
+                                                    <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-white border" role="group">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleConvertRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
+                                                            className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'non_ac' ? 'btn-secondary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                            style={{ fontSize: '12px' }}
+                                                        >
+                                                            <i className="ri ri-temp-cold-line me-1"></i> Non-AC
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleConvertRoomChange(rIdx, { type: 'ac', extra_charge: room.extra_charge !== undefined ? room.extra_charge : 0 })}
+                                                            className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'ac' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                            style={{ fontSize: '12px' }}
+                                                        >
+                                                            <i className="ri ri-windy-fill me-1"></i> AC Room
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Extra AC Charge Input (Opens when AC selected) */}
+                                                    {room.type === 'ac' && (
+                                                        <div className="d-flex align-items-center gap-1.5 ms-md-2">
+                                                            <label className="small fw-semibold text-primary mb-0 text-nowrap" style={{ fontSize: '11.5px' }}>
+                                                                Extra AC Charge:
+                                                            </label>
+                                                            <div className="input-group input-group-sm" style={{ width: '130px' }}>
+                                                                <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    className="form-control border-start-0"
+                                                                    placeholder="0"
+                                                                    value={room.extra_charge}
+                                                                    onChange={(e) => handleConvertRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Delete Room Button */}
+                                                    {(convertFormData.rooms || []).length > 1 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleConvertRemoveRoom(rIdx)}
+                                                            className="btn btn-outline-danger btn-sm rounded-circle p-1 d-flex align-items-center justify-content-center"
+                                                            style={{ width: '28px', height: '28px' }}
+                                                            title="Remove room"
+                                                        >
+                                                            <i className="ri ri-delete-bin-line"></i>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {/* Summary Row */}
+                                        <div className="d-flex align-items-center justify-content-between mt-2 pt-2 border-top flex-wrap gap-2" style={{ fontSize: '12px' }}>
+                                            <span className="text-muted">
+                                                Configured: <strong>{(convertFormData.rooms || []).length} Rooms</strong> ({(convertFormData.rooms || []).filter(r => r.type === 'ac').length} AC, {(convertFormData.rooms || []).filter(r => r.type === 'non_ac').length} Non-AC)
+                                            </span>
+                                            {(convertFormData.rooms || []).some(r => r.type === 'ac') && (
+                                                <span className="badge bg-primary bg-opacity-10 text-primary px-2.5 py-1 rounded-pill">
+                                                    Total AC Extra: +₹{(convertFormData.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
+                                                </span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* 4. Bed Type & Extra Discount */}
+                                    <div className="card bg-white border rounded-3 p-3 mb-3">
+                                        <div className="row g-3">
+                                            {/* Bed Type */}
+                                            <div className="col-12 col-md-6">
+                                                <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
+                                                    <i className="ri ri-hotel-bed-line text-primary"></i>
+                                                    <span>Bed Type / Room Preference</span>
+                                                </label>
+                                                <select
+                                                    className="form-select rounded-3"
+                                                    value={convertFormData.bed_type}
+                                                    onChange={(e) => setConvertFormData({ ...convertFormData, bed_type: e.target.value })}
+                                                >
+                                                    <option value="Double Bed">Double Bed (1 Queen/King Bed)</option>
+                                                    <option value="Twin Beds">Twin Beds (2 Separate Single Beds)</option>
+                                                    <option value="Triple Bed">Triple Bed (1 Double + 1 Single)</option>
+                                                    <option value="Family Suite">Family Suite (2 Double Beds)</option>
+                                                    <option value="King Bed + Extra Mattress">King Bed + Extra Mattress</option>
+                                                    <option value="Custom Bedding">Custom Bedding Arrangement</option>
+                                                </select>
+                                            </div>
+
+                                            {/* Extra Discount */}
+                                            <div className="col-12 col-md-6">
+                                                <label className="form-label small fw-bold text-dark d-flex align-items-center justify-content-between">
+                                                    <span className="d-flex align-items-center gap-1">
+                                                        <i className="ri ri-coupon-3-line text-danger"></i>
+                                                        <span>Extra Discount (₹)</span>
+                                                    </span>
+                                                    <small className="text-muted">Subtracted from total</small>
+                                                </label>
+                                                <div className="input-group">
+                                                    <span className="input-group-text bg-light text-danger fw-bold">₹</span>
+                                                    <input 
+                                                        type="number" 
+                                                        min="0"
+                                                        className="form-control rounded-end-3"
+                                                        placeholder="0"
+                                                        value={convertFormData.extra_discount}
+                                                        onChange={(e) => handleConvertDiscountChange(e.target.value)}
+                                                    />
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
 
-                                    {/* Conversion Remarks / Booking Notes */}
+                                    {/* 5. Final Agreed Deal Rate */}
+                                    <div className="card bg-success bg-opacity-10 border border-success border-opacity-25 rounded-3 p-3 mb-3">
+                                        <div className="row g-3 align-items-center">
+                                            <div className="col-12 col-md-6">
+                                                <label className="form-label small fw-bold text-dark d-flex align-items-center justify-content-between mb-1">
+                                                    <span className="d-flex align-items-center gap-1">
+                                                        <i className="ri ri-money-rupee-circle-fill text-success fs-5"></i>
+                                                        <span className="fs-6">Final Agreed Booking Amount</span>
+                                                    </span>
+                                                </label>
+                                                <div className="input-group">
+                                                    <span className="input-group-text bg-white text-success fw-bold">₹</span>
+                                                    <input 
+                                                        type="text" 
+                                                        className="form-control rounded-end-3 fw-bold text-dark fs-5 font-monospace"
+                                                        placeholder="e.g. 15000"
+                                                        value={convertFormData.converted_amount}
+                                                        onChange={(e) => setConvertFormData({ ...convertFormData, converted_amount: e.target.value })}
+                                                        required
+                                                    />
+                                                </div>
+                                            </div>
+                                            <div className="col-12 col-md-6">
+                                                {(() => {
+                                                    const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
+                                                    const { unitPrice, billablePersons, acExtraTotal, discount } = calculateConvertAutoAmount(
+                                                        effectivePkg,
+                                                        convertFormData.adults,
+                                                        convertFormData.children,
+                                                        convertFormData.extra_discount,
+                                                        convertFormData.rooms
+                                                    );
+                                                    return (
+                                                        <div className="small text-muted">
+                                                            {unitPrice > 0 || acExtraTotal > 0 ? (
+                                                                <>
+                                                                    <div><strong>Auto-Calculation:</strong> ₹{unitPrice.toLocaleString('en-IN')} × {billablePersons} billable pax {acExtraTotal > 0 ? `+ ₹${acExtraTotal.toLocaleString('en-IN')} AC ` : ''}{discount > 0 ? `- ₹${discount.toLocaleString('en-IN')} disc` : ''}</div>
+                                                                    <div className="text-success" style={{ fontSize: '11px' }}>Infants: {convertFormData.infants || 0} pax (₹0 free of charge)</div>
+                                                                </>
+                                                            ) : (
+                                                                <span>Enter the final closed quotation amount agreed with the client.</span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* 5. Status Notice */}
+                                    <div className="alert alert-success d-flex align-items-center gap-2 mb-3 py-2.5 px-3 rounded-3" style={{ fontSize: '12.5px' }}>
+                                        <i className="ri ri-checkbox-circle-fill fs-5 text-success"></i>
+                                        <div>
+                                            <strong>Status Change:</strong> Lead will move to <strong>Converted Leads</strong> and be removed from the daily follow-up queue.
+                                        </div>
+                                    </div>
+
+                                    {/* 6. Conversion Remarks / Booking Notes */}
                                     <div className="mb-2">
                                         <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
                                             <i className="ri ri-file-text-line text-secondary"></i>
@@ -1360,7 +2209,7 @@ export default function LeadFollowupsPage() {
                                     </div>
                                 </div>
 
-                                <div className="modal-footer bg-light py-3 px-4 d-flex justify-content-between align-items-center">
+                                <div className="modal-footer bg-light py-3 px-4 d-flex justify-content-between align-items-center flex-wrap gap-2">
                                     <button 
                                         type="button" 
                                         className="btn btn-outline-secondary rounded-pill px-4" 
@@ -1368,23 +2217,36 @@ export default function LeadFollowupsPage() {
                                     >
                                         Cancel
                                     </button>
-                                    <button 
-                                        type="submit" 
-                                        disabled={convertingLead}
-                                        className="btn btn-success rounded-pill px-4 d-inline-flex align-items-center gap-2 shadow-sm"
-                                    >
-                                        {convertingLead ? (
-                                            <>
-                                                <span className="spinner-border spinner-border-sm" role="status"></span>
-                                                <span>Marking Converted...</span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <i className="ri ri-checkbox-circle-fill"></i>
-                                                <span>🎉 Confirm &amp; Mark as Converted</span>
-                                            </>
-                                        )}
-                                    </button>
+                                    <div className="d-flex align-items-center gap-2">
+                                        <button 
+                                            type="button" 
+                                            disabled={convertingLead}
+                                            onClick={(e) => handleConfirmConvert(e, true)}
+                                            className="btn btn-primary rounded-pill px-3.5 d-inline-flex align-items-center gap-1.5 shadow-sm"
+                                            style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
+                                            title="Convert lead and immediately generate customer invoice"
+                                        >
+                                            <i className="ri ri-file-list-3-line"></i>
+                                            <span>Convert &amp; Create Invoice</span>
+                                        </button>
+                                        <button 
+                                            type="submit" 
+                                            disabled={convertingLead}
+                                            className="btn btn-success rounded-pill px-4 d-inline-flex align-items-center gap-2 shadow-sm"
+                                        >
+                                            {convertingLead ? (
+                                                <>
+                                                    <span className="spinner-border spinner-border-sm" role="status"></span>
+                                                    <span>Marking Converted...</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <i className="ri ri-checkbox-circle-fill"></i>
+                                                    <span>🎉 Mark as Converted</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
                                 </div>
                             </form>
                         </div>
@@ -1535,9 +2397,9 @@ export default function LeadFollowupsPage() {
                                         </div>
                                     </div>
 
-                                    {/* 3. Travel Parameters */}
+                                    {/* 3. Travel Date */}
                                     <div className="row g-3 mb-3">
-                                        <div className="col-12 col-md-4">
+                                        <div className="col-12">
                                             <label className="form-label small fw-semibold">Estimated Travel Date</label>
                                             <input 
                                                 type="date" 
@@ -1546,71 +2408,267 @@ export default function LeadFollowupsPage() {
                                                 onChange={(e) => setFormData({ ...formData, travel_date: e.target.value })}
                                             />
                                         </div>
-                                        <div className="col-6 col-md-4">
-                                            <label className="form-label small fw-semibold">Number of Persons</label>
-                                            <input 
-                                                type="number" 
-                                                min="1"
-                                                className="form-control rounded-3"
-                                                value={formData.number_of_persons}
-                                                onChange={(e) => setFormData({ ...formData, number_of_persons: e.target.value })}
-                                            />
+                                    </div>
+
+                                    {/* Passenger / Member Breakdown (Adults, Children, Infants) */}
+                                    <div className="card bg-white border rounded-3 p-3 mb-3">
+                                        <div className="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+                                            <label className="form-label small fw-bold text-dark mb-0 d-flex align-items-center gap-1">
+                                                <i className="ri ri-group-line text-primary"></i>
+                                                <span>Travelers Breakdown</span>
+                                            </label>
+                                            <span className="badge bg-label-primary rounded-pill px-2.5 py-1" style={{ fontSize: '11.5px' }}>
+                                                Total: {(parseInt(formData.adults, 10) || 0) + (parseInt(formData.children, 10) || 0) + (parseInt(formData.infants, 10) || 0)} Pax
+                                            </span>
                                         </div>
-                                        <div className="col-6 col-md-4">
-                                            <label className="form-label small fw-semibold">Total Rooms Required</label>
-                                            <input 
-                                                type="number" 
-                                                min="1"
-                                                className="form-control rounded-3"
-                                                value={formData.total_rooms}
-                                                onChange={(e) => setFormData({ ...formData, total_rooms: e.target.value })}
-                                            />
+
+                                        <div className="row g-3">
+                                            {/* Adults */}
+                                            <div className="col-12 col-md-4">
+                                                <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                    <span>Adults (12+ yrs)</span>
+                                                    <small className="text-muted">Full rate</small>
+                                                </label>
+                                                <input 
+                                                    type="number" 
+                                                    min="0"
+                                                    className="form-control rounded-3"
+                                                    value={formData.adults}
+                                                    onChange={(e) => handleAdultsChange(e.target.value)}
+                                                />
+                                            </div>
+
+                                            {/* Children */}
+                                            <div className="col-6 col-md-4">
+                                                <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                    <span>Children (5-11 yrs)</span>
+                                                    <small className="text-muted">Standard rate</small>
+                                                </label>
+                                                <input 
+                                                    type="number" 
+                                                    min="0"
+                                                    className="form-control rounded-3"
+                                                    value={formData.children}
+                                                    onChange={(e) => handleChildrenChange(e.target.value)}
+                                                />
+                                            </div>
+
+                                            {/* Infants */}
+                                            <div className="col-6 col-md-4">
+                                                <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                    <span>Infants (0-4 yrs)</span>
+                                                    <span className="badge bg-success bg-opacity-10 text-success" style={{ fontSize: '10px' }}>FREE (₹0)</span>
+                                                </label>
+                                                <input 
+                                                    type="number" 
+                                                    min="0"
+                                                    className="form-control rounded-3"
+                                                    value={formData.infants}
+                                                    onChange={(e) => handleInfantsChange(e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <small className="text-muted d-block mt-2" style={{ fontSize: '11px' }}>
+                                            <i className="ri ri-information-line me-1 text-info"></i>
+                                            Infants count is saved for permits &amp; seating, but <strong>NOT calculated</strong> into billing rate.
+                                        </small>
+                                    </div>
+
+                                    {/* Room Option (Create rooms one by one with AC/Non-AC tab & extra charge) */}
+                                    <div className="card bg-white border rounded-3 p-3 mb-3">
+                                        <div className="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+                                            <div>
+                                                <label className="form-label small fw-bold text-dark mb-0 d-flex align-items-center gap-1.5">
+                                                    <i className="ri ri-hotel-bed-line text-primary"></i>
+                                                    <span>Room Configuration ({formData.rooms?.length || 1} {(formData.rooms?.length || 1) === 1 ? 'Room' : 'Rooms'})</span>
+                                                </label>
+                                                <small className="text-muted d-block" style={{ fontSize: '11px' }}>
+                                                    Configure rooms one by one. Choose AC to specify extra charges.
+                                                </small>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={handleAddRoom}
+                                                className="btn btn-outline-primary btn-sm rounded-pill d-inline-flex align-items-center gap-1 py-1 px-3 shadow-xs"
+                                            >
+                                                <i className="ri ri-add-line"></i>
+                                                <span>+ Add Room</span>
+                                            </button>
+                                        </div>
+
+                                        {/* Rooms List */}
+                                        <div className="d-flex flex-column gap-2 mt-2">
+                                            {(formData.rooms || []).map((room, rIdx) => (
+                                                <div 
+                                                    key={room.id || rIdx} 
+                                                    className="p-2.5 rounded-3 border bg-light d-flex align-items-center justify-content-between flex-wrap gap-2"
+                                                >
+                                                    {/* Room Label */}
+                                                    <div className="d-flex align-items-center gap-2" style={{ minWidth: '95px' }}>
+                                                        <span className="badge bg-secondary bg-opacity-10 text-dark rounded-pill px-2.5 py-1 fw-bold" style={{ fontSize: '12px' }}>
+                                                            <i className="ri ri-door-open-line me-1 text-primary"></i> Room #{rIdx + 1}
+                                                        </span>
+                                                    </div>
+
+                                                    {/* AC / Non-AC Tab Toggles */}
+                                                    <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-white border" role="group">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
+                                                            className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'non_ac' ? 'btn-secondary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                            style={{ fontSize: '12px' }}
+                                                        >
+                                                            <i className="ri ri-temp-cold-line me-1"></i> Non-AC
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRoomChange(rIdx, { type: 'ac', extra_charge: room.extra_charge !== undefined ? room.extra_charge : 0 })}
+                                                            className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'ac' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                            style={{ fontSize: '12px' }}
+                                                        >
+                                                            <i className="ri ri-windy-fill me-1"></i> AC Room
+                                                        </button>
+                                                    </div>
+
+                                                    {/* Extra AC Charge Input (Opens when AC selected) */}
+                                                    {room.type === 'ac' && (
+                                                        <div className="d-flex align-items-center gap-1.5 ms-md-2">
+                                                            <label className="small fw-semibold text-primary mb-0 text-nowrap" style={{ fontSize: '11.5px' }}>
+                                                                Extra AC Charge:
+                                                            </label>
+                                                            <div className="input-group input-group-sm" style={{ width: '130px' }}>
+                                                                <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
+                                                                <input
+                                                                    type="number"
+                                                                    min="0"
+                                                                    className="form-control border-start-0"
+                                                                    placeholder="0"
+                                                                    value={room.extra_charge}
+                                                                    onChange={(e) => handleRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    )}
+
+                                                    {/* Delete Room Button */}
+                                                    {(formData.rooms || []).length > 1 && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleRemoveRoom(rIdx)}
+                                                            className="btn btn-outline-danger btn-sm rounded-circle p-1 d-flex align-items-center justify-content-center"
+                                                            style={{ width: '28px', height: '28px' }}
+                                                            title="Remove room"
+                                                        >
+                                                            <i className="ri ri-delete-bin-line"></i>
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        {/* Summary Row */}
+                                        <div className="d-flex align-items-center justify-content-between mt-2 pt-2 border-top flex-wrap gap-2" style={{ fontSize: '12px' }}>
+                                            <span className="text-muted">
+                                                Configured: <strong>{(formData.rooms || []).length} Rooms</strong> ({(formData.rooms || []).filter(r => r.type === 'ac').length} AC, {(formData.rooms || []).filter(r => r.type === 'non_ac').length} Non-AC)
+                                            </span>
+                                            {(formData.rooms || []).some(r => r.type === 'ac') && (
+                                                <span className="badge bg-primary bg-opacity-10 text-primary px-2.5 py-1 rounded-pill">
+                                                    Total AC Extra: +₹{(formData.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
+                                                </span>
+                                            )}
                                         </div>
                                     </div>
 
-                                    {/* 4. Package Information */}
+                                    {/* 4. Package Dropdown & Auto-calculated Rate */}
                                     <div className="row g-3 mb-3">
                                         <div className="col-12 col-md-6">
-                                            <label className="form-label small fw-semibold d-flex align-items-center gap-1">
-                                                <i className="ri ri-suitcase-line text-primary"></i>
-                                                <span>Package Name</span>
-                                            </label>
-                                            <input 
-                                                type="text" 
-                                                list="followup_package_options"
-                                                className="form-control rounded-3"
-                                                placeholder="e.g. 2D1N Sundarban Safari, Luxury Boat Tour"
-                                                value={formData.package_name}
-                                                onChange={(e) => {
-                                                    const val = e.target.value;
-                                                    const matched = packageSuggestions.find(p => (p.name === val || p.title === val));
-                                                    if (matched && matched.price && !formData.package_rate) {
-                                                        setFormData({ ...formData, package_name: val, package_rate: String(matched.price) });
-                                                    } else {
-                                                        setFormData({ ...formData, package_name: val });
+                                            <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                <span className="d-flex align-items-center gap-1">
+                                                    <i className="ri ri-suitcase-line text-primary"></i>
+                                                    <span>Select Tour Package</span>
+                                                </span>
+                                                {(() => {
+                                                    const matched = packageSuggestions.find(p => (p.name === formData.package_name || p.title === formData.package_name));
+                                                    if (matched) {
+                                                        const pPrice = Number(matched.actual_price || matched.base_price || matched.price || 0);
+                                                        return pPrice > 0 ? (
+                                                            <span className="badge bg-label-success rounded-pill px-2 py-0.5" style={{ fontSize: '10.5px' }}>
+                                                                ₹{pPrice.toLocaleString('en-IN')}/person
+                                                            </span>
+                                                        ) : null;
                                                     }
-                                                }}
-                                            />
-                                            <datalist id="followup_package_options">
-                                                {packageSuggestions.map((pkg) => (
-                                                    <option key={pkg.id} value={pkg.name || pkg.title}>
-                                                        {pkg.price ? `₹${pkg.price}` : ''}
-                                                    </option>
-                                                ))}
-                                            </datalist>
+                                                    return null;
+                                                })()}
+                                            </label>
+                                            <select
+                                                className="form-select rounded-3"
+                                                value={formData.package_name}
+                                                onChange={(e) => handlePackageChange(e.target.value)}
+                                            >
+                                                <option value="">-- Choose from available packages --</option>
+                                                {packageSuggestions.map((pkg) => {
+                                                    const pkgName = pkg.name || pkg.title;
+                                                    const priceVal = Number(pkg.actual_price || pkg.base_price || pkg.price || 0);
+                                                    return (
+                                                        <option key={pkg.id || pkgName} value={pkgName}>
+                                                            {pkgName} {priceVal > 0 ? `(₹${priceVal.toLocaleString('en-IN')}/person)` : ''}
+                                                        </option>
+                                                    );
+                                                })}
+                                                <option value="__custom__">➕ Custom / Other Package...</option>
+                                            </select>
+
+                                            {formData.package_name === '__custom__' && (
+                                                <input
+                                                    type="text"
+                                                    className="form-control rounded-3 mt-2"
+                                                    placeholder="Enter custom package name..."
+                                                    value={formData.custom_package_name || ''}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        setFormData(prev => ({ ...prev, custom_package_name: val }));
+                                                    }}
+                                                    autoFocus
+                                                />
+                                            )}
                                         </div>
                                         <div className="col-12 col-md-6">
-                                            <label className="form-label small fw-semibold d-flex align-items-center gap-1">
-                                                <i className="ri ri-money-rupee-circle-line text-success"></i>
-                                                <span>Package Rate</span>
+                                            <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                <span className="d-flex align-items-center gap-1">
+                                                    <i className="ri ri-money-rupee-circle-line text-success"></i>
+                                                    <span>Calculated Package Rate (Total)</span>
+                                                </span>
+                                                {(() => {
+                                                    const { unitPrice, billablePersons, acExtraTotal } = calculateAutoRate(
+                                                        formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name,
+                                                        formData.adults,
+                                                        formData.children,
+                                                        formData.rooms
+                                                    );
+                                                    if (unitPrice > 0 || acExtraTotal > 0) {
+                                                        return (
+                                                            <small className="text-muted" style={{ fontSize: '11px' }}>
+                                                                (₹{unitPrice} × {billablePersons} billable pax{acExtraTotal > 0 ? ` + ₹${acExtraTotal} AC` : ''})
+                                                            </small>
+                                                        );
+                                                    }
+                                                    return null;
+                                                })()}
                                             </label>
-                                            <input 
-                                                type="text" 
-                                                className="form-control rounded-3"
-                                                placeholder="e.g. 4500, 6000/person, or ₹15,000"
-                                                value={formData.package_rate}
-                                                onChange={(e) => setFormData({ ...formData, package_rate: e.target.value })}
-                                            />
+                                            <div className="input-group">
+                                                <span className="input-group-text bg-light fw-bold text-success">₹</span>
+                                                <input 
+                                                    type="text" 
+                                                    className="form-control rounded-end-3 fw-bold text-dark font-monospace"
+                                                    placeholder="e.g. 4500, 12000"
+                                                    value={formData.package_rate}
+                                                    onChange={(e) => setFormData({ ...formData, package_rate: e.target.value })}
+                                                />
+                                            </div>
+                                            <small className="text-muted d-block mt-1" style={{ fontSize: '11px' }}>
+                                                Auto-calculated from package price, person count, and AC rooms. You can adjust manually.
+                                            </small>
                                         </div>
                                     </div>
 

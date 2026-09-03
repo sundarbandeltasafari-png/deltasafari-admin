@@ -77,6 +77,11 @@ export default function NoticeBoardPage() {
             const res = await axiosGet(getNoticeStatsUrl, token);
             if (res?.status && res.stats) {
                 setStats(res.stats);
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('notice_count_change', {
+                        detail: { count: res.stats.unread_count || 0 }
+                    }));
+                }
             }
         } catch (err) {
             console.error('Error fetching notice stats:', err);
@@ -488,7 +493,7 @@ export default function NoticeBoardPage() {
                                                         <i className="ri ri-pushpin-fill"></i> PINNED
                                                     </span>
                                                     {renderNoticeTypeBadge(notice.notice_type)}
-                                                    <span className="badge bg-light text-muted border small">
+                                                    <span className="badge text-muted border small">
                                                         {notice.category}
                                                     </span>
                                                 </div>
@@ -595,7 +600,7 @@ export default function NoticeBoardPage() {
                                         <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                                             <div className="d-flex align-items-center gap-1.5 flex-wrap">
                                                 {renderNoticeTypeBadge(notice.notice_type)}
-                                                <span className="badge bg-light text-muted border small">
+                                                <span className="badge text-muted border small">
                                                     {notice.category}
                                                 </span>
                                             </div>

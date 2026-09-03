@@ -177,6 +177,10 @@ export default function AdminTeamChatPage() {
             const res = await axiosGet(getChatConversationsUrl, token);
             if (res?.status && Array.isArray(res.conversations)) {
                 setConversations(res.conversations);
+                const totalUnread = res.conversations.reduce((sum, c) => sum + (parseInt(c.unread_count) || 0), 0);
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('chat_count_change', { detail: { count: totalUnread } }));
+                }
                 if (autoSelectFirst && res.conversations.length > 0 && !activeConversation) {
                     handleSelectConversation(res.conversations[0]);
                 }
@@ -250,10 +254,15 @@ export default function AdminTeamChatPage() {
             });
         }
 
-        // Clear unread count locally
-        setConversations((prev) =>
-            prev.map((c) => (c.id === targetConv.id ? { ...c, unread_count: 0 } : c))
-        );
+        // Clear unread count locally and sync sidebar badge
+        setConversations((prev) => {
+            const updated = prev.map((c) => (c.id === targetConv.id ? { ...c, unread_count: 0 } : c));
+            const totalUnread = updated.reduce((sum, c) => sum + (parseInt(c.unread_count) || 0), 0);
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('chat_count_change', { detail: { count: totalUnread } }));
+            }
+            return updated;
+        });
 
         if (targetConv.id) {
             try {

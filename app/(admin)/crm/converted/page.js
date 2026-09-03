@@ -37,6 +37,18 @@ export default function ConvertedLeadsPage() {
     const [loadingLogs, setLoadingLogs] = useState(false);
     const [selectedContactLogs, setSelectedContactLogs] = useState([]);
     const [selectedContactInfo, setSelectedContactInfo] = useState(null);
+    const [activeDropdownId, setActiveDropdownId] = useState(null);
+
+    // Click outside to close actions dropdown
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (!e.target.closest('.converted-actions-dropdown')) {
+                setActiveDropdownId(null);
+            }
+        };
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, []);
 
     // Fetch Converted Leads
     const fetchConvertedLeads = async (page = 1) => {
@@ -299,7 +311,7 @@ export default function ConvertedLeadsPage() {
                     </span>
                 </div>
 
-                <div className="table-responsive text-nowrap">
+                <div className="table-responsive text-nowrap" style={{ minHeight: '380px' }}>
                     {loading ? (
                         <div className="p-5 text-center">
                             <LoadingComponent />
@@ -324,7 +336,7 @@ export default function ConvertedLeadsPage() {
                                     <th>Travel Destination &amp; Date</th>
                                     <th>Converted Date &amp; Staff</th>
                                     <th>Conversion Remarks</th>
-                                    <th className="text-center pe-4">Actions</th>
+                                    <th className="text-center pe-4" style={{ width: '80px' }}>Action</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -424,38 +436,114 @@ export default function ConvertedLeadsPage() {
                                             </div>
                                         </td>
 
-                                        {/* Actions */}
-                                        <td className="text-center pe-4">
-                                            <div className="d-inline-flex align-items-center gap-1.5">
+                                        {/* Actions Dropdown (3 dots) */}
+                                        <td className="text-center pe-4" style={{ position: 'relative' }}>
+                                            <div className="dropdown converted-actions-dropdown d-inline-block position-relative">
                                                 <button
                                                     type="button"
-                                                    onClick={() => handleOpenLogsModal(item)}
-                                                    className="btn btn-sm btn-outline-secondary rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"
-                                                    title="View Follow-up Timeline Logs"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setActiveDropdownId(activeDropdownId === item.followup_id ? null : item.followup_id);
+                                                    }}
+                                                    className={`btn btn-sm ${activeDropdownId === item.followup_id ? 'btn-primary text-white shadow-sm' : 'btn-light border'} rounded-circle p-0 d-inline-flex align-items-center justify-content-center`}
+                                                    style={{ width: '34px', height: '34px', transition: 'all 0.2s ease' }}
+                                                    title="More Actions"
+                                                    aria-expanded={activeDropdownId === item.followup_id}
                                                 >
-                                                    <i className="ri ri-history-line"></i>
-                                                    <span>Logs ({item.total_followup_logs || 1})</span>
+                                                    <i className="ri ri-more-2-fill fs-5"></i>
                                                 </button>
 
-                                                <button
-                                                    type="button"
-                                                    disabled={reopeningLeadId === (item.contact_id || item.id)}
-                                                    onClick={() => handleReopenLead(item)}
-                                                    className="btn btn-sm btn-outline-warning rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"
-                                                    title="Re-open lead back to active follow-up pipeline"
-                                                >
-                                                    <i className="ri ri-restart-line"></i>
-                                                    <span>Re-open</span>
-                                                </button>
+                                                {activeDropdownId === item.followup_id && (
+                                                    <ul
+                                                        className="dropdown-menu dropdown-menu-end show border-0 shadow-lg rounded-3 py-2 position-absolute"
+                                                        style={{
+                                                            right: 0,
+                                                            top: '100%',
+                                                            marginTop: '6px',
+                                                            zIndex: 1050,
+                                                            minWidth: '235px',
+                                                            boxShadow: '0 12px 32px rgba(15, 23, 42, 0.15)',
+                                                            border: '1px solid rgba(0,0,0,0.08)'
+                                                        }}
+                                                        onClick={(e) => e.stopPropagation()}
+                                                    >
+                                                        {/* 1. Create Invoice */}
+                                                        <li>
+                                                            <Link
+                                                                href={`/crm/invoices?create_for_lead=${item.contact_id || item.id}`}
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                onClick={() => setActiveDropdownId(null)}
+                                                            >
+                                                                <span className="badge bg-primary bg-opacity-10 text-primary p-1.5 rounded-2">
+                                                                    <i className="ri ri-file-list-3-line fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">Create Invoice</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Generate billing &amp; pay link</small>
+                                                                </div>
+                                                            </Link>
+                                                        </li>
 
-                                                <Link
-                                                    href="/crm/whatsapp"
-                                                    className="btn btn-sm btn-outline-success rounded-circle p-1.5 d-inline-flex align-items-center justify-content-center"
-                                                    title="Go to WhatsApp Chat"
-                                                    style={{ width: '32px', height: '32px' }}
-                                                >
-                                                    <i className="ri ri-chat-1-line"></i>
-                                                </Link>
+                                                        {/* 2. Timeline Logs */}
+                                                        <li>
+                                                            <button
+                                                                type="button"
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                onClick={() => {
+                                                                    setActiveDropdownId(null);
+                                                                    handleOpenLogsModal(item);
+                                                                }}
+                                                            >
+                                                                <span className="badge bg-secondary bg-opacity-10 text-secondary p-1.5 rounded-2">
+                                                                    <i className="ri ri-history-line fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">Follow-up Logs</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>{item.total_followup_logs || 1} history log{(item.total_followup_logs || 1) > 1 ? 's' : ''}</small>
+                                                                </div>
+                                                            </button>
+                                                        </li>
+
+                                                        {/* 3. Re-open Lead */}
+                                                        <li>
+                                                            <button
+                                                                type="button"
+                                                                disabled={reopeningLeadId === (item.contact_id || item.id)}
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start text-warning-emphasis"
+                                                                onClick={() => {
+                                                                    setActiveDropdownId(null);
+                                                                    handleReopenLead(item);
+                                                                }}
+                                                            >
+                                                                <span className="badge bg-warning bg-opacity-15 text-warning-emphasis p-1.5 rounded-2">
+                                                                    <i className="ri ri-restart-line fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">Re-open Lead</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Move back to active follow-ups</small>
+                                                                </div>
+                                                            </button>
+                                                        </li>
+
+                                                        {/* 4. WhatsApp Chat */}
+                                                        <li><hr className="dropdown-divider my-1" /></li>
+                                                        <li>
+                                                            <Link
+                                                                href={`/crm/whatsapp?phone=${item.phone || item.wa_id || ''}`}
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                onClick={() => setActiveDropdownId(null)}
+                                                            >
+                                                                <span className="badge bg-success bg-opacity-10 text-success p-1.5 rounded-2">
+                                                                    <i className="ri ri-whatsapp-fill fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">WhatsApp Chat</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Open direct CRM chat</small>
+                                                                </div>
+                                                            </Link>
+                                                        </li>
+                                                    </ul>
+                                                )}
                                             </div>
                                         </td>
                                     </tr>

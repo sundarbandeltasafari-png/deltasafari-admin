@@ -13,10 +13,10 @@ import {
     getTaskStatsUrl,
     getTaskUsersUrl,
     addTaskCommentUrl,
+    markTaskAsReadUrl,
     getWhatsAppContactsUrl
 } from '@/app/routes/whatsappRoutes';
 import { axiosGet, axiosPost, axiosPut, axiosDelete } from '@/libs/axiosHelper';
-import axios from 'axios';
 import { showMessage } from '@/libs/commonHelper';
 import LoadingComponent from '@/components/common/LoadingComponent';
 import NotFound from '@/components/common/NotFound';
@@ -24,6 +24,7 @@ import NotFound from '@/components/common/NotFound';
 export default function TaskManagementKanbanPage() {
     const token = useSelector((state) => state.adminAuth?.token);
     const user = useSelector((state) => state.adminAuth?.user);
+    const isAdmin = Number(user?.admin) === 1 || Number(user?.admin) === 2;
 
     // State
     const [loading, setLoading] = useState(true);
@@ -50,7 +51,6 @@ export default function TaskManagementKanbanPage() {
     const [filterAssignee, setFilterAssignee] = useState('');
     const [filterPriority, setFilterPriority] = useState('');
     const [filterCategory, setFilterCategory] = useState('');
-    const [filterStatus, setFilterStatus] = useState('');
     const [myTasksOnly, setMyTasksOnly] = useState(false);
 
     // Modals
@@ -59,10 +59,8 @@ export default function TaskManagementKanbanPage() {
     const [detailModalOpen, setDetailModalOpen] = useState(false);
     const [selectedTask, setSelectedTask] = useState(null);
     const [taskActivities, setTaskActivities] = useState([]);
-    const [loadingDetails, setLoadingDetails] = useState(false);
     const [newComment, setNewComment] = useState('');
     const [postingComment, setPostingComment] = useState(false);
-    const [newChecklistText, setNewChecklistText] = useState('');
 
     // Create / Edit Form State
     const [isEditing, setIsEditing] = useState(false);
@@ -129,6 +127,10 @@ export default function TaskManagementKanbanPage() {
             const res = await axiosGet(getTaskStatsUrl, token);
             if (res?.status && res.stats) {
                 setStats(res.stats);
+                const unreadCount = res.stats.unread_count !== undefined ? res.stats.unread_count : 0;
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('task_count_change', { detail: { count: unreadCount } }));
+                }
             }
         } catch (err) {
             console.error('Error fetching stats:', err);
@@ -144,17 +146,19 @@ export default function TaskManagementKanbanPage() {
             if (filterAssignee) queryParams.push(`assigned_to=${encodeURIComponent(filterAssignee)}`);
             if (filterPriority) queryParams.push(`priority=${encodeURIComponent(filterPriority)}`);
             if (filterCategory) queryParams.push(`category=${encodeURIComponent(filterCategory)}`);
-            if (filterStatus) queryParams.push(`status=${encodeURIComponent(filterStatus)}`);
             if (myTasksOnly) queryParams.push(`my_tasks_only=true`);
 
             const url = `${getTasksListUrl}${queryParams.length > 0 ? `?${queryParams.join('&')}` : ''}`;
             const res = await axiosGet(url, token);
+
             if (res?.status && Array.isArray(res.tasks)) {
                 setTasks(res.tasks);
+            } else {
+                setTasks([]);
             }
         } catch (err) {
             console.error('Error fetching tasks:', err);
-            showMessage('error', 'Failed to load tasks.');
+            setTasks([]);
         } finally {
             setLoading(false);
         }
@@ -162,40 +166,80 @@ export default function TaskManagementKanbanPage() {
 
     useEffect(() => {
         if (token) {
+            fetchTasks();
             fetchAdminUsers();
             fetchContacts();
             fetchStats();
-            fetchTasks();
         }
     }, [token]);
 
-    // Refetch when filters change
-    useEffect(() => {
-        if (token) {
-            const timer = setTimeout(() => {
-                fetchTasks();
-            }, 250);
-            return () => clearTimeout(timer);
+    // Handle Quick Status Update
+    const handleUpdateTaskStatus = async (taskId, newStatus) => {
+        if (newStatus === 'completed' && !isAdmin) {
+            showMessage('error', '🔒 Permission Denied: Employees cannot complete tasks. Only an Administrator can mark tasks as completed. Please move to "Review" for admin sign-off.');
+            fetchTasks();
+            return;
         }
-    }, [searchTerm, filterAssignee, filterPriority, filterCategory, filterStatus, myTasksOnly]);
+
+        // Optimistic UI update
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+        if (selectedTask && selectedTask.id === taskId) {
+            setSelectedTask(prev => ({ ...prev, status: newStatus }));
+        }
+
+        try {
+            const res = await axiosPut(`${updateTaskStatusUrl}${taskId}/status`, { status: newStatus }, token);
+            if (res?.status) {
+                showMessage('success', res?.msg || 'Task status updated.');
+                fetchStats();
+            } else {
+                showMessage('error', res?.msg || 'Failed to update status.');
+                fetchTasks();
+            }
+        } catch (err) {
+            showMessage('error', err.response?.data?.msg || err.message || 'Error updating status.');
+            fetchTasks();
+        }
+    };
+
+    // Drag & Drop Handlers
+    const handleDragStart = (e, taskId) => {
+        setDraggedTaskId(taskId);
+        e.dataTransfer.setData('text/plain', taskId);
+    };
+
+    const handleDragOver = (e) => {
+        e.preventDefault();
+    };
+
+    const handleDrop = (e, targetStatus) => {
+        e.preventDefault();
+        const taskId = draggedTaskId || e.dataTransfer.getData('text/plain');
+        if (taskId) {
+            if (targetStatus === 'completed' && !isAdmin) {
+                showMessage('error', '🔒 Permission Denied: Employees cannot complete tasks. Only an Administrator can mark tasks as completed. Please move to "Review" for admin sign-off.');
+                setDraggedTaskId(null);
+                return;
+            }
+            handleUpdateTaskStatus(Number(taskId), targetStatus);
+            setDraggedTaskId(null);
+        }
+    };
 
     // Open Create Modal
-    const handleOpenCreateModal = () => {
+    const handleOpenCreateModal = (defaultStatus = 'todo') => {
         setIsEditing(false);
         setEditTaskId(null);
         setTaskForm({
             title: '',
             description: '',
-            assigned_to: user?.id ? String(user.id) : (adminUsers[0]?.id ? String(adminUsers[0].id) : ''),
+            assigned_to: user?.id || '',
             priority: 'medium',
-            status: 'todo',
+            status: defaultStatus || 'todo',
             category: 'CRM Follow-up',
             due_date: new Date().toISOString().split('T')[0],
             due_time: '18:00',
-            checklists: [
-                { id: 1, text: 'Call client to understand requirements', completed: false },
-                { id: 2, text: 'Send detailed safari itinerary and package rates', completed: false }
-            ],
+            checklists: [],
             lead_contact_id: '',
             lead_name: '',
             lead_phone: ''
@@ -211,23 +255,83 @@ export default function TaskManagementKanbanPage() {
         setTaskForm({
             title: task.title || '',
             description: task.description || '',
-            assigned_to: task.assigned_to ? String(task.assigned_to) : '',
+            assigned_to: task.assigned_to || '',
             priority: task.priority || 'medium',
             status: task.status || 'todo',
-            category: task.category || 'General',
+            category: task.category || 'CRM Follow-up',
             due_date: task.due_date ? task.due_date.split('T')[0] : '',
             due_time: task.due_time || '',
-            checklists: Array.isArray(task.checklists) ? [...task.checklists] : [],
-            lead_contact_id: task.lead_contact_id ? String(task.lead_contact_id) : '',
+            checklists: Array.isArray(task.checklists) ? task.checklists : [],
+            lead_contact_id: task.lead_contact_id || '',
             lead_name: task.lead_name || '',
             lead_phone: task.lead_phone || ''
         });
         setTempChecklistInput('');
-        if (detailModalOpen) setDetailModalOpen(false);
+        setDetailModalOpen(false);
         setCreateModalOpen(true);
     };
 
-    // Add Checklist Item in Form
+    // Open Task Detail Drawer / Modal
+    const handleOpenDetailModal = async (task) => {
+        setSelectedTask(task);
+        setNewComment('');
+        setDetailModalOpen(true);
+
+        const wasUnread = !task.is_read;
+        if (wasUnread) {
+            // Optimistically mark as read in local tasks state
+            setTasks(prev => prev.map(t => t.id === task.id ? { ...t, is_read: 1 } : t));
+            setStats(prev => ({
+                ...prev,
+                unread_count: Math.max(0, (prev.unread_count || 1) - 1)
+            }));
+
+            // Immediately notify sidebar and navbar
+            if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('task_count_change', { detail: { delta: -1 } }));
+                window.dispatchEvent(new CustomEvent('task_read', { detail: { taskId: task.id } }));
+            }
+
+            // Persist read status in backend
+            try {
+                axiosPost(`${markTaskAsReadUrl}${task.id}/read`, {}, token).catch(() => {});
+            } catch (e) {}
+        }
+
+        try {
+            const res = await axiosGet(`${getSingleTaskUrl}${task.id}`, token);
+            if (res?.status && res.task) {
+                setSelectedTask({ ...res.task, is_read: 1 });
+                setTaskActivities(res.activities || []);
+            }
+        } catch (err) {
+            console.error('Error fetching task details:', err);
+        }
+    };
+
+    // Lead selection in form
+    const handleSelectLead = (contactId) => {
+        if (!contactId) {
+            setTaskForm(prev => ({
+                ...prev,
+                lead_contact_id: '',
+                lead_name: '',
+                lead_phone: ''
+            }));
+            return;
+        }
+        const found = contacts.find(c => String(c.id) === String(contactId));
+        if (found) {
+            setTaskForm(prev => ({
+                ...prev,
+                lead_contact_id: found.id,
+                lead_name: found.name || 'Tourist',
+                lead_phone: found.wa_id || found.phone || ''
+            }));
+        }
+    };
+
+    // Checklist add/remove in Form
     const handleAddChecklistItem = () => {
         if (!tempChecklistInput.trim()) return;
         const newItem = {
@@ -235,193 +339,55 @@ export default function TaskManagementKanbanPage() {
             text: tempChecklistInput.trim(),
             completed: false
         };
-        setTaskForm({
-            ...taskForm,
-            checklists: [...taskForm.checklists, newItem]
-        });
+        setTaskForm(prev => ({
+            ...prev,
+            checklists: [...prev.checklists, newItem]
+        }));
         setTempChecklistInput('');
     };
 
-    // Remove Checklist Item in Form
-    const handleRemoveChecklistItem = (itemId) => {
-        setTaskForm({
-            ...taskForm,
-            checklists: taskForm.checklists.filter(item => item.id !== itemId)
-        });
+    const handleRemoveChecklistItem = (id) => {
+        setTaskForm(prev => ({
+            ...prev,
+            checklists: prev.checklists.filter(c => c.id !== id)
+        }));
     };
 
-    // Lead select in Form
-    const handleSelectLead = (contactId) => {
-        if (!contactId) {
-            setTaskForm({ ...taskForm, lead_contact_id: '', lead_name: '', lead_phone: '' });
-            return;
-        }
-        const selected = contacts.find(c => String(c.id) === String(contactId));
-        if (selected) {
-            setTaskForm({
-                ...taskForm,
-                lead_contact_id: String(selected.id),
-                lead_name: selected.name || 'Tourist',
-                lead_phone: selected.wa_id || ''
-            });
-        }
-    };
-
-    // Save Task (Create or Update)
-    const handleSaveTask = async (e) => {
-        e.preventDefault();
-        if (!taskForm.title.trim()) {
-            showMessage('error', 'Task title is required.');
-            return;
-        }
-
-        setSubmittingTask(true);
-        try {
-            if (isEditing && editTaskId) {
-                const res = await axiosPut(`${updateTaskUrl}${editTaskId}`, taskForm, token);
-                if (res?.status) {
-                    showMessage('success', 'Task updated successfully!');
-                    setCreateModalOpen(false);
-                    fetchTasks();
-                    fetchStats();
-                } else {
-                    showMessage('error', res?.msg || 'Failed to update task.');
-                }
-            } else {
-                const res = await axiosPost(createTaskUrl, taskForm, token);
-                if (res?.status) {
-                    showMessage('success', res?.msg || 'Task created successfully!');
-                    setCreateModalOpen(false);
-                    fetchTasks();
-                    fetchStats();
-                } else {
-                    showMessage('error', res?.msg || 'Failed to create task.');
-                }
-            }
-        } catch (err) {
-            showMessage('error', err.response?.data?.msg || err.message || 'Error saving task.');
-        } finally {
-            setSubmittingTask(false);
-        }
-    };
-
-    // Fast Status Shift (Kanban Move or Drop)
-    const handleUpdateTaskStatus = async (taskId, newStatus) => {
-        // Optimistic UI update
-        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
-
-        try {
-            const res = await axios.patch(
-                `${updateTaskStatusUrl}${taskId}/status`,
-                { status: newStatus },
-                { headers: { 'Authorization': `Bearer ${token}` } }
-            );
-            if (res.data?.status) {
-                fetchStats();
-                if (selectedTask && selectedTask.id === taskId) {
-                    setSelectedTask({ ...selectedTask, status: newStatus });
-                }
-            } else {
-                showMessage('error', res.data?.msg || 'Failed to update status.');
-                fetchTasks();
-            }
-        } catch (err) {
-            console.error('Error updating task status:', err);
-            showMessage('error', 'Failed to update status.');
-            fetchTasks();
-        }
-    };
-
-    // Delete Task
-    const handleDeleteTask = async (taskId, taskCode) => {
-        if (!window.confirm(`Are you sure you want to delete task ${taskCode}?`)) return;
-
-        try {
-            const res = await axiosDelete(`${deleteTaskUrl}${taskId}`, token);
-            if (res?.status) {
-                showMessage('success', `Task ${taskCode} deleted.`);
-                if (detailModalOpen && selectedTask?.id === taskId) setDetailModalOpen(false);
-                fetchTasks();
-                fetchStats();
-            } else {
-                showMessage('error', res?.msg || 'Failed to delete task.');
-            }
-        } catch (err) {
-            showMessage('error', err.response?.data?.msg || err.message || 'Error deleting task.');
-        }
-    };
-
-    // Open Task Detail View
-    const handleOpenDetailModal = async (task) => {
-        setSelectedTask(task);
-        setDetailModalOpen(true);
-        setLoadingDetails(true);
-        try {
-            const res = await axiosGet(`${getSingleTaskUrl}${task.id}`, token);
-            if (res?.status && res.task) {
-                setSelectedTask(res.task);
-                setTaskActivities(res.activities || []);
-            }
-        } catch (err) {
-            console.error('Error loading task details:', err);
-        } finally {
-            setLoadingDetails(false);
-        }
-    };
-
-    // Toggle Checklist item in Detail view (Live update)
-    const handleToggleChecklistItem = async (itemId) => {
+    // Toggle Checklist in Details View
+    const handleToggleChecklistDetail = async (chkId) => {
         if (!selectedTask) return;
-        const updatedChecklists = (selectedTask.checklists || []).map(item => {
-            if (item.id === itemId) return { ...item, completed: !item.completed };
-            return item;
-        });
+        const updatedChecklists = (selectedTask.checklists || []).map(c =>
+            c.id === chkId ? { ...c, completed: !c.completed } : c
+        );
 
-        setSelectedTask({ ...selectedTask, checklists: updatedChecklists });
+        setSelectedTask(prev => ({ ...prev, checklists: updatedChecklists }));
         setTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, checklists: updatedChecklists } : t));
 
         try {
             await axiosPut(`${updateTaskUrl}${selectedTask.id}`, { checklists: updatedChecklists }, token);
-        } catch (err) {
-            console.error('Error updating checklist item:', err);
+        } catch (e) {
+            console.error('Error updating checklist:', e);
         }
     };
 
-    // Add Checklist Item on the fly in detail view
-    const handleAddLiveChecklistItem = async () => {
-        if (!newChecklistText.trim() || !selectedTask) return;
-        const newItem = {
-            id: Date.now(),
-            text: newChecklistText.trim(),
-            completed: false
-        };
-        const updatedChecklists = [...(selectedTask.checklists || []), newItem];
-        setSelectedTask({ ...selectedTask, checklists: updatedChecklists });
-        setTasks(prev => prev.map(t => t.id === selectedTask.id ? { ...t, checklists: updatedChecklists } : t));
-        setNewChecklistText('');
-
-        try {
-            await axiosPut(`${updateTaskUrl}${selectedTask.id}`, { checklists: updatedChecklists }, token);
-            showMessage('success', 'Subtask added.');
-        } catch (err) {
-            console.error('Error adding subtask:', err);
-        }
-    };
-
-    // Post Comment in Detail view
+    // Post Comment
     const handlePostComment = async (e) => {
         e.preventDefault();
         if (!newComment.trim() || !selectedTask) return;
-
         setPostingComment(true);
         try {
-            const res = await axiosPost(`${addTaskCommentUrl}${selectedTask.id}/comments`, { comment: newComment.trim() }, token);
+            const res = await axiosPost(`${addTaskCommentUrl}${selectedTask.id}/comments`, {
+                comment_text: newComment.trim()
+            }, token);
+
             if (res?.status) {
+                showMessage('success', 'Comment posted.');
                 setNewComment('');
-                // Refresh activity log
-                const detailRes = await axiosGet(`${getSingleTaskUrl}${selectedTask.id}`, token);
-                if (detailRes?.status && detailRes.activities) {
-                    setTaskActivities(detailRes.activities);
+                // Refresh task details
+                const dRes = await axiosGet(`${getSingleTaskUrl}${selectedTask.id}`, token);
+                if (dRes?.status) {
+                    setSelectedTask(dRes.task);
+                    setTaskActivities(dRes.activities || []);
                 }
             } else {
                 showMessage('error', res?.msg || 'Failed to post comment.');
@@ -433,75 +399,90 @@ export default function TaskManagementKanbanPage() {
         }
     };
 
-    // Drag & Drop Handlers
-    const handleDragStart = (e, taskId) => {
-        e.dataTransfer.setData('text/plain', taskId);
-        setDraggedTaskId(taskId);
-    };
-
-    const handleDragOver = (e) => {
+    // Save Task Submit (Create or Update)
+    const handleSaveTask = async (e) => {
         e.preventDefault();
-    };
-
-    const handleDrop = (e, targetStatus) => {
-        e.preventDefault();
-        const taskId = e.dataTransfer.getData('text/plain') || draggedTaskId;
-        if (taskId) {
-            handleUpdateTaskStatus(parseInt(taskId), targetStatus);
+        if (!taskForm.title.trim()) {
+            showMessage('error', 'Task title is required.');
+            return;
         }
-        setDraggedTaskId(null);
+
+        setSubmittingTask(true);
+        try {
+            let res;
+            if (isEditing && editTaskId) {
+                res = await axiosPut(`${updateTaskUrl}${editTaskId}`, taskForm, token);
+            } else {
+                res = await axiosPost(createTaskUrl, taskForm, token);
+            }
+
+            if (res?.status) {
+                showMessage('success', isEditing ? 'Task updated successfully!' : '🎉 Task created & assigned successfully!');
+                setCreateModalOpen(false);
+                fetchTasks();
+                fetchStats();
+            } else {
+                showMessage('error', res?.msg || 'Failed to save task.');
+            }
+        } catch (err) {
+            showMessage('error', err.response?.data?.msg || err.message || 'Error saving task.');
+        } finally {
+            setSubmittingTask(false);
+        }
     };
 
-    // Priority Badge UI Helper
-    const renderPriorityBadge = (priority) => {
+    // Delete Task
+    const handleDeleteTask = async (id, code) => {
+        if (!confirm(`Are you sure you want to delete task ${code}?`)) return;
+        try {
+            const res = await axiosDelete(`${deleteTaskUrl}${id}`, token);
+            if (res?.status) {
+                showMessage('success', 'Task removed successfully.');
+                setDetailModalOpen(false);
+                fetchTasks();
+                fetchStats();
+            } else {
+                showMessage('error', res?.msg || 'Failed to delete task.');
+            }
+        } catch (err) {
+            showMessage('error', err.response?.data?.msg || err.message || 'Error deleting task.');
+        }
+    };
+
+    // Priority Pill Renderer
+    const renderPriorityPill = (priority) => {
         switch (priority) {
             case 'urgent':
-                return <span className="badge bg-danger text-white rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"><i className="ri ri-fire-fill"></i> Urgent</span>;
+                return <span className="badge rounded-pill bg-danger text-white px-2 py-0.5 fw-semibold" style={{ fontSize: '10px' }}>🔴 Urgent</span>;
             case 'high':
-                return <span className="badge bg-warning text-dark rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"><i className="ri ri-arrow-up-circle-fill"></i> High</span>;
+                return <span className="badge rounded-pill bg-warning text-dark px-2 py-0.5 fw-semibold" style={{ fontSize: '10px' }}>🟠 High</span>;
             case 'medium':
-                return <span className="badge bg-info text-white rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"><i className="ri ri-equal-circle-fill"></i> Medium</span>;
+                return <span className="badge rounded-pill bg-info text-white px-2 py-0.5 fw-semibold" style={{ fontSize: '10px' }}>🟡 Medium</span>;
             case 'low':
-                return <span className="badge bg-secondary text-white rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1"><i className="ri ri-arrow-down-circle-fill"></i> Low</span>;
+                return <span className="badge rounded-pill bg-secondary text-white px-2 py-0.5 fw-semibold" style={{ fontSize: '10px' }}>🟢 Low</span>;
             default:
-                return <span className="badge bg-light text-dark rounded-pill px-2.5 py-1">{priority}</span>;
+                return null;
         }
     };
 
-    // Status Badge UI Helper
-    const renderStatusBadge = (status) => {
-        switch (status) {
-            case 'todo':
-                return <span className="badge bg-label-secondary rounded-pill px-2.5 py-1">To Do</span>;
-            case 'in_progress':
-                return <span className="badge bg-label-primary rounded-pill px-2.5 py-1">In Progress</span>;
-            case 'review':
-                return <span className="badge bg-label-warning rounded-pill px-2.5 py-1">Under Review</span>;
-            case 'completed':
-                return <span className="badge bg-label-success rounded-pill px-2.5 py-1">Completed</span>;
-            default:
-                return <span className="badge bg-label-secondary rounded-pill px-2.5 py-1">{status}</span>;
-        }
-    };
-
-    // Date formatting helper
+    // Format Due Date
     const formatDueDate = (dateStr) => {
         if (!dateStr) return null;
         try {
             const d = new Date(dateStr);
+            if (isNaN(d.getTime())) return null;
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-            d.setHours(0, 0, 0, 0);
-
-            const diffTime = d - today;
-            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+            const target = new Date(d);
+            target.setHours(0, 0, 0, 0);
+            const diffDays = Math.round((target - today) / (1000 * 60 * 60 * 24));
 
             if (diffDays < 0) {
-                return { text: `Overdue by ${Math.abs(diffDays)}d`, isOverdue: true };
+                return { text: `${Math.abs(diffDays)}d overdue`, isOverdue: true };
             } else if (diffDays === 0) {
                 return { text: 'Due Today', isToday: true };
             } else if (diffDays === 1) {
-                return { text: 'Due Tomorrow', isUpcoming: true };
+                return { text: 'Tomorrow', isUpcoming: true };
             } else {
                 return { text: d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }), isUpcoming: true };
             }
@@ -510,15 +491,15 @@ export default function TaskManagementKanbanPage() {
         }
     };
 
-    // Kanban Column Definitions
+    // Kanban 4 Basic Columns
     const kanbanColumns = [
-        { id: 'todo', title: 'To Do', icon: 'ri-todo-line', color: 'secondary', bgHeader: '#f1f5f9', borderCol: '#cbd5e1' },
-        { id: 'in_progress', title: 'In Progress', icon: 'ri-loader-2-line', color: 'primary', bgHeader: '#eff6ff', borderCol: '#93c5fd' },
-        { id: 'review', title: 'Under Review', icon: 'ri-eye-line', color: 'warning', bgHeader: '#fffbeb', borderCol: '#fde68a' },
-        { id: 'completed', title: 'Completed', icon: 'ri-checkbox-circle-line', color: 'success', bgHeader: '#f0fdf4', borderCol: '#86efac' }
+        { id: 'todo', title: 'To Do', badgeClass: 'bg-secondary text-white', borderTop: '#64748b' },
+        { id: 'in_progress', title: 'In Progress', badgeClass: 'bg-primary text-white', borderTop: '#0066cc' },
+        { id: 'review', title: 'Review', badgeClass: 'bg-warning text-dark', borderTop: '#f59e0b' },
+        { id: 'completed', title: 'Completed', badgeClass: 'bg-success text-white', borderTop: '#10b981' }
     ];
 
-    // Group tasks for Kanban
+    // Group tasks by status
     const kanbanGrouped = useMemo(() => {
         return {
             todo: tasks.filter(t => t.status === 'todo'),
@@ -530,101 +511,62 @@ export default function TaskManagementKanbanPage() {
 
     return (
         <div className="container-xxl flex-grow-1 container-p-y">
-            {/* 1. Header Banner & Actions */}
-            <div className="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-3">
+            {/* 1. Simple, Clean Header */}
+            <div className="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                 <div>
-                    <h4 className="fw-bold mb-1 d-flex align-items-center gap-2 text-heading">
-                        <i className="ri ri-kanban-view-2 text-warning fs-3"></i>
-                        <span>Task Management &amp; Kanban Board</span>
+                    <h4 className="fw-bold mb-0 d-flex align-items-center gap-2 text-dark">
+                        <i className="ri ri-kanban-view-2 text-primary fs-4"></i>
+                        <span>Task Kanban Board</span>
                     </h4>
-                    <p className="text-muted small mb-0">
-                        Create, assign, organize, and track administrative tasks, lead follow-ups, and operations across your team.
-                    </p>
+                    <small className="text-muted">
+                        Total {stats.total_tasks} tasks ({stats.in_progress_count} in progress, {stats.overdue_count} overdue)
+                    </small>
                 </div>
-                <div className="d-flex gap-2 flex-wrap">
+
+                <div className="d-flex align-items-center gap-2">
                     {/* View Switcher: Kanban vs List */}
-                    <div className="btn-group bg-white rounded-pill p-1 shadow-xs border" role="group">
+                    <div className="btn-group btn-group-sm bg-white rounded-pill p-0.5 border shadow-2xs" role="group">
                         <button
                             type="button"
                             onClick={() => setViewMode('kanban')}
-                            className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1.5 ${viewMode === 'kanban' ? 'btn-primary' : 'btn-light text-muted'}`}
+                            className={`btn btn-xs rounded-pill px-3 py-1 ${viewMode === 'kanban' ? 'btn-primary text-white' : 'btn-light text-muted'}`}
+                            style={viewMode === 'kanban' ? { backgroundColor: '#0066cc', borderColor: '#0066cc' } : {}}
                         >
-                            <i className="ri ri-layout-masonry-line"></i>
-                            <span>Kanban Board</span>
+                            <i className="ri ri-layout-masonry-line me-1"></i> Board
                         </button>
                         <button
                             type="button"
                             onClick={() => setViewMode('list')}
-                            className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1.5 ${viewMode === 'list' ? 'btn-primary' : 'btn-light text-muted'}`}
+                            className={`btn btn-xs rounded-pill px-3 py-1 ${viewMode === 'list' ? 'btn-primary text-white' : 'btn-light text-muted'}`}
+                            style={viewMode === 'list' ? { backgroundColor: '#0066cc', borderColor: '#0066cc' } : {}}
                         >
-                            <i className="ri ri-list-check-2"></i>
-                            <span>List View</span>
+                            <i className="ri ri-list-check-2 me-1"></i> List
                         </button>
                     </div>
 
                     <button
                         type="button"
-                        onClick={handleOpenCreateModal}
-                        className="btn btn-primary rounded-pill px-4 d-inline-flex align-items-center gap-2 shadow-sm"
+                        onClick={() => handleOpenCreateModal('todo')}
+                        className="btn btn-sm btn-primary rounded-pill px-3.5 py-1.5 d-inline-flex align-items-center gap-1.5 shadow-xs"
                         style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
                     >
-                        <i className="ri ri-add-circle-fill"></i>
-                        <span>+ Assign New Task</span>
+                        <i className="ri ri-add-line fs-6"></i>
+                        <span>+ New Task</span>
                     </button>
                 </div>
             </div>
 
-            {/* 2. Top KPI Cards */}
-            <div className="row g-3 mb-4">
-                <div className="col-6 col-md-4 col-lg-2">
-                    <div className="card border-0 shadow-sm rounded-4 p-3 bg-white border-start border-4 border-primary">
-                        <span className="text-muted small fw-bold text-uppercase d-block mb-1">Total Tasks</span>
-                        <h4 className="fw-bold text-dark mb-0">{stats.total_tasks}</h4>
-                    </div>
-                </div>
-                <div className="col-6 col-md-4 col-lg-2">
-                    <div className="card border-0 shadow-sm rounded-4 p-3 bg-white border-start border-4 border-secondary">
-                        <span className="text-muted small fw-bold text-uppercase d-block mb-1">📌 To Do</span>
-                        <h4 className="fw-bold text-secondary mb-0">{stats.todo_count}</h4>
-                    </div>
-                </div>
-                <div className="col-6 col-md-4 col-lg-2">
-                    <div className="card border-0 shadow-sm rounded-4 p-3 bg-white border-start border-4 border-info">
-                        <span className="text-muted small fw-bold text-uppercase d-block mb-1">⏳ In Progress</span>
-                        <h4 className="fw-bold text-info mb-0">{stats.in_progress_count}</h4>
-                    </div>
-                </div>
-                <div className="col-6 col-md-4 col-lg-2">
-                    <div className="card border-0 shadow-sm rounded-4 p-3 bg-white border-start border-4 border-warning">
-                        <span className="text-muted small fw-bold text-uppercase d-block mb-1">🔍 Review</span>
-                        <h4 className="fw-bold text-warning mb-0">{stats.review_count}</h4>
-                    </div>
-                </div>
-                <div className="col-6 col-md-4 col-lg-2">
-                    <div className="card border-0 shadow-sm rounded-4 p-3 bg-white border-start border-4 border-success">
-                        <span className="text-muted small fw-bold text-uppercase d-block mb-1">✅ Completed</span>
-                        <h4 className="fw-bold text-success mb-0">{stats.completed_count}</h4>
-                    </div>
-                </div>
-                <div className="col-6 col-md-4 col-lg-2">
-                    <div className="card border-0 shadow-sm rounded-4 p-3 bg-white border-start border-4 border-danger">
-                        <span className="text-muted small fw-bold text-uppercase d-block mb-1">⚠️ Overdue</span>
-                        <h4 className="fw-bold text-danger mb-0">{stats.overdue_count}</h4>
-                    </div>
-                </div>
-            </div>
-
-            {/* 3. Filter & Search Toolbar */}
-            <div className="card border-0 shadow-sm rounded-4 p-3 bg-white mb-4">
+            {/* 2. Basic Quick Filters Toolbar */}
+            <div className="p-2.5 bg-white rounded-4 border shadow-2xs mb-3">
                 <div className="row g-2 align-items-center">
                     {/* Search */}
-                    <div className="col-12 col-md-3">
+                    <div className="col-12 col-md-4">
                         <div className="input-group input-group-sm">
                             <span className="input-group-text bg-light border-end-0"><i className="ri ri-search-line text-muted"></i></span>
                             <input
                                 type="text"
                                 className="form-control form-control-sm bg-light border-start-0"
-                                placeholder="Search by title, code, tourist..."
+                                placeholder="Search tasks by title, tourist name, code..."
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
                             />
@@ -637,24 +579,23 @@ export default function TaskManagementKanbanPage() {
                     </div>
 
                     {/* Filter Assignee */}
-                    <div className="col-6 col-md-2">
+                    <div className="col-6 col-md-3">
                         {user?.admin === 1 ? (
                             <select
-                                className="form-select form-select-sm"
+                                className="form-select form-select-sm rounded-3"
                                 value={filterAssignee}
                                 onChange={(e) => setFilterAssignee(e.target.value)}
                             >
                                 <option value="">👤 All Assignees</option>
                                 {adminUsers.map(u => (
                                     <option key={u.id} value={u.id}>
-                                        {u.first_name} {u.last_name} {u.admin === 1 ? '(Super Admin)' : '(Staff)'}
+                                        {u.first_name} {u.last_name}
                                     </option>
                                 ))}
                             </select>
                         ) : (
-                            <span className="badge bg-label-primary px-3 py-2 rounded-pill d-inline-flex align-items-center gap-1 w-100 justify-content-center text-truncate">
-                                <i className="ri ri-user-star-line"></i>
-                                <span>My Tasks</span>
+                            <span className="badge bg-light text-dark px-3 py-2 rounded-pill d-inline-flex align-items-center gap-1 w-100 justify-content-center border">
+                                <i className="ri ri-user-line text-primary"></i> My Tasks
                             </span>
                         )}
                     </div>
@@ -662,11 +603,11 @@ export default function TaskManagementKanbanPage() {
                     {/* Filter Priority */}
                     <div className="col-6 col-md-2">
                         <select
-                            className="form-select form-select-sm"
+                            className="form-select form-select-sm rounded-3"
                             value={filterPriority}
                             onChange={(e) => setFilterPriority(e.target.value)}
                         >
-                            <option value="">🎯 All Priorities</option>
+                            <option value="">🎯 Priority</option>
                             <option value="urgent">🔴 Urgent</option>
                             <option value="high">🟠 High</option>
                             <option value="medium">🟡 Medium</option>
@@ -677,75 +618,91 @@ export default function TaskManagementKanbanPage() {
                     {/* Filter Category */}
                     <div className="col-6 col-md-2">
                         <select
-                            className="form-select form-select-sm"
+                            className="form-select form-select-sm rounded-3"
                             value={filterCategory}
                             onChange={(e) => setFilterCategory(e.target.value)}
                         >
-                            <option value="">📂 All Categories</option>
+                            <option value="">📂 Category</option>
                             {categories.map(c => (
                                 <option key={c} value={c}>{c}</option>
                             ))}
                         </select>
                     </div>
 
-                    {/* Quick Toggle: My Tasks Only */}
-                    <div className="col-6 col-md-3 d-flex justify-content-md-end gap-2">
+                    {/* Quick Button: My Tasks */}
+                    <div className="col-6 col-md-1 text-end">
                         <button
                             type="button"
-                            onClick={() => setMyTasksOnly(!myTasksOnly)}
-                            className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 ${myTasksOnly ? 'btn-primary' : 'btn-outline-secondary'}`}
+                            onClick={() => { setMyTasksOnly(!myTasksOnly); fetchTasks(); }}
+                            className={`btn btn-xs rounded-pill px-2.5 py-1 w-100 ${myTasksOnly ? 'btn-primary text-white' : 'btn-outline-secondary'}`}
+                            title="Filter tasks assigned to me"
                         >
-                            <i className="ri ri-user-line"></i>
-                            <span>Assigned to Me</span>
+                            {myTasksOnly ? '✓ Mine' : 'Mine'}
                         </button>
                     </div>
                 </div>
             </div>
 
-            {/* 4. MAIN WORKSPACE */}
+            {/* 3. MAIN WORKSPACE */}
             {loading ? (
-                <div className="p-5 text-center bg-white rounded-4 shadow-sm">
+                <div className="p-5 text-center bg-white rounded-4 shadow-sm border">
                     <LoadingComponent />
-                    <p className="text-muted small mt-2">Loading tasks and kanban board...</p>
+                    <p className="text-muted small mt-2">Loading tasks...</p>
                 </div>
             ) : viewMode === 'kanban' ? (
-                /* KANBAN BOARD VIEW */
-                <div className="kanban-board-wrapper" style={{ overflowX: 'auto', paddingBottom: '20px' }}>
-                    <div className="row g-3 flex-nowrap" style={{ minWidth: '1080px' }}>
+                /* CLEAN KANBAN BOARD VIEW */
+                <div className="kanban-board-container" style={{ overflowX: 'auto', paddingBottom: '16px' }}>
+                    <div className="row g-3 flex-nowrap" style={{ minWidth: '1140px' }}>
                         {kanbanColumns.map((col) => {
                             const colTasks = kanbanGrouped[col.id] || [];
                             return (
                                 <div
                                     key={col.id}
                                     className="col-3"
+                                    style={{ minWidth: '270px' }}
                                     onDragOver={handleDragOver}
                                     onDrop={(e) => handleDrop(e, col.id)}
                                 >
                                     <div
-                                        className="card border-0 rounded-4 shadow-sm h-100 d-flex flex-column"
-                                        style={{ backgroundColor: '#f8fafc', minHeight: '650px', border: `1px solid ${col.borderCol}` }}
+                                        className="card border-0 rounded-4 shadow-2xs h-100 d-flex flex-column"
+                                        style={{ backgroundColor: '#f8fafc', minHeight: '620px', borderTop: `3px solid ${col.borderTop}` }}
                                     >
                                         {/* Column Header */}
                                         <div
-                                            className="p-3 border-bottom d-flex align-items-center justify-content-between rounded-top-4"
-                                            style={{ backgroundColor: col.bgHeader }}
+                                            className="border-bottom bg-white d-flex align-items-center justify-content-between rounded-top-4"
+                                            style={{ padding: '14px 18px' }}
                                         >
                                             <div className="d-flex align-items-center gap-2">
-                                                <i className={`ri ${col.icon} text-${col.color} fs-5`}></i>
-                                                <h6 className="fw-bold mb-0 text-dark">{col.title}</h6>
+                                                <h6 className="fw-bold mb-0 text-dark small">{col.title}</h6>
+                                                <span className={`badge ${col.badgeClass} rounded-pill px-2.5 py-1`} style={{ fontSize: '11px' }}>
+                                                    {colTasks.length}
+                                                </span>
+                                                {col.id === 'completed' && !isAdmin && (
+                                                    <span className="badge bg-light text-muted border rounded-pill px-2 py-0.5" style={{ fontSize: '10px' }} title="Only Administrators can mark tasks as completed">
+                                                        <i className="ri ri-lock-line text-warning me-0.5"></i> Admin Only
+                                                    </span>
+                                                )}
                                             </div>
-                                            <span className={`badge bg-${col.color} rounded-pill px-2.5 py-1`}>
-                                                {colTasks.length}
-                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={() => handleOpenCreateModal(col.id)}
+                                                className="btn btn-xs btn-outline-secondary rounded-circle p-1"
+                                                title={`Add task to ${col.title}`}
+                                                style={{ width: '26px', height: '26px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                            >
+                                                <i className="ri ri-add-line"></i>
+                                            </button>
                                         </div>
 
-                                        {/* Column Drop Area & Task Cards */}
-                                        <div className="p-2.5 flex-grow-1 overflow-auto d-flex flex-column gap-2.5" style={{ maxHeight: 'calc(100vh - 350px)' }}>
+                                        {/* Column Task Cards */}
+                                        <div
+                                            className="flex-grow-1 overflow-auto d-flex flex-column gap-3"
+                                            style={{ padding: '16px', maxHeight: 'calc(100vh - 280px)' }}
+                                        >
                                             {colTasks.length === 0 ? (
-                                                <div className="text-center py-5 text-muted opacity-75">
-                                                    <i className="ri ri-inbox-2-line fs-1 d-block mb-1"></i>
-                                                    <small className="d-block">No tasks in {col.title}</small>
-                                                    <small className="text-xs">Drag tasks here</small>
+                                                <div className="text-center py-5 text-muted opacity-60">
+                                                    <i className="ri ri-inbox-line fs-2 d-block mb-1"></i>
+                                                    <small className="d-block">No tasks</small>
                                                 </div>
                                             ) : (
                                                 colTasks.map((task) => {
@@ -758,72 +715,72 @@ export default function TaskManagementKanbanPage() {
                                                             key={task.id}
                                                             draggable={true}
                                                             onDragStart={(e) => handleDragStart(e, task.id)}
-                                                            className="card border-0 shadow-xs rounded-3 p-3 bg-white cursor-grab transition-all"
-                                                            style={{
-                                                                cursor: 'grab',
-                                                                borderLeft: `4px solid ${task.priority === 'urgent' ? '#dc2626' : task.priority === 'high' ? '#f59e0b' : task.priority === 'medium' ? '#0284c7' : '#94a3b8'}`
-                                                            }}
+                                                            onClick={() => handleOpenDetailModal(task)}
+                                                            className="card border rounded-4 bg-white shadow-2xs hover-shadow transition-all"
+                                                            style={{ padding: '16px', cursor: 'grab' }}
                                                         >
-                                                            {/* Card Top: Code, Priority & View Button */}
-                                                            <div className="d-flex justify-content-between align-items-center mb-1.5 gap-1">
-                                                                <span className="badge bg-light text-dark font-monospace border small px-2 py-0.5">
-                                                                    {task.task_code}
-                                                                </span>
+                                                            {/* Card Header: Task Code, Category & Priority */}
+                                                            <div className="d-flex justify-content-between align-items-center mb-2 gap-1">
+                                                                <div className="d-flex align-items-center gap-1.5 flex-wrap">
+                                                                    {task.task_code && (
+                                                                        <span className="badge font-monospace border px-1.5 py-0.5 rounded" style={{ fontSize: '10.5px', backgroundColor: '#f1f5f9', color: '#475569', fontWeight: '600' }}>
+                                                                            {task.task_code}
+                                                                        </span>
+                                                                    )}
+                                                                    {!task.is_read && (
+                                                                        <span className="badge bg-danger text-white rounded-pill px-2 py-0.5 shadow-2xs font-monospace" style={{ fontSize: '9.5px', fontWeight: '700', letterSpacing: '0.3px' }}>
+                                                                            NEW
+                                                                        </span>
+                                                                    )}
+                                                                    <span className="badge text-muted border fw-semibold px-2 py-0.5 rounded-pill" style={{ fontSize: '11px' }}>
+                                                                        {task.category || 'General'}
+                                                                    </span>
+                                                                </div>
                                                                 <div className="d-flex align-items-center gap-1">
-                                                                    {renderPriorityBadge(task.priority)}
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleOpenDetailModal(task)}
-                                                                        className="btn btn-primary btn-xs rounded-pill px-2 py-0.5 d-inline-flex align-items-center gap-1 shadow-2xs"
-                                                                        title="View Task Details"
-                                                                        style={{ fontSize: '11px' }}
-                                                                    >
-                                                                        <i className="ri ri-eye-line"></i>
-                                                                        <span>View</span>
-                                                                    </button>
+                                                                    {renderPriorityPill(task.priority)}
                                                                 </div>
                                                             </div>
 
-                                                            {/* Card Category Tag */}
-                                                            <div className="mb-1">
-                                                                <span className="text-xs text-uppercase fw-bold text-muted" style={{ fontSize: '10px', letterSpacing: '0.5px' }}>
-                                                                    {task.category}
-                                                                </span>
-                                                            </div>
-
-                                                            {/* Card Title */}
+                                                            {/* Title (High-contrast, prominent headline) */}
                                                             <h6
-                                                                className="fw-bold text-dark mb-1.5 cursor-pointer hover-text-primary"
-                                                                style={{ fontSize: '13.5px', lineHeight: '1.3' }}
-                                                                onClick={() => handleOpenDetailModal(task)}
+                                                                className="fw-bold mb-2"
+                                                                style={{ 
+                                                                    fontSize: '14px', 
+                                                                    lineHeight: '1.45', 
+                                                                    color: '#0f172a',
+                                                                    fontWeight: '700',
+                                                                    wordBreak: 'break-word',
+                                                                    letterSpacing: '-0.1px'
+                                                                }}
                                                             >
-                                                                {task.title}
+                                                                {task.title || task.task_title || task.name || 'Untitled Task'}
                                                             </h6>
 
-                                                            {/* Card Description Preview */}
+                                                            {/* Description excerpt if present */}
                                                             {task.description && (
-                                                                <p className="text-muted small mb-2 text-truncate-2" style={{ fontSize: '11.5px' }}>
+                                                                <p 
+                                                                    className="text-muted mb-2 text-truncate" 
+                                                                    style={{ fontSize: '11.5px', lineHeight: '1.35', maxWidth: '100%' }}
+                                                                    title={task.description}
+                                                                >
                                                                     {task.description}
                                                                 </p>
                                                             )}
 
-                                                            {/* Attached Lead info */}
+                                                            {/* Tourist / Lead Attachment Badge */}
                                                             {task.lead_name && (
-                                                                <div className="bg-light p-1.5 rounded-2 mb-2 d-flex align-items-center gap-1.5 text-xs text-dark">
+                                                                <div className="bg-light p-2 px-2.5 rounded-3 mb-2 d-flex align-items-center gap-2 text-muted" style={{ fontSize: '11.5px' }}>
                                                                     <i className="ri ri-user-voice-line text-primary"></i>
-                                                                    <span className="text-truncate fw-semibold">{task.lead_name}</span>
-                                                                    {task.lead_phone && <span className="text-muted">({task.lead_phone})</span>}
+                                                                    <span className="text-truncate fw-medium" style={{ color: '#1e293b' }}>{task.lead_name}</span>
                                                                 </div>
                                                             )}
 
-                                                            {/* Checklist progress */}
+                                                            {/* Checklist progress pill */}
                                                             {totalChecklists > 0 && (
-                                                                <div className="mb-2">
-                                                                    <div className="d-flex justify-content-between align-items-center text-xs text-muted mb-1">
-                                                                        <span><i className="ri ri-checkbox-line me-1"></i>Subtasks</span>
-                                                                        <span>{completedChecklists}/{totalChecklists}</span>
-                                                                    </div>
-                                                                    <div className="progress" style={{ height: '4px' }}>
+                                                                <div className="d-flex align-items-center gap-2 mb-2 text-muted" style={{ fontSize: '11.5px' }}>
+                                                                    <i className="ri ri-checkbox-line text-success"></i>
+                                                                    <span>{completedChecklists}/{totalChecklists} done</span>
+                                                                    <div className="progress flex-grow-1" style={{ height: '4px' }}>
                                                                         <div
                                                                             className={`progress-bar ${completedChecklists === totalChecklists ? 'bg-success' : 'bg-primary'}`}
                                                                             style={{ width: `${(completedChecklists / totalChecklists) * 100}%` }}
@@ -832,97 +789,63 @@ export default function TaskManagementKanbanPage() {
                                                                 </div>
                                                             )}
 
-                                                            {/* Card Footer: Assignee & Due Date */}
+                                                            {/* Card Meta Row: Assignee & Due Date (Separated from status select to prevent overflow) */}
                                                             <div className="d-flex justify-content-between align-items-center pt-2 border-top mt-1">
                                                                 {/* Assignee */}
-                                                                <div className="d-flex align-items-center gap-1.5" title={`Assigned to ${task.assignee_first_name} ${task.assignee_last_name}`}>
+                                                                <div className="d-flex align-items-center gap-1.5 overflow-hidden" title={`Assigned to ${task.assignee_first_name || 'Staff'}`}>
                                                                     <div
-                                                                        className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold"
-                                                                        style={{ width: '24px', height: '24px', fontSize: '10px' }}
+                                                                        className="rounded-circle text-white d-flex align-items-center justify-content-center fw-bold shadow-2xs"
+                                                                        style={{ width: '22px', height: '22px', fontSize: '10px', backgroundColor: '#0066cc', flexShrink: 0 }}
                                                                     >
-                                                                        {task.assignee_first_name ? task.assignee_first_name.charAt(0) : 'U'}
+                                                                        {task.assignee_first_name ? task.assignee_first_name.charAt(0).toUpperCase() : 'U'}
                                                                     </div>
-                                                                    <span className="small text-muted text-truncate" style={{ maxWidth: '90px', fontSize: '11px' }}>
+                                                                    <span className="text-dark fw-medium text-truncate" style={{ maxWidth: '100px', fontSize: '11.5px' }}>
                                                                         {task.assignee_first_name || 'Admin'}
                                                                     </span>
                                                                 </div>
 
                                                                 {/* Due Date Indicator */}
                                                                 {dueInfo && (
-                                                                    <span className={`badge rounded-pill px-2 py-0.5 small ${dueInfo.isOverdue ? 'bg-danger text-white' : dueInfo.isToday ? 'bg-warning text-dark' : 'bg-light text-muted border'}`}>
-                                                                        <i className="ri ri-calendar-line me-1"></i>
+                                                                    <span
+                                                                        className={`badge rounded-pill px-2 py-0.5 d-inline-flex align-items-center gap-1 ${dueInfo.isOverdue ? 'bg-danger text-white' : dueInfo.isToday ? 'bg-warning text-dark' : 'bg-light text-muted border'}`}
+                                                                        style={{ fontSize: '10.5px', whiteSpace: 'nowrap' }}
+                                                                    >
+                                                                        <i className="ri ri-calendar-line"></i>
                                                                         {dueInfo.text}
                                                                     </span>
                                                                 )}
                                                             </div>
 
-                                                            {/* Quick Action & Move Row */}
-                                                            <div className="d-flex justify-content-between align-items-center mt-2 pt-1.5 border-top gap-1 flex-wrap">
-                                                                <div className="d-flex gap-1">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleOpenDetailModal(task)}
-                                                                        className="btn btn-outline-primary btn-xs rounded-pill py-0 px-2 text-xs d-inline-flex align-items-center gap-0.5"
-                                                                        title="View Task Details"
-                                                                    >
-                                                                        <i className="ri ri-eye-line"></i>
-                                                                        <span>View</span>
-                                                                    </button>
-                                                                    {(user?.admin === 1 || String(task.assigned_to) === String(user?.id)) && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleOpenEditModal(task)}
-                                                                            className="btn btn-outline-warning btn-xs rounded-pill py-0 px-2 text-xs d-inline-flex align-items-center gap-0.5"
-                                                                            title="Edit Task"
-                                                                        >
-                                                                            <i className="ri ri-edit-line"></i>
-                                                                            <span>Edit</span>
-                                                                        </button>
-                                                                    )}
-                                                                </div>
-
-                                                                <div className="d-flex gap-1">
-                                                                    {col.id !== 'todo' && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleUpdateTaskStatus(task.id, 'todo')}
-                                                                            className="btn btn-outline-secondary btn-xs rounded-pill py-0 px-1.5 text-xs"
-                                                                            title="Move to To Do"
-                                                                        >
-                                                                            ← To Do
-                                                                        </button>
-                                                                    )}
-                                                                    {col.id !== 'in_progress' && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleUpdateTaskStatus(task.id, 'in_progress')}
-                                                                            className="btn btn-outline-primary btn-xs rounded-pill py-0 px-1.5 text-xs"
-                                                                            title="Move to In Progress"
-                                                                        >
-                                                                            In Progress
-                                                                        </button>
-                                                                    )}
-                                                                    {col.id !== 'review' && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleUpdateTaskStatus(task.id, 'review')}
-                                                                            className="btn btn-outline-warning btn-xs rounded-pill py-0 px-1.5 text-xs"
-                                                                            title="Move to Review"
-                                                                        >
-                                                                            Review
-                                                                        </button>
-                                                                    )}
-                                                                    {col.id !== 'completed' && (
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleUpdateTaskStatus(task.id, 'completed')}
-                                                                            className="btn btn-outline-success btn-xs rounded-pill py-0 px-1.5 text-xs"
-                                                                            title="Mark Complete"
-                                                                        >
-                                                                            ✓ Complete
-                                                                        </button>
-                                                                    )}
-                                                                </div>
+                                                            {/* Dedicated Quick Status Dropdown Row In Card */}
+                                                            <div 
+                                                                className="d-flex align-items-center justify-content-between mt-2 pt-2 border-top bg-light-subtle px-2 py-1 rounded-2"
+                                                                onClick={(e) => e.stopPropagation()}
+                                                            >
+                                                                <span className="text-muted fw-semibold d-flex align-items-center gap-1" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>
+                                                                    <i className="ri ri-arrow-left-right-line text-secondary"></i> Status:
+                                                                </span>
+                                                                <select
+                                                                    className="form-select form-select-sm py-0.5 px-2 rounded-2 border-secondary-subtle bg-white text-dark fw-medium shadow-2xs"
+                                                                    value={task.status}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    onChange={(e) => {
+                                                                        e.stopPropagation();
+                                                                        handleUpdateTaskStatus(task.id, e.target.value);
+                                                                    }}
+                                                                    style={{ 
+                                                                        fontSize: '11.5px', 
+                                                                        height: '28px', 
+                                                                        width: '135px',
+                                                                        cursor: 'pointer' 
+                                                                    }}
+                                                                >
+                                                                    <option value="todo">To Do</option>
+                                                                    <option value="in_progress">In Progress</option>
+                                                                    <option value="review">Review</option>
+                                                                    <option value="completed" disabled={!isAdmin}>
+                                                                        {isAdmin ? 'Completed' : 'Completed (Admin)'}
+                                                                    </option>
+                                                                </select>
                                                             </div>
                                                         </div>
                                                     );
@@ -936,132 +859,98 @@ export default function TaskManagementKanbanPage() {
                     </div>
                 </div>
             ) : (
-                /* LIST / TABLE VIEW */
+                /* CLEAN LIST / TABLE VIEW */
                 <div className="card border-0 shadow-sm rounded-4 overflow-hidden bg-white">
                     <div className="table-responsive">
                         <table className="table table-hover align-middle mb-0">
                             <thead className="table-light">
-                                <tr>
-                                    <th className="py-3 px-3">Task</th>
-                                    <th className="py-3">Category</th>
-                                    <th className="py-3">Priority</th>
-                                    <th className="py-3">Assignee</th>
-                                    <th className="py-3">Due Date</th>
-                                    <th className="py-3">Subtasks</th>
-                                    <th className="py-3">Status</th>
-                                    <th className="py-3 text-end px-3">Actions</th>
+                                <tr className="small text-muted">
+                                    <th className="py-2.5 px-3">Task Title</th>
+                                    <th className="py-2.5">Category</th>
+                                    <th className="py-2.5">Priority</th>
+                                    <th className="py-2.5">Assignee</th>
+                                    <th className="py-2.5">Due Date</th>
+                                    <th className="py-2.5">Status</th>
+                                    <th className="py-2.5 text-end px-3">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {tasks.length === 0 ? (
                                     <tr>
-                                        <td colSpan={8} className="text-center py-5">
+                                        <td colSpan={7} className="text-center py-5">
                                             <NotFound title="No tasks found" message="Create your first task or change your filters." />
                                         </td>
                                     </tr>
                                 ) : (
                                     tasks.map((task) => {
                                         const dueInfo = formatDueDate(task.due_date);
-                                        const totalChecklists = (task.checklists || []).length;
-                                        const completedChecklists = (task.checklists || []).filter(c => c.completed).length;
-
                                         return (
-                                            <tr key={task.id}>
+                                            <tr key={task.id} className="cursor-pointer" onClick={() => handleOpenDetailModal(task)}>
                                                 <td className="px-3">
-                                                    <div className="d-flex align-items-start gap-2">
-                                                        <span className="badge bg-light text-dark font-monospace border small">
+                                                    <div className="d-flex align-items-center gap-1.5 mb-0.5">
+                                                        <span className="badge font-monospace border px-1.5 py-0.5 rounded" style={{ fontSize: '10px', backgroundColor: '#f1f5f9', color: '#475569' }}>
                                                             {task.task_code}
                                                         </span>
-                                                        <div>
-                                                            <div
-                                                                className="fw-bold text-dark cursor-pointer hover-text-primary"
-                                                                onClick={() => handleOpenDetailModal(task)}
-                                                            >
-                                                                {task.title}
-                                                            </div>
-                                                            {task.lead_name && (
-                                                                <small className="text-muted d-block">
-                                                                    Tourist: <span className="fw-semibold text-dark">{task.lead_name}</span> ({task.lead_phone})
-                                                                </small>
-                                                            )}
-                                                        </div>
+                                                        {!task.is_read && (
+                                                            <span className="badge bg-danger text-white rounded-pill px-1.5 py-0.5 shadow-2xs font-monospace" style={{ fontSize: '9px', fontWeight: '700' }}>
+                                                                NEW
+                                                            </span>
+                                                        )}
+                                                        <span className="fw-bold small" style={{ color: '#0f172a', fontSize: '13px' }}>
+                                                            {task.title || task.task_title || task.name || 'Untitled Task'}
+                                                        </span>
                                                     </div>
+                                                    {task.lead_name && (
+                                                        <small className="text-muted d-block" style={{ fontSize: '11px' }}>Tourist: {task.lead_name}</small>
+                                                    )}
                                                 </td>
-                                                <td>
-                                                    <span className="badge bg-light text-secondary border">
-                                                        {task.category}
-                                                    </span>
-                                                </td>
-                                                <td>{renderPriorityBadge(task.priority)}</td>
+                                                <td><span className="badge bg-light text-secondary border small">{task.category}</span></td>
+                                                <td>{renderPriorityPill(task.priority)}</td>
                                                 <td>
                                                     <div className="d-flex align-items-center gap-1.5">
-                                                        <div
-                                                            className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold"
-                                                            style={{ width: '26px', height: '26px', fontSize: '11px' }}
-                                                        >
+                                                        <div className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold" style={{ width: '22px', height: '22px', fontSize: '10px' }}>
                                                             {task.assignee_first_name ? task.assignee_first_name.charAt(0) : 'U'}
                                                         </div>
-                                                        <span className="small text-dark fw-medium">
-                                                            {task.assignee_first_name} {task.assignee_last_name}
-                                                        </span>
+                                                        <span className="small text-dark">{task.assignee_first_name} {task.assignee_last_name}</span>
                                                     </div>
                                                 </td>
                                                 <td>
                                                     {dueInfo ? (
-                                                        <span className={`badge rounded-pill px-2.5 py-1 ${dueInfo.isOverdue ? 'bg-danger text-white' : dueInfo.isToday ? 'bg-warning text-dark' : 'bg-light text-muted border'}`}>
+                                                        <span className={`badge rounded-pill px-2 py-0.5 small ${dueInfo.isOverdue ? 'bg-danger text-white' : dueInfo.isToday ? 'bg-warning text-dark' : 'bg-light text-muted border'}`}>
                                                             {dueInfo.text}
                                                         </span>
-                                                    ) : (
-                                                        <span className="text-muted small">—</span>
-                                                    )}
+                                                    ) : <span className="text-muted small">—</span>}
                                                 </td>
-                                                <td>
-                                                    {totalChecklists > 0 ? (
-                                                        <span className="small text-muted font-monospace">
-                                                            {completedChecklists}/{totalChecklists} ({Math.round((completedChecklists / totalChecklists) * 100)}%)
-                                                        </span>
-                                                    ) : (
-                                                        <span className="text-muted small">—</span>
-                                                    )}
-                                                </td>
-                                                <td>
+                                                <td onClick={(e) => e.stopPropagation()}>
                                                     <select
                                                         className="form-select form-select-sm rounded-pill"
                                                         value={task.status}
                                                         onChange={(e) => handleUpdateTaskStatus(task.id, e.target.value)}
-                                                        style={{ width: '135px' }}
+                                                        style={{ width: '155px', fontSize: '12px' }}
                                                     >
                                                         <option value="todo">To Do</option>
                                                         <option value="in_progress">In Progress</option>
-                                                        <option value="review">Under Review</option>
-                                                        <option value="completed">Completed</option>
+                                                        <option value="review">Review</option>
+                                                        <option value="completed" disabled={!isAdmin}>Completed {!isAdmin ? '(Admin Only)' : ''}</option>
                                                     </select>
                                                 </td>
-                                                <td className="text-end px-3">
+                                                <td className="text-end px-3" onClick={(e) => e.stopPropagation()}>
                                                     <div className="d-flex justify-content-end gap-1">
                                                         <button
                                                             type="button"
-                                                            onClick={() => handleOpenDetailModal(task)}
-                                                            className="btn btn-sm btn-icon btn-light rounded-circle"
-                                                            title="View Details"
-                                                        >
-                                                            <i className="ri ri-eye-line text-primary"></i>
-                                                        </button>
-                                                        <button
-                                                            type="button"
                                                             onClick={() => handleOpenEditModal(task)}
-                                                            className="btn btn-sm btn-icon btn-light rounded-circle"
+                                                            className="btn btn-xs btn-outline-warning rounded-circle p-1"
                                                             title="Edit Task"
                                                         >
-                                                            <i className="ri ri-edit-line text-warning"></i>
+                                                            <i className="ri ri-edit-line"></i>
                                                         </button>
                                                         <button
                                                             type="button"
                                                             onClick={() => handleDeleteTask(task.id, task.task_code)}
-                                                            className="btn btn-sm btn-icon btn-light rounded-circle"
+                                                            className="btn btn-xs btn-outline-danger rounded-circle p-1"
                                                             title="Delete Task"
                                                         >
-                                                            <i className="ri ri-delete-bin-line text-danger"></i>
+                                                            <i className="ri ri-delete-bin-line"></i>
                                                         </button>
                                                     </div>
                                                 </td>
@@ -1075,29 +964,29 @@ export default function TaskManagementKanbanPage() {
                 </div>
             )}
 
-            {/* 5. CREATE / EDIT TASK MODAL */}
+            {/* 4. CREATE / EDIT TASK MODAL */}
             {createModalOpen && (
-                <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(5px)', zIndex: 1050 }}>
+                <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(15, 23, 42, 0.7)', backdropFilter: 'blur(4px)', zIndex: 1055 }}>
                     <div className="modal-dialog modal-dialog-centered modal-lg">
                         <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
                             <form onSubmit={handleSaveTask}>
-                                <div className="modal-header bg-white border-bottom py-3 px-4 d-flex justify-content-between align-items-center">
-                                    <h5 className="modal-title fw-bold text-dark mb-0 d-flex align-items-center gap-2">
-                                        <i className={`ri ${isEditing ? 'ri-edit-line text-warning' : 'ri-add-circle-fill text-primary'}`}></i>
-                                        <span>{isEditing ? `Edit Task ${editTaskId ? `(#${editTaskId})` : ''}` : 'Assign New Administrative Task'}</span>
+                                <div className="modal-header bg-primary text-white py-3 px-4 d-flex justify-content-between align-items-center" style={{ backgroundColor: '#0066cc' }}>
+                                    <h5 className="modal-title fw-bold text-white mb-0 d-flex align-items-center gap-2">
+                                        <i className={`ri ${isEditing ? 'ri-edit-line' : 'ri-add-circle-fill'}`}></i>
+                                        <span>{isEditing ? 'Edit Task' : 'Create & Assign Task'}</span>
                                     </h5>
-                                    <button type="button" className="btn-close" onClick={() => setCreateModalOpen(false)} aria-label="Close"></button>
+                                    <button type="button" className="btn-close btn-close-white" onClick={() => setCreateModalOpen(false)} aria-label="Close"></button>
                                 </div>
 
                                 <div className="modal-body p-4" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
                                     <div className="row g-3">
                                         {/* Task Title */}
                                         <div className="col-12">
-                                            <label className="form-label fw-semibold">Task Title <span className="text-danger">*</span></label>
+                                            <label className="form-label small fw-bold">Task Title <span className="text-danger">*</span></label>
                                             <input
                                                 type="text"
                                                 className="form-control rounded-3"
-                                                placeholder="e.g. Call tourist Kaushik to confirm hotel AC room requirement"
+                                                placeholder="e.g. Call tourist Kaushik to confirm AC room and boat slot"
                                                 value={taskForm.title}
                                                 onChange={(e) => setTaskForm({ ...taskForm, title: e.target.value })}
                                                 required
@@ -1106,7 +995,7 @@ export default function TaskManagementKanbanPage() {
 
                                         {/* Assignee & Priority */}
                                         <div className="col-12 col-md-6">
-                                            <label className="form-label fw-semibold">Assign To (Admin User) <span className="text-danger">*</span></label>
+                                            <label className="form-label small fw-bold">Assign To (Staff Member) <span className="text-danger">*</span></label>
                                             {user?.admin === 1 ? (
                                                 <select
                                                     className="form-select rounded-3"
@@ -1114,10 +1003,10 @@ export default function TaskManagementKanbanPage() {
                                                     onChange={(e) => setTaskForm({ ...taskForm, assigned_to: e.target.value })}
                                                     required
                                                 >
-                                                    <option value="">Select Assignee</option>
+                                                    <option value="">-- Choose Team Member --</option>
                                                     {adminUsers.map(u => (
                                                         <option key={u.id} value={u.id}>
-                                                            {u.first_name} {u.last_name} ({u.email || u.phone}) {u.admin === 1 ? '— Super Admin' : '— Staff'}
+                                                            {u.first_name} {u.last_name} {u.admin === 1 ? '(Super Admin)' : '(Staff)'}
                                                         </option>
                                                     ))}
                                                 </select>
@@ -1132,7 +1021,7 @@ export default function TaskManagementKanbanPage() {
                                         </div>
 
                                         <div className="col-12 col-md-6">
-                                            <label className="form-label fw-semibold">Priority Level</label>
+                                            <label className="form-label small fw-bold">Priority</label>
                                             <select
                                                 className="form-select rounded-3"
                                                 value={taskForm.priority}
@@ -1147,7 +1036,7 @@ export default function TaskManagementKanbanPage() {
 
                                         {/* Category & Status */}
                                         <div className="col-12 col-md-6">
-                                            <label className="form-label fw-semibold">Category / Module Tag</label>
+                                            <label className="form-label small fw-bold">Category</label>
                                             <select
                                                 className="form-select rounded-3"
                                                 value={taskForm.category}
@@ -1160,22 +1049,27 @@ export default function TaskManagementKanbanPage() {
                                         </div>
 
                                         <div className="col-12 col-md-6">
-                                            <label className="form-label fw-semibold">Initial Status</label>
+                                            <label className="form-label small fw-bold">Status</label>
                                             <select
                                                 className="form-select rounded-3"
                                                 value={taskForm.status}
                                                 onChange={(e) => setTaskForm({ ...taskForm, status: e.target.value })}
                                             >
-                                                <option value="todo">📌 To Do</option>
-                                                <option value="in_progress">⏳ In Progress</option>
-                                                <option value="review">🔍 Under Review</option>
-                                                <option value="completed">✅ Completed</option>
+                                                <option value="todo">To Do</option>
+                                                <option value="in_progress">In Progress</option>
+                                                <option value="review">Under Review</option>
+                                                <option value="completed" disabled={!isAdmin}>Completed {!isAdmin ? '(Admin Only)' : ''}</option>
                                             </select>
+                                            {!isAdmin && (
+                                                <small className="text-muted d-block mt-1" style={{ fontSize: '11px' }}>
+                                                    <i className="ri-information-line me-1"></i>Only Administrators can mark tasks as Completed. Please choose &quot;Under Review&quot; for admin approval.
+                                                </small>
+                                            )}
                                         </div>
 
-                                        {/* Due Date & Time */}
+                                        {/* Due Date */}
                                         <div className="col-12 col-md-6">
-                                            <label className="form-label fw-semibold">Due Date</label>
+                                            <label className="form-label small fw-bold">Due Date</label>
                                             <input
                                                 type="date"
                                                 className="form-control rounded-3"
@@ -1184,25 +1078,15 @@ export default function TaskManagementKanbanPage() {
                                             />
                                         </div>
 
+                                        {/* Associate Tourist */}
                                         <div className="col-12 col-md-6">
-                                            <label className="form-label fw-semibold">Due Time</label>
-                                            <input
-                                                type="time"
-                                                className="form-control rounded-3"
-                                                value={taskForm.due_time}
-                                                onChange={(e) => setTaskForm({ ...taskForm, due_time: e.target.value })}
-                                            />
-                                        </div>
-
-                                        {/* Associate with Tourist / CRM Lead */}
-                                        <div className="col-12">
-                                            <label className="form-label fw-semibold">Associate with WhatsApp Tourist Lead (Optional)</label>
+                                            <label className="form-label small fw-bold">Attach WhatsApp Tourist Lead (Optional)</label>
                                             <select
                                                 className="form-select rounded-3"
                                                 value={taskForm.lead_contact_id}
                                                 onChange={(e) => handleSelectLead(e.target.value)}
                                             >
-                                                <option value="">— No specific lead attached —</option>
+                                                <option value="">— None —</option>
                                                 {contacts.map(c => (
                                                     <option key={c.id} value={c.id}>
                                                         {c.name || 'Tourist'} ({c.wa_id})
@@ -1213,55 +1097,47 @@ export default function TaskManagementKanbanPage() {
 
                                         {/* Description */}
                                         <div className="col-12">
-                                            <label className="form-label fw-semibold">Task Description &amp; Instructions</label>
+                                            <label className="form-label small fw-bold">Task Instructions &amp; Notes</label>
                                             <textarea
                                                 className="form-control rounded-3"
                                                 rows="3"
-                                                placeholder="Provide detailed context, special customer requirements, instructions, or links..."
+                                                placeholder="Provide details or instructions..."
                                                 value={taskForm.description}
                                                 onChange={(e) => setTaskForm({ ...taskForm, description: e.target.value })}
                                             ></textarea>
                                         </div>
 
-                                        {/* Subtasks / Checklist Builder */}
+                                        {/* Subtasks Checklist */}
                                         <div className="col-12">
-                                            <label className="form-label fw-semibold d-flex justify-content-between align-items-center">
-                                                <span>Checklist / Action Steps</span>
-                                                <span className="small text-muted">{taskForm.checklists.length} items</span>
+                                            <label className="form-label small fw-bold d-flex justify-content-between">
+                                                <span>Checklist Subtasks</span>
+                                                <span className="text-muted">{taskForm.checklists.length} items</span>
                                             </label>
-
-                                            <div className="input-group mb-2">
+                                            <div className="input-group input-group-sm mb-2">
                                                 <input
                                                     type="text"
-                                                    className="form-control rounded-start-3"
-                                                    placeholder="Add an actionable subtask step..."
+                                                    className="form-control"
+                                                    placeholder="Add a step..."
                                                     value={tempChecklistInput}
                                                     onChange={(e) => setTempChecklistInput(e.target.value)}
                                                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddChecklistItem(); } }}
                                                 />
-                                                <button
-                                                    type="button"
-                                                    onClick={handleAddChecklistItem}
-                                                    className="btn btn-outline-primary rounded-end-3"
-                                                >
-                                                    <i className="ri ri-add-line"></i> Add Step
+                                                <button type="button" onClick={handleAddChecklistItem} className="btn btn-primary">
+                                                    + Add
                                                 </button>
                                             </div>
 
                                             {taskForm.checklists.length > 0 && (
                                                 <div className="list-group rounded-3 border">
-                                                    {taskForm.checklists.map((item, idx) => (
-                                                        <div key={item.id || idx} className="list-group-item d-flex justify-content-between align-items-center py-2 px-3">
-                                                            <div className="d-flex align-items-center gap-2">
-                                                                <i className="ri ri-checkbox-blank-circle-line text-muted small"></i>
-                                                                <span className="small">{item.text}</span>
-                                                            </div>
+                                                    {taskForm.checklists.map((item) => (
+                                                        <div key={item.id} className="list-group-item d-flex justify-content-between align-items-center py-1.5 px-3 small">
+                                                            <span>• {item.text}</span>
                                                             <button
                                                                 type="button"
                                                                 onClick={() => handleRemoveChecklistItem(item.id)}
                                                                 className="btn btn-link text-danger p-0"
                                                             >
-                                                                <i className="ri ri-delete-bin-line"></i>
+                                                                <i className="ri ri-close-line"></i>
                                                             </button>
                                                         </div>
                                                     ))}
@@ -1271,14 +1147,14 @@ export default function TaskManagementKanbanPage() {
                                     </div>
                                 </div>
 
-                                <div className="modal-footer bg-light py-3 px-4 d-flex justify-content-between">
-                                    <button type="button" className="btn btn-outline-secondary rounded-pill px-4" onClick={() => setCreateModalOpen(false)}>
+                                <div className="modal-footer bg-light py-2.5 px-4 d-flex justify-content-between">
+                                    <button type="button" className="btn btn-outline-secondary rounded-pill px-3" onClick={() => setCreateModalOpen(false)}>
                                         Cancel
                                     </button>
                                     <button
                                         type="submit"
                                         disabled={submittingTask}
-                                        className="btn btn-primary rounded-pill px-5 d-inline-flex align-items-center gap-2 shadow-sm"
+                                        className="btn btn-primary rounded-pill px-4 d-inline-flex align-items-center gap-1.5 shadow-sm"
                                         style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
                                     >
                                         {submittingTask ? (
@@ -1289,7 +1165,7 @@ export default function TaskManagementKanbanPage() {
                                         ) : (
                                             <>
                                                 <i className="ri ri-check-line"></i>
-                                                <span>{isEditing ? 'Save Changes' : 'Create & Assign Task'}</span>
+                                                <span>{isEditing ? 'Save Changes' : 'Create Task'}</span>
                                             </>
                                         )}
                                     </button>
@@ -1300,243 +1176,143 @@ export default function TaskManagementKanbanPage() {
                 </div>
             )}
 
-            {/* 6. TASK DETAIL & ACTIVITY DRAWER / MODAL */}
+            {/* 5. TASK DETAIL MODAL */}
             {detailModalOpen && selectedTask && (
-                <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(5px)', zIndex: 1055 }}>
+                <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(15, 23, 42, 0.7)', backdropFilter: 'blur(4px)', zIndex: 1055 }}>
                     <div className="modal-dialog modal-dialog-centered modal-lg">
                         <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
-                            {/* Modal Header */}
                             <div className="modal-header bg-white border-bottom py-3 px-4 d-flex justify-content-between align-items-center">
                                 <div className="d-flex align-items-center gap-2">
-                                    <span className="badge bg-light text-dark font-monospace border fs-6">
+                                    <span className="badge bg-light text-dark font-monospace border small">
                                         {selectedTask.task_code}
                                     </span>
-                                    {renderPriorityBadge(selectedTask.priority)}
-                                    {renderStatusBadge(selectedTask.status)}
+                                    {renderPriorityPill(selectedTask.priority)}
                                 </div>
                                 <div className="d-flex align-items-center gap-2">
                                     <button
                                         type="button"
                                         onClick={() => handleOpenEditModal(selectedTask)}
-                                        className="btn btn-outline-warning btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1"
+                                        className="btn btn-outline-warning btn-xs rounded-pill px-3 py-1"
                                     >
-                                        <i className="ri ri-edit-line"></i>
-                                        <span>Edit</span>
+                                        <i className="ri ri-edit-line me-1"></i> Edit
                                     </button>
                                     <button type="button" className="btn-close" onClick={() => setDetailModalOpen(false)} aria-label="Close"></button>
                                 </div>
                             </div>
 
-                            {/* Modal Body */}
-                            <div className="modal-body p-4" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
-                                {/* Title */}
-                                <h4 className="fw-bold text-dark mb-3">{selectedTask.title}</h4>
+                            <div className="modal-body p-4" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+                                <h5 className="fw-bold mb-2" style={{ color: '#0f172a', fontSize: '18px', fontWeight: '700', wordBreak: 'break-word' }}>
+                                    {selectedTask.title || selectedTask.task_title || selectedTask.name || 'Untitled Task'}
+                                </h5>
 
-                                {/* Metadata Grid */}
-                                <div className="row g-3 p-3 bg-light rounded-4 mb-4">
-                                    <div className="col-6 col-md-3">
-                                        <small className="text-muted d-block">Assigned To</small>
-                                        <span className="fw-bold text-dark">
-                                            {selectedTask.assignee_first_name} {selectedTask.assignee_last_name}
-                                        </span>
-                                    </div>
-                                    <div className="col-6 col-md-3">
-                                        <small className="text-muted d-block">Category</small>
-                                        <span className="fw-semibold text-dark">{selectedTask.category}</span>
-                                    </div>
-                                    <div className="col-6 col-md-3">
-                                        <small className="text-muted d-block">Due Date</small>
-                                        <span className="fw-semibold text-dark">
-                                            {selectedTask.due_date ? selectedTask.due_date.split('T')[0] : 'No deadline'} {selectedTask.due_time || ''}
-                                        </span>
-                                    </div>
-                                    <div className="col-6 col-md-3">
-                                        <small className="text-muted d-block">Created By</small>
-                                        <span className="fw-semibold text-dark">
-                                            {selectedTask.creator_first_name} {selectedTask.creator_last_name}
-                                        </span>
-                                    </div>
+                                {/* Meta pill bar */}
+                                <div className="d-flex flex-wrap gap-2 mb-3 p-2 bg-light rounded-3 small">
+                                    <span className="text-muted">Assigned: <strong style={{ color: '#1e293b' }}>{selectedTask.assignee_first_name} {selectedTask.assignee_last_name}</strong></span>
+                                    <span className="text-muted">• Category: <strong style={{ color: '#1e293b' }}>{selectedTask.category}</strong></span>
+                                    <span className="text-muted">• Due: <strong style={{ color: '#1e293b' }}>{selectedTask.due_date ? selectedTask.due_date.split('T')[0] : 'No deadline'}</strong></span>
                                 </div>
 
-                                {/* Quick Move Toolbar */}
-                                <div className="mb-4 d-flex align-items-center justify-content-between p-2.5 bg-white border rounded-3">
-                                    <span className="small fw-semibold text-muted">Change Status:</span>
+                                {/* Status Change Bar */}
+                                <div className="p-2 bg-light rounded-3 border mb-3 d-flex align-items-center justify-content-between">
+                                    <span className="small fw-semibold text-muted">Status:</span>
                                     <div className="btn-group btn-group-sm" role="group">
-                                        <button
-                                            type="button"
-                                            onClick={() => handleUpdateTaskStatus(selectedTask.id, 'todo')}
-                                            className={`btn ${selectedTask.status === 'todo' ? 'btn-secondary' : 'btn-outline-secondary'}`}
-                                        >
-                                            To Do
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleUpdateTaskStatus(selectedTask.id, 'in_progress')}
-                                            className={`btn ${selectedTask.status === 'in_progress' ? 'btn-primary' : 'btn-outline-primary'}`}
-                                        >
-                                            In Progress
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleUpdateTaskStatus(selectedTask.id, 'review')}
-                                            className={`btn ${selectedTask.status === 'review' ? 'btn-warning' : 'btn-outline-warning'}`}
-                                        >
-                                            Review
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => handleUpdateTaskStatus(selectedTask.id, 'completed')}
-                                            className={`btn ${selectedTask.status === 'completed' ? 'btn-success' : 'btn-outline-success'}`}
-                                        >
-                                            Completed
-                                        </button>
+                                        {kanbanColumns.map(c => {
+                                            const isCompletedBtn = c.id === 'completed';
+                                            const disabledForEmployee = isCompletedBtn && !isAdmin;
+                                            return (
+                                                <button
+                                                    key={c.id}
+                                                    type="button"
+                                                    disabled={disabledForEmployee}
+                                                    onClick={() => handleUpdateTaskStatus(selectedTask.id, c.id)}
+                                                    className={`btn btn-xs ${selectedTask.status === c.id ? 'btn-primary text-white' : 'btn-outline-secondary'}`}
+                                                    title={disabledForEmployee ? 'Only Administrators can mark tasks as completed' : `Set status to ${c.title}`}
+                                                >
+                                                    {disabledForEmployee && <i className="ri-lock-line me-1"></i>}
+                                                    {c.title}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
                                 </div>
 
                                 {/* Description */}
                                 {selectedTask.description && (
-                                    <div className="mb-4">
-                                        <h6 className="fw-bold text-dark mb-2">Description &amp; Instructions</h6>
-                                        <div className="p-3 bg-white border rounded-3 text-dark small" style={{ whiteSpace: 'pre-wrap', lineHeight: '1.6' }}>
+                                    <div className="mb-3">
+                                        <label className="small fw-bold text-muted d-block mb-1">Description</label>
+                                        <div className="p-3 bg-white border rounded-3 small" style={{ whiteSpace: 'pre-wrap' }}>
                                             {selectedTask.description}
                                         </div>
                                     </div>
                                 )}
 
-                                {/* Attached Lead Information */}
-                                {selectedTask.lead_name && (
-                                    <div className="mb-4 p-3 bg-primary bg-opacity-10 border border-primary border-opacity-25 rounded-3 d-flex justify-content-between align-items-center">
-                                        <div>
-                                            <small className="text-primary fw-bold text-uppercase d-block">Attached Tourist Lead</small>
-                                            <span className="fw-bold text-dark">{selectedTask.lead_name}</span>
-                                            {selectedTask.lead_phone && <span className="text-muted ms-2">({selectedTask.lead_phone})</span>}
-                                        </div>
-                                        {selectedTask.lead_phone && (
-                                            <a
-                                                href={`https://wa.me/${selectedTask.lead_phone}`}
-                                                target="_blank"
-                                                rel="noreferrer"
-                                                className="btn btn-success btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 shadow-sm"
-                                            >
-                                                <i className="ri ri-whatsapp-fill"></i>
-                                                <span>WhatsApp Lead</span>
-                                            </a>
-                                        )}
-                                    </div>
-                                )}
-
-                                {/* Interactive Checklist */}
-                                <div className="mb-4">
-                                    <h6 className="fw-bold text-dark mb-2 d-flex justify-content-between align-items-center">
-                                        <span>Interactive Subtasks Checklist</span>
-                                        <span className="badge bg-light text-dark border">
-                                            {(selectedTask.checklists || []).filter(c => c.completed).length} of {(selectedTask.checklists || []).length} completed
-                                        </span>
-                                    </h6>
-
-                                    <div className="list-group rounded-3 mb-2">
-                                        {(selectedTask.checklists || []).length === 0 ? (
-                                            <div className="list-group-item text-muted small py-3 text-center">
-                                                No subtasks yet. Add steps below.
-                                            </div>
-                                        ) : (
-                                            (selectedTask.checklists || []).map((item) => (
-                                                <label
-                                                    key={item.id}
-                                                    className={`list-group-item list-group-item-action d-flex align-items-center gap-2 py-2 px-3 cursor-pointer ${item.completed ? 'bg-light text-muted text-decoration-line-through' : ''}`}
-                                                >
+                                {/* Subtasks Checklist */}
+                                {(selectedTask.checklists || []).length > 0 && (
+                                    <div className="mb-3">
+                                        <label className="small fw-bold text-muted d-block mb-1">Checklist Subtasks</label>
+                                        <div className="list-group rounded-3 border">
+                                            {selectedTask.checklists.map((chk) => (
+                                                <label key={chk.id} className="list-group-item d-flex align-items-center gap-2 py-2 px-3 small cursor-pointer">
                                                     <input
                                                         type="checkbox"
                                                         className="form-check-input mt-0"
-                                                        checked={item.completed || false}
-                                                        onChange={() => handleToggleChecklistItem(item.id)}
+                                                        checked={chk.completed}
+                                                        onChange={() => handleToggleChecklistDetail(chk.id)}
                                                     />
-                                                    <span className="small">{item.text}</span>
+                                                    <span className={chk.completed ? 'text-decoration-line-through text-muted' : 'text-dark'}>
+                                                        {chk.text}
+                                                    </span>
                                                 </label>
-                                            ))
-                                        )}
+                                            ))}
+                                        </div>
                                     </div>
+                                )}
 
-                                    {/* Add subtask on the fly */}
-                                    <div className="input-group input-group-sm">
-                                        <input
-                                            type="text"
-                                            className="form-control"
-                                            placeholder="Add a new checklist step..."
-                                            value={newChecklistText}
-                                            onChange={(e) => setNewChecklistText(e.target.value)}
-                                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddLiveChecklistItem(); } }}
-                                        />
-                                        <button
-                                            type="button"
-                                            onClick={handleAddLiveChecklistItem}
-                                            className="btn btn-outline-primary"
-                                        >
-                                            + Add
-                                        </button>
-                                    </div>
-                                </div>
-
-                                {/* Comments & Activity Timeline */}
+                                {/* Comments Section */}
                                 <div>
-                                    <h6 className="fw-bold text-dark mb-2">Team Activity &amp; Discussion</h6>
-
-                                    {/* Post comment input */}
+                                    <label className="small fw-bold text-muted d-block mb-1">Discussion &amp; Updates</label>
                                     <form onSubmit={handlePostComment} className="mb-3">
-                                        <div className="input-group">
+                                        <div className="input-group input-group-sm">
                                             <input
                                                 type="text"
-                                                className="form-control rounded-start-3"
-                                                placeholder="Write an update, note, or reply..."
+                                                className="form-control"
+                                                placeholder="Write a comment or status update..."
                                                 value={newComment}
                                                 onChange={(e) => setNewComment(e.target.value)}
                                             />
-                                            <button
-                                                type="submit"
-                                                disabled={postingComment || !newComment.trim()}
-                                                className="btn btn-primary rounded-end-3 px-3 d-inline-flex align-items-center gap-1"
-                                            >
-                                                {postingComment ? <span className="spinner-border spinner-border-sm"></span> : <i className="ri ri-send-plane-fill"></i>}
-                                                <span>Post</span>
+                                            <button type="submit" disabled={postingComment} className="btn btn-primary">
+                                                Post
                                             </button>
                                         </div>
                                     </form>
 
-                                    {/* Timeline list */}
-                                    <div className="d-flex flex-column gap-2" style={{ maxHeight: '250px', overflowY: 'auto' }}>
-                                        {taskActivities.length === 0 ? (
-                                            <small className="text-muted text-center py-2">No discussion notes yet.</small>
-                                        ) : (
-                                            taskActivities.map((act) => (
-                                                <div key={act.id} className="p-2.5 bg-light rounded-3 border">
-                                                    <div className="d-flex justify-content-between align-items-center mb-1">
-                                                        <span className="fw-bold text-dark small">
-                                                            {act.first_name ? `${act.first_name} ${act.last_name || ''}` : 'Admin'}
-                                                        </span>
-                                                        <span className="text-xs text-muted">
-                                                            {act.created_at ? new Date(act.created_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : ''}
+                                    {taskActivities.length > 0 && (
+                                        <div className="d-flex flex-column gap-2" style={{ maxHeight: '180px', overflowY: 'auto' }}>
+                                            {taskActivities.map((act) => (
+                                                <div key={act.id} className="p-2 bg-light rounded-3 small border">
+                                                    <div className="d-flex justify-content-between mb-0.5">
+                                                        <strong className="text-dark">{act.first_name} {act.last_name}</strong>
+                                                        <span className="text-muted" style={{ fontSize: '10px' }}>
+                                                            {new Date(act.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                                         </span>
                                                     </div>
-                                                    <p className="mb-0 text-dark small" style={{ fontSize: '12px' }}>
-                                                        {act.content}
-                                                    </p>
+                                                    <div className="text-dark">{act.comment_text}</div>
                                                 </div>
-                                            ))
-                                        )}
-                                    </div>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
                             </div>
 
-                            {/* Modal Footer */}
-                            <div className="modal-footer bg-light py-2.5 px-4 d-flex justify-content-between">
+                            <div className="modal-footer bg-light py-2 px-4 d-flex justify-content-between">
                                 <button
                                     type="button"
                                     onClick={() => handleDeleteTask(selectedTask.id, selectedTask.task_code)}
-                                    className="btn btn-outline-danger btn-sm rounded-pill px-3"
+                                    className="btn btn-xs btn-outline-danger rounded-pill px-3"
                                 >
-                                    <i className="ri ri-delete-bin-line me-1"></i> Delete Task
+                                    Delete Task
                                 </button>
-                                <button type="button" className="btn btn-secondary btn-sm rounded-pill px-4" onClick={() => setDetailModalOpen(false)}>
+                                <button type="button" className="btn btn-secondary btn-xs rounded-pill px-3" onClick={() => setDetailModalOpen(false)}>
                                     Close
                                 </button>
                             </div>

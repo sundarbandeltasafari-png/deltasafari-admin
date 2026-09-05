@@ -46,17 +46,17 @@ export default function DashboardLayout({ children }) {
 		});
 	}, [isLogin, syncPermissions, route]);
 
-	// Route guard for Admin Users (admin = 2)
+	// Route guard for Admin Users
 	useEffect(() => {
 		if (loading || !isLogin || !user) return;
 
 		// Super Admin has access to all pages
 		if (user.admin === 1) return;
 
-		// Admin user (admin = 2)
-		if (user.admin === 2) {
-			// Always allowed routes
-			const alwaysAllowed = ['/crm', '/crm/whatsapp', '/logout', '/adminusers/view'];
+		// Admin user (non super-admin)
+		if (user.admin !== 1) {
+			// All CRM routes are common and always allowed for all users
+			const alwaysAllowed = ['/crm', '/logout', '/adminusers/view'];
 			const isAlwaysAllowed = alwaysAllowed.some(r => pathname === r || pathname.startsWith('/crm'));
 
 			if (isAlwaysAllowed) return;
@@ -64,7 +64,7 @@ export default function DashboardLayout({ children }) {
 			// If on root dashboard / or /dashboard
 			if (pathname === '/' || pathname === '/dashboard') {
 				if (!permisions.includes('/dashboard') && !permisions.includes('*')) {
-					route.push('/crm/whatsapp');
+					route.push('/crm/calendar');
 					return;
 				}
 			}
@@ -79,7 +79,7 @@ export default function DashboardLayout({ children }) {
 				if (r !== '/' && pathname.startsWith(r + '/')) return true;
 				return false;
 			}))) {
-				route.push('/crm/whatsapp');
+				route.push('/crm/calendar');
 			}
 		}
 	}, [loading, isLogin, user, permisions, pathname, route]);

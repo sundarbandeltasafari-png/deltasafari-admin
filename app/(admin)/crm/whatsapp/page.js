@@ -15,10 +15,11 @@ import {
     assignLeadUrl,
     saveLeadFollowupUrl,
     convertLeadUrl,
-    getSingleLeadFollowupUrl
+    getSingleLeadFollowupUrl,
+    deleteWhatsAppContactUrl
 } from '@/app/routes/whatsappRoutes';
 import { getAllPackageUrl } from '@/app/routes/packageRoutes';
-import { axiosGet, axiosPost } from '@/libs/axiosHelper';
+import { axiosGet, axiosPost, axiosDelete } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
 import LoadingComponent from '@/components/common/LoadingComponent';
 import NotFound from '@/components/common/NotFound';
@@ -33,6 +34,8 @@ export default function WhatsAppLeadsPage() {
     const [contacts, setContacts] = useState([]);
     const [stats, setStats] = useState({
         total_contacts: 0,
+        total_whatsapp_leads: 0,
+        total_custom_leads: 0,
         total_messages: 0,
         total_inbound: 0,
         total_outbound: 0,
@@ -41,6 +44,7 @@ export default function WhatsAppLeadsPage() {
     const [configStatus, setConfigStatus] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterAssignee, setFilterAssignee] = useState('');
+    const [filterSource, setFilterSource] = useState(''); // '' = all, 'whatsapp' = whatsapp leads, 'custom' = custom leads
     const [managers, setManagers] = useState([]);
     const [packageSuggestions, setPackageSuggestions] = useState([]);
 
@@ -55,12 +59,13 @@ export default function WhatsAppLeadsPage() {
         lead_type: 'warm',
         travel_destination: 'Sundarban Safari',
         travel_date: '',
+        booking_days: 1,
         adults: 2,
         children: 0,
         infants: 0,
         number_of_persons: 2,
         total_rooms: 1,
-        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0 }],
+        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 }],
         package_name: '',
         custom_package_name: '',
         package_rate: '',
@@ -80,13 +85,14 @@ export default function WhatsAppLeadsPage() {
         email: '',
         lead_type: 'warm',
         travel_date: '',
+        booking_days: 1,
         travel_destination: '',
         adults: 2,
         children: 0,
         infants: 0,
         number_of_persons: 2,
         total_rooms: 1,
-        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0 }],
+        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 }],
         package_name: '',
         custom_package_name: '',
         package_rate: '',
@@ -104,11 +110,12 @@ export default function WhatsAppLeadsPage() {
         email: '',
         package_name: '',
         custom_package_name: '',
+        booking_days: 1,
         adults: 2,
         children: 0,
         infants: 0,
         total_rooms: 1,
-        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0 }],
+        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 }],
         bed_type: 'Double Bed',
         extra_discount: 0,
         converted_amount: '',
@@ -126,6 +133,50 @@ export default function WhatsAppLeadsPage() {
 
     // Setup Guide Modal State
     const [showGuideModal, setShowGuideModal] = useState(false);
+
+    // Delete Lead Confirmation Modal State (Super Admin Only)
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [leadToDelete, setLeadToDelete] = useState(null);
+    const [deletingLead, setDeletingLead] = useState(false);
+
+    const handleOpenDeleteModal = (contact) => {
+        if (!isSuperAdmin) {
+            showMessage('error', 'Only administrators have permission to delete leads.');
+            return;
+        }
+        setLeadToDelete(contact);
+        setDeleteModalOpen(true);
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!isSuperAdmin || !leadToDelete?.id) {
+            setDeleteModalOpen(false);
+            setLeadToDelete(null);
+            return;
+        }
+
+        setDeletingLead(true);
+        try {
+            const res = await axiosDelete(`${deleteWhatsAppContactUrl}${leadToDelete.id}`, token);
+            if (res?.status) {
+                showMessage('success', res.msg || 'WhatsApp lead deleted successfully.');
+                if (activeContact?.id === leadToDelete.id) {
+                    setActiveContact(null);
+                }
+                setDeleteModalOpen(false);
+                setLeadToDelete(null);
+                fetchContacts(searchTerm, filterAssignee);
+                fetchStats();
+            } else {
+                showMessage('error', res?.msg || 'Failed to delete lead.');
+            }
+        } catch (err) {
+            console.error('Error deleting lead:', err);
+            showMessage('error', 'An error occurred while deleting the lead.');
+        } finally {
+            setDeletingLead(false);
+        }
+    };
 
     const messagesEndRef = useRef(null);
 
@@ -151,17 +202,80 @@ export default function WhatsAppLeadsPage() {
         }
     }, [token, user]);
 
+    // Helper to find matched package from package suggestions by title or name (case-insensitive & trimmed)
+    const findMatchedPackage = (pkgList, pkgName) => {
+        if (!pkgName || !String(pkgName).trim()) return null;
+        const cleanTarget = String(pkgName).trim().toLowerCase();
+        return (pkgList || []).find(p => {
+            const pTitle = String(p.title || p.name || '').trim().toLowerCase();
+            const pName = String(p.name || p.title || '').trim().toLowerCase();
+            return pTitle === cleanTarget || pName === cleanTarget;
+        }) || null;
+    };
+
     const fetchPackages = async () => {
         if (!token) return;
         try {
             const res = await axiosGet(getAllPackageUrl, token);
             if (res?.status && Array.isArray(res.packages)) {
-                setPackageSuggestions(res.packages);
+                const cleaned = res.packages.map(p => {
+                    const cleanTitle = String(p.title || p.name || '').trim();
+                    return {
+                        ...p,
+                        title: cleanTitle,
+                        name: cleanTitle
+                    };
+                });
+                setPackageSuggestions(cleaned);
             }
         } catch (err) {
             console.error('Error fetching packages:', err);
         }
     };
+
+    // Automatically sync and link package once package suggestions load
+    useEffect(() => {
+        if (!packageSuggestions || packageSuggestions.length === 0) return;
+        setFollowupFormData(prev => {
+            const currentPkg = prev.package_name === '__custom__' ? prev.custom_package_name : prev.package_name;
+            if (!currentPkg) return prev;
+            const matched = findMatchedPackage(packageSuggestions, currentPkg);
+            if (matched && prev.package_name !== matched.title) {
+                return {
+                    ...prev,
+                    package_name: matched.title,
+                    custom_package_name: ''
+                };
+            }
+            return prev;
+        });
+        setConvertFormData(prev => {
+            const currentPkg = prev.package_name === '__custom__' ? prev.custom_package_name : prev.package_name;
+            if (!currentPkg) return prev;
+            const matched = findMatchedPackage(packageSuggestions, currentPkg);
+            if (matched && prev.package_name !== matched.title) {
+                return {
+                    ...prev,
+                    package_name: matched.title,
+                    custom_package_name: ''
+                };
+            }
+            return prev;
+        });
+        setManualLeadFormData(prev => {
+            const currentPkg = prev.package_name === '__custom__' ? prev.custom_package_name : prev.package_name;
+            if (!currentPkg) return prev;
+            const matched = findMatchedPackage(packageSuggestions, currentPkg);
+            if (matched && prev.package_name !== matched.title) {
+                return {
+                    ...prev,
+                    package_name: matched.title,
+                    custom_package_name: ''
+                };
+            }
+            return prev;
+        });
+    }, [packageSuggestions]);
 
     const fetchLeadManagers = async () => {
         if (!token || !isSuperAdmin) return;
@@ -175,12 +289,15 @@ export default function WhatsAppLeadsPage() {
         }
     };
 
-    const fetchContacts = async (searchVal = searchTerm, assignVal = filterAssignee) => {
+    const fetchContacts = async (searchVal = searchTerm, assignVal = filterAssignee, sourceVal = filterSource) => {
         setLoading(true);
         try {
             let url = `${getWhatsAppContactsUrl}?search=${encodeURIComponent(searchVal || '')}`;
             if (assignVal) {
                 url += `&assigned_to=${encodeURIComponent(assignVal)}`;
+            }
+            if (sourceVal) {
+                url += `&lead_source=${encodeURIComponent(sourceVal)}`;
             }
             const res = await axiosGet(url, token);
             if (res?.status && Array.isArray(res.data)) {
@@ -220,7 +337,7 @@ export default function WhatsAppLeadsPage() {
 
     const handleSearchSubmit = (e) => {
         e.preventDefault();
-        fetchContacts(searchTerm, filterAssignee);
+        fetchContacts(searchTerm, filterAssignee, filterSource);
     };
 
     const handleOpenChat = async (contact) => {
@@ -318,8 +435,8 @@ export default function WhatsAppLeadsPage() {
         }
     };
 
-    // Helper to calculate total package rate based on package price, adults, children, and AC extra charges
-    const calculateAutoRate = (packageName, adultsCount = 2, childrenCount = 0, roomsList = []) => {
+    // Helper to calculate total package rate based on package price, duration, booking nights, adults, children, AC extra charges, and bed charges
+    const calculateAutoRate = (packageName, adultsCount = 2, childrenCount = 0, roomsList = [], bookingDaysCount = 1) => {
         let adults = 0;
         let children = 0;
         let rooms = roomsList;
@@ -333,21 +450,41 @@ export default function WhatsAppLeadsPage() {
             children = Math.max(0, parseInt(childrenCount, 10) || 0);
         }
 
+        const bookingDays = Math.max(1, parseInt(bookingDaysCount, 10) || 1);
         const billablePersons = adults + children;
-        const matched = (packageSuggestions || []).find(p => (p.name === packageName || p.title === packageName));
+        const matched = findMatchedPackage(packageSuggestions, packageName);
         const unitPrice = matched ? Number(matched.actual_price || matched.base_price || matched.price || 0) : 0;
-        const baseTotal = unitPrice > 0 ? (unitPrice * billablePersons) : 0;
+        const packageStandardNights = matched ? (Math.max(1, parseInt(matched.duration_nights, 10) || (parseInt(matched.duration_days, 10) ? Math.max(1, parseInt(matched.duration_days, 10) - 1) : 1))) : 1;
+
+        // Base package rate scaled by booking nights vs standard package duration
+        const nightlyBaseRate = packageStandardNights > 0 ? (unitPrice / packageStandardNights) : unitPrice;
+        const baseTotal = unitPrice > 0 ? Math.round(nightlyBaseRate * bookingDays * billablePersons) : 0;
         
+        // Extra room charges (AC and Extra Bed) are entered as total calculated prices (flat total, not multiplied by nights)
         const acExtraTotal = (rooms || []).reduce((sum, r) => {
             return sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0);
         }, 0);
 
-        const totalRate = (unitPrice > 0 || acExtraTotal > 0) ? (baseTotal + acExtraTotal) : 0;
+        const bedExtraTotal = (rooms || []).reduce((sum, r) => {
+            return sum + (Number(r.bed_charge) || 0);
+        }, 0);
+
+        const totalRate = (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? (baseTotal + acExtraTotal + bedExtraTotal) : 0;
         return {
             unitPrice,
+            packageStandardDays: packageStandardNights,
+            packageStandardNights,
+            bookingDays,
+            bookingNights: bookingDays,
+            days: bookingDays,
+            nights: bookingDays,
+            dailyBaseRate: nightlyBaseRate,
             billablePersons,
             baseTotal,
+            dailyAcExtra: acExtraTotal,
             acExtraTotal,
+            dailyBedExtra: bedExtraTotal,
+            bedExtraTotal,
             totalRate
         };
     };
@@ -357,7 +494,7 @@ export default function WhatsAppLeadsPage() {
         const roomCount = Math.max(1, parseInt(count, 10) || 1);
         const arr = [];
         for (let i = 1; i <= roomCount; i++) {
-            arr.push({ id: i, room_number: i, type: 'non_ac', extra_charge: 0 });
+            arr.push({ id: i, room_number: i, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 });
         }
         return arr;
     };
@@ -369,7 +506,7 @@ export default function WhatsAppLeadsPage() {
             try { return new Date(d).toISOString().split('T')[0]; } catch (e) { return ''; }
         };
 
-        const initialRooms = [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0 }];
+        const initialRooms = [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 }];
         setFollowupFormData({
             contact_id: contact.id,
             lead_name: contact.name || '',
@@ -410,12 +547,14 @@ export default function WhatsAppLeadsPage() {
                         id: r.id || i + 1,
                         room_number: r.room_number || i + 1,
                         type: r.type === 'ac' ? 'ac' : 'non_ac',
-                        extra_charge: Number(r.extra_charge) || 0
+                        extra_charge: Number(r.extra_charge) || 0,
+                        bed_type: r.bed_type || 'Double Bed',
+                        bed_charge: Number(r.bed_charge) || 0
                     }));
                 } else {
                     // Smart fallback for existing records without saved room_details
-                    const effectivePkgName = f.package_name || '';
-                    const matched = (packageSuggestions || []).find(p => (p.name === effectivePkgName || p.title === effectivePkgName));
+                    const effectivePkgName = (f.package_name || '').trim();
+                    const matched = findMatchedPackage(packageSuggestions, effectivePkgName);
                     const unitPrice = matched ? Number(matched.actual_price || matched.base_price || matched.price || 0) : 0;
                     const baseTotal = unitPrice > 0 ? (unitPrice * (parseInt(f.number_of_persons, 10) || 1)) : 0;
                     const currentRate = Number(f.package_rate) || 0;
@@ -428,14 +567,19 @@ export default function WhatsAppLeadsPage() {
                             id: i + 1,
                             room_number: i + 1,
                             type: i === 0 ? 'ac' : 'non_ac',
-                            extra_charge: i === 0 ? (diff > 0 ? diff : 0) : 0
+                            extra_charge: i === 0 ? (diff > 0 ? diff : 0) : 0,
+                            bed_type: 'Double Bed',
+                            bed_charge: 0
                         }));
                     } else {
                         loadedRooms = createInitialRooms(loadedRoomsCount);
                     }
                 }
 
-                const isExistingPkgInList = (packageSuggestions || []).some(p => (p.name === f.package_name || p.title === f.package_name));
+                const rawPkgName = (f.package_name || '').trim();
+                const matchedPkg = findMatchedPackage(packageSuggestions, rawPkgName);
+                const selectedPkgVal = matchedPkg ? matchedPkg.title : (rawPkgName || '');
+                const customPkgVal = matchedPkg ? '' : (rawPkgName || '');
 
                 const loadedAdults = f.adults !== null && f.adults !== undefined ? Math.max(1, parseInt(f.adults, 10) || 1) : Math.max(1, parseInt(f.number_of_persons, 10) || 2);
                 const loadedChildren = Math.max(0, parseInt(f.children, 10) || 0);
@@ -449,6 +593,7 @@ export default function WhatsAppLeadsPage() {
                     email: f.email || '',
                     lead_type: f.lead_type || 'warm',
                     travel_date: formatDateVal(f.travel_date),
+                    booking_days: Math.max(1, parseInt(f.booking_days, 10) || (matchedPkg ? (parseInt(matchedPkg.duration_nights, 10) || (parseInt(matchedPkg.duration_days, 10) ? Math.max(1, parseInt(matchedPkg.duration_days, 10) - 1) : 1)) : 1)),
                     travel_destination: f.travel_destination || 'Sundarban',
                     adults: loadedAdults,
                     children: loadedChildren,
@@ -456,8 +601,8 @@ export default function WhatsAppLeadsPage() {
                     number_of_persons: totalPax,
                     total_rooms: loadedRooms.length || loadedRoomsCount,
                     rooms: loadedRooms,
-                    package_name: isExistingPkgInList ? (f.package_name || '') : (f.package_name ? '__custom__' : ''),
-                    custom_package_name: isExistingPkgInList ? '' : (f.package_name || ''),
+                    package_name: selectedPkgVal,
+                    custom_package_name: customPkgVal,
                     package_rate: f.package_rate || '',
                     next_followup_date: formatDateVal(f.next_followup_date),
                     extra_note: f.extra_note || ''
@@ -467,11 +612,25 @@ export default function WhatsAppLeadsPage() {
     };
 
     const handleFollowupPackageChange = (val) => {
-        const { totalRate, unitPrice } = calculateAutoRate(val, followupFormData.adults, followupFormData.children, followupFormData.rooms);
+        const matched = findMatchedPackage(packageSuggestions, val);
+        const defaultDays = matched ? (Math.max(1, parseInt(matched.duration_nights, 10) || (parseInt(matched.duration_days, 10) ? Math.max(1, parseInt(matched.duration_days, 10) - 1) : 1))) : (followupFormData.booking_days || 1);
+        const { totalRate, unitPrice } = calculateAutoRate(val, followupFormData.adults, followupFormData.children, followupFormData.rooms, defaultDays);
         setFollowupFormData(prev => ({
             ...prev,
             package_name: val,
+            booking_days: defaultDays,
             custom_package_name: val === '__custom__' ? prev.custom_package_name : '',
+            package_rate: unitPrice > 0 ? String(totalRate) : prev.package_rate
+        }));
+    };
+
+    const handleFollowupBookingDaysChange = (val) => {
+        const days = Math.max(1, parseInt(val, 10) || 1);
+        const effectivePkg = followupFormData.package_name === '__custom__' ? followupFormData.custom_package_name : followupFormData.package_name;
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, followupFormData.adults, followupFormData.children, followupFormData.rooms, days);
+        setFollowupFormData(prev => ({
+            ...prev,
+            booking_days: days,
             package_rate: unitPrice > 0 ? String(totalRate) : prev.package_rate
         }));
     };
@@ -479,7 +638,7 @@ export default function WhatsAppLeadsPage() {
     const handleFollowupAdultsChange = (val) => {
         const adults = Math.max(0, parseInt(val, 10) || 0);
         const effectivePkg = followupFormData.package_name === '__custom__' ? followupFormData.custom_package_name : followupFormData.package_name;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, adults, followupFormData.children, followupFormData.rooms);
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, adults, followupFormData.children, followupFormData.rooms, followupFormData.booking_days);
         const totalPax = adults + (parseInt(followupFormData.children, 10) || 0) + (parseInt(followupFormData.infants, 10) || 0);
         setFollowupFormData(prev => ({
             ...prev,
@@ -492,7 +651,7 @@ export default function WhatsAppLeadsPage() {
     const handleFollowupChildrenChange = (val) => {
         const children = Math.max(0, parseInt(val, 10) || 0);
         const effectivePkg = followupFormData.package_name === '__custom__' ? followupFormData.custom_package_name : followupFormData.package_name;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, followupFormData.adults, children, followupFormData.rooms);
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, followupFormData.adults, children, followupFormData.rooms, followupFormData.booking_days);
         const totalPax = (parseInt(followupFormData.adults, 10) || 0) + children + (parseInt(followupFormData.infants, 10) || 0);
         setFollowupFormData(prev => ({
             ...prev,
@@ -514,9 +673,9 @@ export default function WhatsAppLeadsPage() {
 
     const handleFollowupAddRoom = () => {
         const nextRooms = [...(followupFormData.rooms || [])];
-        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0 });
+        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 });
         const effectivePkg = followupFormData.package_name === '__custom__' ? followupFormData.custom_package_name : followupFormData.package_name;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, followupFormData.adults, followupFormData.children, nextRooms);
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, followupFormData.adults, followupFormData.children, nextRooms, followupFormData.booking_days);
         setFollowupFormData(prev => ({
             ...prev,
             total_rooms: nextRooms.length,
@@ -529,7 +688,7 @@ export default function WhatsAppLeadsPage() {
         if ((followupFormData.rooms || []).length <= 1) return;
         const nextRooms = followupFormData.rooms.filter((_, i) => i !== idx).map((r, i) => ({ ...r, room_number: i + 1 }));
         const effectivePkg = followupFormData.package_name === '__custom__' ? followupFormData.custom_package_name : followupFormData.package_name;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, followupFormData.adults, followupFormData.children, nextRooms);
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, followupFormData.adults, followupFormData.children, nextRooms, followupFormData.booking_days);
         setFollowupFormData(prev => ({
             ...prev,
             total_rooms: nextRooms.length,
@@ -541,14 +700,15 @@ export default function WhatsAppLeadsPage() {
     const handleFollowupRoomChange = (idx, changes) => {
         const nextRooms = followupFormData.rooms.map((r, i) => i === idx ? { ...r, ...changes } : r);
         const effectivePkg = followupFormData.package_name === '__custom__' ? followupFormData.custom_package_name : followupFormData.package_name;
-        const { totalRate, unitPrice, acExtraTotal } = calculateAutoRate(effectivePkg, followupFormData.adults, followupFormData.children, nextRooms);
+        const { totalRate, unitPrice, acExtraTotal, bedExtraTotal } = calculateAutoRate(effectivePkg, followupFormData.adults, followupFormData.children, nextRooms, followupFormData.booking_days);
         setFollowupFormData(prev => {
             let nextRate = prev.package_rate;
             if (unitPrice > 0) {
                 nextRate = String(totalRate);
             } else if (prev.package_rate && !isNaN(Number(prev.package_rate))) {
                 const prevAcTotal = (prev.rooms || []).reduce((sum, r) => sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0);
-                nextRate = String(Math.max(0, Number(prev.package_rate) + (acExtraTotal - prevAcTotal)));
+                const prevBedTotal = (prev.rooms || []).reduce((sum, r) => sum + (Number(r.bed_charge) || 0), 0);
+                nextRate = String(Math.max(0, Number(prev.package_rate) + (acExtraTotal - prevAcTotal) + (bedExtraTotal - prevBedTotal)));
             }
             return {
                 ...prev,
@@ -610,6 +770,7 @@ export default function WhatsAppLeadsPage() {
             lead_type: 'warm',
             travel_destination: 'Sundarban Safari',
             travel_date: '',
+            booking_days: 1,
             adults: 2,
             children: 0,
             infants: 0,
@@ -628,11 +789,25 @@ export default function WhatsAppLeadsPage() {
     };
 
     const handleManualLeadPackageChange = (val) => {
-        const { totalRate, unitPrice } = calculateAutoRate(val, manualLeadFormData.adults, manualLeadFormData.children, manualLeadFormData.rooms);
+        const matched = findMatchedPackage(packageSuggestions, val);
+        const defaultDays = matched ? (Math.max(1, parseInt(matched.duration_nights, 10) || (parseInt(matched.duration_days, 10) ? Math.max(1, parseInt(matched.duration_days, 10) - 1) : 1))) : (manualLeadFormData.booking_days || 1);
+        const { totalRate, unitPrice } = calculateAutoRate(val, manualLeadFormData.adults, manualLeadFormData.children, manualLeadFormData.rooms, defaultDays);
         setManualLeadFormData(prev => ({
             ...prev,
             package_name: val,
+            booking_days: defaultDays,
             custom_package_name: val === '__custom__' ? prev.custom_package_name : '',
+            package_rate: unitPrice > 0 ? String(totalRate) : prev.package_rate
+        }));
+    };
+
+    const handleManualLeadBookingDaysChange = (val) => {
+        const days = Math.max(1, parseInt(val, 10) || 1);
+        const effectivePkg = manualLeadFormData.package_name === '__custom__' ? manualLeadFormData.custom_package_name : manualLeadFormData.package_name;
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, manualLeadFormData.adults, manualLeadFormData.children, manualLeadFormData.rooms, days);
+        setManualLeadFormData(prev => ({
+            ...prev,
+            booking_days: days,
             package_rate: unitPrice > 0 ? String(totalRate) : prev.package_rate
         }));
     };
@@ -640,7 +815,7 @@ export default function WhatsAppLeadsPage() {
     const handleManualLeadAdultsChange = (val) => {
         const adults = Math.max(0, parseInt(val, 10) || 0);
         const effectivePkg = manualLeadFormData.package_name === '__custom__' ? manualLeadFormData.custom_package_name : manualLeadFormData.package_name;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, adults, manualLeadFormData.children, manualLeadFormData.rooms);
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, adults, manualLeadFormData.children, manualLeadFormData.rooms, manualLeadFormData.booking_days);
         const totalPax = adults + (parseInt(manualLeadFormData.children, 10) || 0) + (parseInt(manualLeadFormData.infants, 10) || 0);
         setManualLeadFormData(prev => ({
             ...prev,
@@ -653,7 +828,7 @@ export default function WhatsAppLeadsPage() {
     const handleManualLeadChildrenChange = (val) => {
         const children = Math.max(0, parseInt(val, 10) || 0);
         const effectivePkg = manualLeadFormData.package_name === '__custom__' ? manualLeadFormData.custom_package_name : manualLeadFormData.package_name;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, manualLeadFormData.adults, children, manualLeadFormData.rooms);
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, manualLeadFormData.adults, children, manualLeadFormData.rooms, manualLeadFormData.booking_days);
         const totalPax = (parseInt(manualLeadFormData.adults, 10) || 0) + children + (parseInt(manualLeadFormData.infants, 10) || 0);
         setManualLeadFormData(prev => ({
             ...prev,
@@ -675,9 +850,9 @@ export default function WhatsAppLeadsPage() {
 
     const handleManualLeadAddRoom = () => {
         const nextRooms = [...(manualLeadFormData.rooms || [])];
-        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0 });
+        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 });
         const effectivePkg = manualLeadFormData.package_name === '__custom__' ? manualLeadFormData.custom_package_name : manualLeadFormData.package_name;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, manualLeadFormData.adults, manualLeadFormData.children, nextRooms);
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, manualLeadFormData.adults, manualLeadFormData.children, nextRooms, manualLeadFormData.booking_days);
         setManualLeadFormData(prev => ({
             ...prev,
             total_rooms: nextRooms.length,
@@ -690,7 +865,7 @@ export default function WhatsAppLeadsPage() {
         if ((manualLeadFormData.rooms || []).length <= 1) return;
         const nextRooms = manualLeadFormData.rooms.filter((_, i) => i !== idx).map((r, i) => ({ ...r, room_number: i + 1 }));
         const effectivePkg = manualLeadFormData.package_name === '__custom__' ? manualLeadFormData.custom_package_name : manualLeadFormData.package_name;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, manualLeadFormData.adults, manualLeadFormData.children, nextRooms);
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, manualLeadFormData.adults, manualLeadFormData.children, nextRooms, manualLeadFormData.booking_days);
         setManualLeadFormData(prev => ({
             ...prev,
             total_rooms: nextRooms.length,
@@ -702,14 +877,15 @@ export default function WhatsAppLeadsPage() {
     const handleManualLeadRoomChange = (idx, changes) => {
         const nextRooms = manualLeadFormData.rooms.map((r, i) => i === idx ? { ...r, ...changes } : r);
         const effectivePkg = manualLeadFormData.package_name === '__custom__' ? manualLeadFormData.custom_package_name : manualLeadFormData.package_name;
-        const { totalRate, unitPrice, acExtraTotal } = calculateAutoRate(effectivePkg, manualLeadFormData.adults, manualLeadFormData.children, nextRooms);
+        const { totalRate, unitPrice, acExtraTotal, bedExtraTotal } = calculateAutoRate(effectivePkg, manualLeadFormData.adults, manualLeadFormData.children, nextRooms, manualLeadFormData.booking_days);
         setManualLeadFormData(prev => {
             let nextRate = prev.package_rate;
             if (unitPrice > 0) {
                 nextRate = String(totalRate);
             } else if (prev.package_rate && !isNaN(Number(prev.package_rate))) {
                 const prevAcTotal = (prev.rooms || []).reduce((sum, r) => sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0);
-                nextRate = String(Math.max(0, Number(prev.package_rate) + (acExtraTotal - prevAcTotal)));
+                const prevBedTotal = (prev.rooms || []).reduce((sum, r) => sum + (Number(r.bed_charge) || 0), 0);
+                nextRate = String(Math.max(0, Number(prev.package_rate) + (acExtraTotal - prevAcTotal) + (bedExtraTotal - prevBedTotal)));
             }
             return {
                 ...prev,
@@ -738,6 +914,7 @@ export default function WhatsAppLeadsPage() {
         const payload = {
             ...manualLeadFormData,
             package_name: finalPackageName,
+            booking_days: manualLeadFormData.booking_days || 1,
             adults: manualLeadFormData.adults,
             children: manualLeadFormData.children,
             infants: manualLeadFormData.infants,
@@ -765,29 +942,43 @@ export default function WhatsAppLeadsPage() {
     };
 
     // --- Convert Modal Handlers & Helpers ---
-    // Helper to calculate total convert amount based on package price, adults, children, extra discount, and AC room extra charges
-    // NOTE: Infants are free (₹0) and NOT included in price calculation as requested
-    const calculateConvertAutoAmount = (packageName, adultsCount, childrenCount, discountVal, roomsList = []) => {
+    // Helper to calculate total convert amount based on package price, adults, children, extra discount, AC room charges, bed charges, and booking nights
+    // Nightly Base Rate + Nightly Room Charges multiplied by bookingDays (nights)
+    const calculateConvertAutoAmount = (packageName, adultsCount, childrenCount, discountVal, roomsList = [], bookingDaysCount = 1) => {
         const adults = Math.max(0, parseInt(adultsCount, 10) || 0);
         const children = Math.max(0, parseInt(childrenCount, 10) || 0);
         const billablePersons = adults + children;
+        const days = Math.max(1, parseInt(bookingDaysCount, 10) || 1);
 
-        const matched = (packageSuggestions || []).find(p => (p.name === packageName || p.title === packageName));
+        const matched = findMatchedPackage(packageSuggestions, packageName);
         const unitPrice = matched ? Number(matched.actual_price || matched.base_price || matched.price || 0) : 0;
-        const baseTotal = unitPrice > 0 ? (unitPrice * billablePersons) : 0;
+        const standardNights = matched ? (Math.max(1, parseInt(matched.duration_nights, 10) || (parseInt(matched.duration_days, 10) ? Math.max(1, parseInt(matched.duration_days, 10) - 1) : 1))) : 1;
 
+        const nightlyBaseRate = standardNights > 0 ? (unitPrice / standardNights) : unitPrice;
+        const baseTotal = nightlyBaseRate > 0 ? Math.round(nightlyBaseRate * days * billablePersons) : 0;
+
+        // Extra room charges (AC and Extra Bed) are entered as total calculated prices (flat total, not multiplied by nights)
         const acExtraTotal = (roomsList || []).reduce((sum, r) => {
             return sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0);
         }, 0);
 
+        const bedExtraTotal = (roomsList || []).reduce((sum, r) => {
+            return sum + (Number(r.bed_charge) || 0);
+        }, 0);
+
         const discount = Math.max(0, Number(discountVal) || 0);
-        const finalTotal = (unitPrice > 0 || acExtraTotal > 0) ? Math.max(0, baseTotal + acExtraTotal - discount) : 0;
+        const finalTotal = (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? Math.max(0, baseTotal + acExtraTotal + bedExtraTotal - discount) : 0;
 
         return {
             unitPrice,
+            standardDays: standardNights,
+            standardNights,
+            days,
+            nights: days,
             billablePersons,
             baseTotal,
             acExtraTotal,
+            bedExtraTotal,
             discount,
             finalTotal
         };
@@ -801,6 +992,7 @@ export default function WhatsAppLeadsPage() {
 
         const contactId = item.contact_id || item.id;
         let existingPkgName = item.package_name || '';
+        let existingBookingDays = item.booking_days;
         let existingAdults = item.adults;
         let existingChildren = item.children;
         let existingInfants = item.infants;
@@ -811,12 +1003,13 @@ export default function WhatsAppLeadsPage() {
         let existingTravelDate = formatDateVal(item.travel_date);
 
         // If contact doesn't have package details on top level, attempt to fetch from single followup
-        if ((!existingPkgName || !existingRooms) && contactId) {
+        if ((!existingPkgName || !existingRooms || !existingBookingDays) && contactId) {
             try {
                 const res = await axiosGet(`${getSingleLeadFollowupUrl}${contactId}`, token);
                 if (res?.status && res?.data?.followup) {
                     const f = res.data.followup;
                     existingPkgName = f.package_name || existingPkgName;
+                    existingBookingDays = f.booking_days ?? existingBookingDays;
                     existingAdults = f.adults ?? existingAdults;
                     existingChildren = f.children ?? existingChildren;
                     existingInfants = f.infants ?? existingInfants;
@@ -841,27 +1034,31 @@ export default function WhatsAppLeadsPage() {
                 id: r.id || i + 1,
                 room_number: r.room_number || i + 1,
                 type: r.type === 'ac' ? 'ac' : 'non_ac',
-                extra_charge: Number(r.extra_charge) || 0
+                extra_charge: Number(r.extra_charge) || 0,
+                bed_type: r.bed_type || 'Double Bed',
+                bed_charge: Number(r.bed_charge) || 0
             }));
         } else {
             const count = Math.max(1, parseInt(existingTotalRooms, 10) || 1);
             loadedRooms = createInitialRooms(count);
         }
 
-        const isExistingPkgInList = (packageSuggestions || []).some(p => (p.name === existingPkgName || p.title === existingPkgName));
-        const selectedPkgVal = isExistingPkgInList ? existingPkgName : (existingPkgName ? '__custom__' : '');
-        const customPkgVal = isExistingPkgInList ? '' : existingPkgName;
+        const rawPkgName = (existingPkgName || '').trim();
+        const matchedPkg = findMatchedPackage(packageSuggestions, rawPkgName);
+        const selectedPkgVal = matchedPkg ? matchedPkg.title : (rawPkgName || '');
+        const customPkgVal = matchedPkg ? '' : (rawPkgName || '');
 
+        const initialBookingDays = Math.max(1, parseInt(existingBookingDays, 10) || (matchedPkg ? (parseInt(matchedPkg.duration_nights, 10) || (parseInt(matchedPkg.duration_days, 10) ? Math.max(1, parseInt(matchedPkg.duration_days, 10) - 1) : 1)) : 1));
         const initialAdults = existingAdults !== null && existingAdults !== undefined ? Math.max(1, parseInt(existingAdults, 10) || 1) : Math.max(1, parseInt(existingPersons, 10) || 2);
         const initialChildren = Math.max(0, parseInt(existingChildren, 10) || 0);
         const initialInfants = Math.max(0, parseInt(existingInfants, 10) || 0);
         const initialDiscount = 0;
 
         const effectivePkg = selectedPkgVal === '__custom__' ? customPkgVal : selectedPkgVal;
-        const { finalTotal, unitPrice } = calculateConvertAutoAmount(effectivePkg, initialAdults, initialChildren, initialDiscount, loadedRooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, initialAdults, initialChildren, initialDiscount, loadedRooms, initialBookingDays);
 
         let initialAmount = existingRate || '';
-        if (!initialAmount && unitPrice > 0) {
+        if (!initialAmount && (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0)) {
             initialAmount = String(finalTotal);
         }
 
@@ -872,12 +1069,14 @@ export default function WhatsAppLeadsPage() {
             email: item.email || '',
             package_name: selectedPkgVal,
             custom_package_name: customPkgVal,
+            booking_days: initialBookingDays,
             adults: initialAdults,
             children: initialChildren,
             infants: initialInfants,
             total_rooms: loadedRooms.length,
             rooms: loadedRooms,
-            bed_type: 'Double Bed',
+            bed_type: loadedRooms[0]?.bed_type || 'Double Bed',
+            bed_charge: loadedRooms[0]?.bed_charge || 0,
             extra_discount: initialDiscount,
             converted_amount: initialAmount,
             travel_date: existingTravelDate,
@@ -887,35 +1086,49 @@ export default function WhatsAppLeadsPage() {
     };
 
     const handleConvertPackageChange = (val) => {
+        const matched = findMatchedPackage(packageSuggestions, val);
+        const defaultDays = matched ? (Math.max(1, parseInt(matched.duration_nights, 10) || (parseInt(matched.duration_days, 10) ? Math.max(1, parseInt(matched.duration_days, 10) - 1) : 1))) : (convertFormData.booking_days || 1);
         const effectivePkg = val === '__custom__' ? convertFormData.custom_package_name : val;
-        const { finalTotal, unitPrice } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, convertFormData.rooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, convertFormData.rooms, defaultDays);
         setConvertFormData(prev => ({
             ...prev,
             package_name: val,
+            booking_days: defaultDays,
             custom_package_name: val === '__custom__' ? prev.custom_package_name : '',
-            converted_amount: unitPrice > 0 ? String(finalTotal) : prev.converted_amount
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+        }));
+    };
+
+    const handleConvertBookingDaysChange = (val) => {
+        const days = Math.max(1, parseInt(val, 10) || 1);
+        const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, convertFormData.rooms, days);
+        setConvertFormData(prev => ({
+            ...prev,
+            booking_days: days,
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
         }));
     };
 
     const handleConvertAdultsChange = (val) => {
         const adults = Math.max(0, parseInt(val, 10) || 0);
         const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-        const { finalTotal, unitPrice } = calculateConvertAutoAmount(effectivePkg, adults, convertFormData.children, convertFormData.extra_discount, convertFormData.rooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, adults, convertFormData.children, convertFormData.extra_discount, convertFormData.rooms, convertFormData.booking_days);
         setConvertFormData(prev => ({
             ...prev,
             adults: val,
-            converted_amount: unitPrice > 0 ? String(finalTotal) : prev.converted_amount
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
         }));
     };
 
     const handleConvertChildrenChange = (val) => {
         const children = Math.max(0, parseInt(val, 10) || 0);
         const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-        const { finalTotal, unitPrice } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, children, convertFormData.extra_discount, convertFormData.rooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, children, convertFormData.extra_discount, convertFormData.rooms, convertFormData.booking_days);
         setConvertFormData(prev => ({
             ...prev,
             children: val,
-            converted_amount: unitPrice > 0 ? String(finalTotal) : prev.converted_amount
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
         }));
     };
 
@@ -930,24 +1143,24 @@ export default function WhatsAppLeadsPage() {
     const handleConvertDiscountChange = (val) => {
         const discount = Math.max(0, Number(val) || 0);
         const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-        const { finalTotal, unitPrice } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, discount, convertFormData.rooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, discount, convertFormData.rooms, convertFormData.booking_days);
         setConvertFormData(prev => ({
             ...prev,
             extra_discount: val,
-            converted_amount: unitPrice > 0 ? String(finalTotal) : prev.converted_amount
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
         }));
     };
 
     const handleConvertAddRoom = () => {
         const nextRooms = [...(convertFormData.rooms || [])];
-        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0 });
+        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 });
         const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-        const { finalTotal, unitPrice } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms, convertFormData.booking_days);
         setConvertFormData(prev => ({
             ...prev,
             total_rooms: nextRooms.length,
             rooms: nextRooms,
-            converted_amount: unitPrice > 0 ? String(finalTotal) : prev.converted_amount
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
         }));
     };
 
@@ -955,34 +1168,46 @@ export default function WhatsAppLeadsPage() {
         if ((convertFormData.rooms || []).length <= 1) return;
         const nextRooms = convertFormData.rooms.filter((_, i) => i !== idx).map((r, i) => ({ ...r, room_number: i + 1 }));
         const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-        const { finalTotal, unitPrice } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms, convertFormData.booking_days);
         setConvertFormData(prev => ({
             ...prev,
             total_rooms: nextRooms.length,
             rooms: nextRooms,
-            converted_amount: unitPrice > 0 ? String(finalTotal) : prev.converted_amount
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
         }));
     };
 
     const handleConvertRoomChange = (idx, changes) => {
         const nextRooms = convertFormData.rooms.map((r, i) => i === idx ? { ...r, ...changes } : r);
         const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms, convertFormData.booking_days);
         setConvertFormData(prev => {
             let nextAmount = prev.converted_amount;
             if (unitPrice > 0) {
                 nextAmount = String(finalTotal);
             } else if (prev.converted_amount && !isNaN(Number(prev.converted_amount))) {
                 const prevAcTotal = (prev.rooms || []).reduce((sum, r) => sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0);
-                nextAmount = String(Math.max(0, Number(prev.converted_amount) + (acExtraTotal - prevAcTotal)));
+                const prevBedTotal = (prev.rooms || []).reduce((sum, r) => sum + (Number(r.bed_charge) || 0), 0);
+                const delta = (acExtraTotal - prevAcTotal) + (bedExtraTotal - prevBedTotal);
+                nextAmount = String(Math.max(0, Number(prev.converted_amount) + delta));
             }
             return {
                 ...prev,
                 total_rooms: nextRooms.length,
                 rooms: nextRooms,
+                bed_type: idx === 0 && changes.bed_type !== undefined ? changes.bed_type : prev.bed_type,
+                bed_charge: idx === 0 && changes.bed_charge !== undefined ? changes.bed_charge : prev.bed_charge,
                 converted_amount: nextAmount
             };
         });
+    };
+
+    const handleConvertBedTypeChange = (newBedType) => {
+        handleConvertRoomChange(0, { bed_type: newBedType });
+    };
+
+    const handleConvertBedChargeChange = (newBedChargeVal) => {
+        handleConvertRoomChange(0, { bed_charge: Math.max(0, Number(newBedChargeVal) || 0) });
     };
 
     const handleConfirmConvert = async (e, redirectToInvoice = false) => {
@@ -1000,14 +1225,16 @@ export default function WhatsAppLeadsPage() {
 
         const totalPax = (parseInt(convertFormData.adults, 10) || 0) + (parseInt(convertFormData.children, 10) || 0) + (parseInt(convertFormData.infants, 10) || 0);
 
+        const bookingDays = Math.max(1, parseInt(convertFormData.booking_days, 10) || 1);
         const roomsCount = (convertFormData.rooms || []).length;
         const acRoomsCount = (convertFormData.rooms || []).filter(r => r.type === 'ac').length;
         const nonAcRoomsCount = (convertFormData.rooms || []).filter(r => r.type === 'non_ac').length;
         const acDetails = (convertFormData.rooms || []).filter(r => r.type === 'ac').map(r => `Room #${r.room_number} (+₹${r.extra_charge || 0})`).join(', ');
+        const bedDetails = (convertFormData.rooms || []).map(r => `Room #${r.room_number}: ${r.bed_type || 'Double Bed'}${Number(r.bed_charge) > 0 ? ` (+₹${r.bed_charge})` : ''}`).join(', ');
 
-        const roomsSummary = `${roomsCount} Rooms (${acRoomsCount} AC${acDetails ? ` [${acDetails}]` : ''}, ${nonAcRoomsCount} Non-AC)`;
+        const roomsSummary = `${roomsCount} Rooms (${acRoomsCount} AC${acDetails ? ` [${acDetails}]` : ''}, ${nonAcRoomsCount} Non-AC) | Bedding: [${bedDetails}]`;
 
-        const bookingDetailsSummary = `Package: ${finalPackageName || 'Standard Package'} | Rooms: ${roomsSummary} | Total Members: ${totalPax} Pax (${convertFormData.adults || 0} Adults, ${convertFormData.children || 0} Children, ${convertFormData.infants || 0} Infants) | Bed Type: ${convertFormData.bed_type || 'Double Bed'}${Number(convertFormData.extra_discount) > 0 ? ` | Discount: ₹${convertFormData.extra_discount}` : ''}`;
+        const bookingDetailsSummary = `Package: ${finalPackageName || 'Standard Package'} (${bookingDays} ${bookingDays === 1 ? 'Night' : 'Nights'}) | Rooms: ${roomsSummary} | Total Members: ${totalPax} Pax (${convertFormData.adults || 0} Adults, ${convertFormData.children || 0} Children, ${convertFormData.infants || 0} Infants)${Number(convertFormData.extra_discount) > 0 ? ` | Discount: ₹${convertFormData.extra_discount}` : ''}`;
 
         const finalNote = convertFormData.conversion_note 
             ? `${convertFormData.conversion_note.trim()}\n[${bookingDetailsSummary}]`
@@ -1016,6 +1243,7 @@ export default function WhatsAppLeadsPage() {
         const payload = {
             contact_id: convertFormData.contact_id,
             package_name: finalPackageName,
+            booking_days: bookingDays,
             converted_amount: convertFormData.converted_amount,
             travel_date: convertFormData.travel_date,
             adults: convertFormData.adults,
@@ -1025,6 +1253,7 @@ export default function WhatsAppLeadsPage() {
             total_rooms: roomsCount || 1,
             rooms: convertFormData.rooms,
             room_details: convertFormData.rooms,
+            extra_discount: convertFormData.extra_discount,
             conversion_note: finalNote
         };
 
@@ -1150,9 +1379,14 @@ export default function WhatsAppLeadsPage() {
                             <div>
                                 <span className="text-muted small text-uppercase fw-semibold">{isSuperAdmin ? 'Total Leads' : 'My Assigned Leads'}</span>
                                 <h3 className="fw-bold mb-0 text-dark mt-1">{stats.total_contacts || contacts.length}</h3>
-                                <small className="text-success d-inline-flex align-items-center gap-1 mt-1">
-                                    <i className="ri ri-user-follow-line"></i> Active Customers
-                                </small>
+                                <div className="d-flex align-items-center gap-1.5 mt-1.5 flex-wrap">
+                                    <span className="badge bg-success bg-opacity-10 text-success px-2 py-0.5 rounded-pill fw-semibold" style={{ fontSize: '11px' }}>
+                                        <i className="ri ri-whatsapp-fill me-1"></i> {stats.total_whatsapp_leads ?? 0} WA
+                                    </span>
+                                    <span className="badge bg-info bg-opacity-10 text-info px-2 py-0.5 rounded-pill fw-semibold" style={{ fontSize: '11px' }}>
+                                        <i className="ri ri-user-add-line me-1"></i> {stats.total_custom_leads ?? 0} Custom
+                                    </span>
+                                </div>
                             </div>
                             <div className="rounded-circle p-3 d-flex align-items-center justify-content-center" style={{ backgroundColor: '#eff6ff', color: '#0066cc', width: '52px', height: '52px' }}>
                                 <i className="ri ri-contacts-book-2-line fs-4"></i>
@@ -1221,7 +1455,7 @@ export default function WhatsAppLeadsPage() {
             <div className="card border-0 shadow-sm rounded-3 mb-4">
                 <div className="card-body p-3">
                     <form onSubmit={handleSearchSubmit} className="row g-2 align-items-center">
-                        <div className={isSuperAdmin ? "col-md-5" : "col-md-9"}>
+                        <div className={isSuperAdmin ? "col-md-4" : "col-md-6"}>
                             <div className="input-group">
                                 <span className="input-group-text bg-white border-end-0 text-muted rounded-start-pill ps-3">
                                     <i className="ri ri-search-line"></i>
@@ -1229,7 +1463,7 @@ export default function WhatsAppLeadsPage() {
                                 <input
                                     type="text"
                                     className="form-control border-start-0 rounded-end-pill py-2"
-                                    placeholder="Search customer name or message snippet..."
+                                    placeholder="Search customer name, phone, or message..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                 />
@@ -1237,16 +1471,16 @@ export default function WhatsAppLeadsPage() {
                         </div>
 
                         {isSuperAdmin && (
-                            <div className="col-md-4">
+                            <div className="col-md-3">
                                 <select 
                                     className="form-select rounded-pill py-2"
                                     value={filterAssignee}
                                     onChange={(e) => {
                                         setFilterAssignee(e.target.value);
-                                        fetchContacts(searchTerm, e.target.value);
+                                        fetchContacts(searchTerm, e.target.value, filterSource);
                                     }}
                                 >
-                                    <option value="">All Leads (Super Admin View)</option>
+                                    <option value="">All Staff (Super Admin View)</option>
                                     <option value="unassigned">Unassigned Leads Only</option>
                                     {managers.map(m => (
                                         <option key={m.user_id} value={m.user_id}>Assigned to {m.name} ({m.email})</option>
@@ -1255,7 +1489,23 @@ export default function WhatsAppLeadsPage() {
                             </div>
                         )}
 
-                        <div className={isSuperAdmin ? "col-md-3 d-flex gap-2" : "col-md-3 d-flex gap-2"}>
+                        {/* Lead Source Filter (Custom vs WhatsApp Leads) */}
+                        <div className={isSuperAdmin ? "col-md-3" : "col-md-4"}>
+                            <select 
+                                className="form-select rounded-pill py-2"
+                                value={filterSource}
+                                onChange={(e) => {
+                                    setFilterSource(e.target.value);
+                                    fetchContacts(searchTerm, filterAssignee, e.target.value);
+                                }}
+                            >
+                                <option value="">All Lead Sources</option>
+                                <option value="whatsapp">📱 WhatsApp Leads (Direct)</option>
+                                <option value="custom">👤 Custom Leads (Manual)</option>
+                            </select>
+                        </div>
+
+                        <div className={isSuperAdmin ? "col-md-2 d-flex gap-2" : "col-md-2 d-flex gap-2"}>
                             <button
                                 type="submit"
                                 className="btn btn-primary rounded-pill flex-grow-1 d-inline-flex align-items-center justify-content-center gap-1.5"
@@ -1264,18 +1514,52 @@ export default function WhatsAppLeadsPage() {
                                 <i className="ri ri-filter-3-line"></i>
                                 <span>Filter</span>
                             </button>
-                            {(searchTerm || filterAssignee) && (
+                            {(searchTerm || filterAssignee || filterSource) && (
                                 <button
                                     type="button"
-                                    onClick={() => { setSearchTerm(''); setFilterAssignee(''); fetchContacts('', ''); }}
+                                    onClick={() => { 
+                                        setSearchTerm(''); 
+                                        setFilterAssignee(''); 
+                                        setFilterSource(''); 
+                                        fetchContacts('', '', ''); 
+                                    }}
                                     className="btn btn-light rounded-pill px-3"
-                                    title="Clear Filter"
+                                    title="Clear All Filters"
                                 >
                                     <i className="ri ri-close-line"></i>
                                 </button>
                             )}
                         </div>
                     </form>
+
+                    {/* Quick Filter Pill Buttons */}
+                    <div className="d-flex align-items-center gap-2 mt-2 pt-2 border-top flex-wrap">
+                        <span className="text-muted small fw-semibold d-inline-flex align-items-center gap-1 me-1">
+                            <i className="ri ri-filter-2-line text-primary"></i> Source Filter:
+                        </span>
+                        <button
+                            type="button"
+                            onClick={() => { setFilterSource(''); fetchContacts(searchTerm, filterAssignee, ''); }}
+                            className={`btn btn-sm rounded-pill px-3 py-1 fw-medium transition-all ${filterSource === '' ? 'btn-primary shadow-xs' : 'btn-light text-muted border'}`}
+                            style={filterSource === '' ? { backgroundColor: '#0066cc', borderColor: '#0066cc' } : {}}
+                        >
+                            All Leads ({stats.total_contacts || contacts.length})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setFilterSource('whatsapp'); fetchContacts(searchTerm, filterAssignee, 'whatsapp'); }}
+                            className={`btn btn-sm rounded-pill px-3 py-1 fw-medium transition-all ${filterSource === 'whatsapp' ? 'btn-success shadow-xs' : 'btn-light text-muted border'}`}
+                        >
+                            <i className="ri ri-whatsapp-fill me-1 text-success"></i> WhatsApp Leads ({stats.total_whatsapp_leads ?? 0})
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => { setFilterSource('custom'); fetchContacts(searchTerm, filterAssignee, 'custom'); }}
+                            className={`btn btn-sm rounded-pill px-3 py-1 fw-medium transition-all ${filterSource === 'custom' ? 'btn-info text-white shadow-xs' : 'btn-light text-muted border'}`}
+                        >
+                            <i className="ri ri-user-add-line me-1 text-info"></i> Custom Leads ({stats.total_custom_leads ?? 0})
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -1284,7 +1568,18 @@ export default function WhatsAppLeadsPage() {
                 <div className="card-header bg-white border-bottom py-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
                     <h5 className="mb-0 fw-bold d-flex align-items-center gap-2 text-heading">
                         <i className="ri ri-list-check-2 text-primary"></i>
-                        <span>WhatsApp Leads ({contacts.length})</span>
+                        <span>
+                            {filterSource === 'custom' 
+                                ? `Custom Leads (${contacts.length})` 
+                                : filterSource === 'whatsapp' 
+                                ? `WhatsApp Leads (${contacts.length})` 
+                                : `All Leads (${contacts.length})`}
+                        </span>
+                        {filterSource && (
+                            <span className={`badge rounded-pill ${filterSource === 'custom' ? 'bg-info bg-opacity-10 text-info' : 'bg-success bg-opacity-10 text-success'}`} style={{ fontSize: '12px' }}>
+                                Filtered by: {filterSource === 'custom' ? 'Custom Leads' : 'WhatsApp Leads'}
+                            </span>
+                        )}
                     </h5>
                     <span className="badge bg-light text-muted rounded-pill px-3 py-1 small">
                         {isSuperAdmin ? 'Full Access & Distribution Console' : 'Protected Staff Lead View'}
@@ -1301,9 +1596,13 @@ export default function WhatsAppLeadsPage() {
                         <div className="p-5 text-center">
                             <NotFound />
                             <p className="text-muted mt-3 mb-3">
-                                {isSuperAdmin 
-                                    ? 'No WhatsApp leads found matching your criteria.' 
-                                    : 'No leads are currently assigned to your account. New leads will appear here as they are distributed to you.'}
+                                {filterSource === 'custom'
+                                    ? 'No custom (manual) leads found matching your criteria.'
+                                    : filterSource === 'whatsapp'
+                                    ? 'No WhatsApp inbound leads found matching your criteria.'
+                                    : (isSuperAdmin 
+                                        ? 'No WhatsApp leads found matching your criteria.' 
+                                        : 'No leads are currently assigned to your account. New leads will appear here as they are distributed to you.')}
                             </p>
                             <button
                                 type="button"
@@ -1320,6 +1619,7 @@ export default function WhatsAppLeadsPage() {
                                 <tr>
                                     <th style={{ width: '50px' }} className="ps-3">#</th>
                                     <th>Contact Name</th>
+                                    <th style={{ width: '150px' }}>Lead Source</th>
                                     <th>WhatsApp Phone</th>
                                     {isSuperAdmin && <th>Assigned Admin</th>}
                                     <th>Last Message</th>
@@ -1355,11 +1655,38 @@ export default function WhatsAppLeadsPage() {
                                                         <span className="fw-semibold text-dark d-block" style={{ fontSize: '14px' }}>
                                                             {contact.name || `Lead #${contact.id}`}
                                                         </span>
-                                                        <small className="text-muted" style={{ fontSize: '11px' }}>
-                                                            ID #{contact.id}
-                                                        </small>
+                                                        <div className="d-flex align-items-center gap-1.5 mt-0.5">
+                                                            <small className="text-muted" style={{ fontSize: '11px' }}>
+                                                                ID #{contact.id}
+                                                            </small>
+                                                            <span className="text-muted" style={{ fontSize: '10px' }}>•</span>
+                                                            {contact.lead_source === 'custom' ? (
+                                                                <span className="badge bg-info bg-opacity-10 text-info px-1.5 py-0.5 rounded fw-semibold" style={{ fontSize: '10px' }}>
+                                                                    Manual Lead
+                                                                </span>
+                                                            ) : (
+                                                                <span className="badge bg-success bg-opacity-10 text-success px-1.5 py-0.5 rounded fw-semibold" style={{ fontSize: '10px' }}>
+                                                                    WhatsApp Inbound
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
+                                            </td>
+
+                                            {/* Lead Source Indicator Badge */}
+                                            <td>
+                                                {contact.lead_source === 'custom' ? (
+                                                    <span className="badge bg-label-info px-2.5 py-1.5 rounded-pill d-inline-flex align-items-center gap-1.5 fw-semibold" style={{ fontSize: '11.5px' }}>
+                                                        <i className="ri ri-user-add-line text-info"></i>
+                                                        <span>Custom Lead</span>
+                                                    </span>
+                                                ) : (
+                                                    <span className="badge bg-label-success px-2.5 py-1.5 rounded-pill d-inline-flex align-items-center gap-1.5 fw-semibold" style={{ fontSize: '11.5px' }}>
+                                                        <i className="ri ri-whatsapp-fill text-success"></i>
+                                                        <span>WhatsApp Lead</span>
+                                                    </span>
+                                                )}
                                             </td>
 
                                             {/* WhatsApp Phone Number */}
@@ -1469,6 +1796,17 @@ export default function WhatsAppLeadsPage() {
                                                         <i className="ri ri-chat-1-line"></i>
                                                         <span>Chat</span>
                                                     </button>
+                                                    {isSuperAdmin && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleOpenDeleteModal(contact)}
+                                                            className="btn btn-sm btn-outline-danger rounded-pill px-2.5 d-inline-flex align-items-center gap-1 shadow-xs fw-semibold"
+                                                            title="Delete Lead (Admin Only)"
+                                                        >
+                                                            <i className="ri ri-delete-bin-line"></i>
+                                                            <span>Delete</span>
+                                                        </button>
+                                                    )}
                                                 </div>
                                             </td>
                                         </tr>
@@ -1514,10 +1852,19 @@ export default function WhatsAppLeadsPage() {
                                                     <i className="ri ri-external-link-line me-1"></i> +{activeContact.wa_id}
                                                 </a>
                                             )}
+                                            {activeContact.lead_source === 'custom' ? (
+                                                <span className="badge bg-label-info rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1" style={{ fontSize: '11px' }}>
+                                                    <i className="ri ri-user-add-line"></i> Custom Lead
+                                                </span>
+                                            ) : (
+                                                <span className="badge bg-label-success rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1" style={{ fontSize: '11px' }}>
+                                                    <i className="ri ri-whatsapp-fill"></i> WhatsApp Lead
+                                                </span>
+                                            )}
                                         </h5>
-                                        <small className="text-success d-inline-flex align-items-center gap-1">
-                                            <span className="rounded-circle bg-success d-inline-block" style={{ width: '7px', height: '7px' }}></span>
-                                            WhatsApp Lead Thread
+                                        <small className={`${activeContact.lead_source === 'custom' ? 'text-info' : 'text-success'} d-inline-flex align-items-center gap-1`}>
+                                            <span className={`rounded-circle ${activeContact.lead_source === 'custom' ? 'bg-info' : 'bg-success'} d-inline-block`} style={{ width: '7px', height: '7px' }}></span>
+                                            {activeContact.lead_source === 'custom' ? 'Custom Lead Thread' : 'WhatsApp Lead Thread'}
                                             {activeContact.assigned_user_name && (
                                                 <span className="text-muted ms-1">
                                                     • Assigned to {activeContact.assigned_user_name} {activeContact.assigned_user_email ? `(${activeContact.assigned_user_email})` : ''}
@@ -1561,6 +1908,17 @@ export default function WhatsAppLeadsPage() {
                                     >
                                         <i className="ri ri-refresh-line"></i>
                                     </button>
+                                    {isSuperAdmin && (
+                                        <button
+                                            type="button"
+                                            onClick={() => handleOpenDeleteModal(activeContact)}
+                                            className="btn btn-outline-danger btn-sm rounded-pill px-2.5 d-inline-flex align-items-center gap-1 shadow-sm fw-semibold"
+                                            title="Delete Lead (Admin Only)"
+                                        >
+                                            <i className="ri ri-delete-bin-line"></i>
+                                            <span>Delete</span>
+                                        </button>
+                                    )}
                                     <button
                                         type="button"
                                         className="btn-close"
@@ -1884,9 +2242,9 @@ export default function WhatsAppLeadsPage() {
                                         </div>
                                     </div>
 
-                                    {/* Travel Date */}
+                                    {/* Travel Date & Total Booking Nights */}
                                     <div className="row g-3 mb-3">
-                                        <div className="col-12">
+                                        <div className="col-12 col-md-7">
                                             <label className="form-label small fw-semibold">Estimated Travel Date</label>
                                             <input 
                                                 type="date" 
@@ -1894,6 +2252,46 @@ export default function WhatsAppLeadsPage() {
                                                 value={followupFormData.travel_date}
                                                 onChange={(e) => setFollowupFormData({ ...followupFormData, travel_date: e.target.value })}
                                             />
+                                        </div>
+                                        <div className="col-12 col-md-5">
+                                            <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                <span className="d-flex align-items-center gap-1">
+                                                    <i className="ri-moon-line text-primary"></i>
+                                                    <span>Total Booking Nights</span>
+                                                </span>
+                                                <small className="text-primary fw-bold">{followupFormData.booking_days || 1} {Number(followupFormData.booking_days) === 1 ? 'Night' : 'Nights'}</small>
+                                            </label>
+                                            <div className="input-group">
+                                                <button 
+                                                    type="button"
+                                                    className="btn btn-outline-secondary px-2.5 d-flex align-items-center justify-content-center"
+                                                    onClick={() => handleFollowupBookingDaysChange(Math.max(1, (parseInt(followupFormData.booking_days, 10) || 1) - 1))}
+                                                    disabled={Number(followupFormData.booking_days) <= 1}
+                                                    title="Decrease nights (minimum 1)"
+                                                >
+                                                    <i className="ri-subtract-line fw-bold"></i>
+                                                </button>
+                                                <input 
+                                                    type="number" 
+                                                    min="1"
+                                                    max="90"
+                                                    className="form-control text-center fw-bold"
+                                                    placeholder="1"
+                                                    value={followupFormData.booking_days}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        handleFollowupBookingDaysChange(val === '' ? 1 : Math.max(1, parseInt(val, 10) || 1));
+                                                    }}
+                                                />
+                                                <button 
+                                                    type="button"
+                                                    className="btn btn-outline-secondary px-2.5 d-flex align-items-center justify-content-center"
+                                                    onClick={() => handleFollowupBookingDaysChange((parseInt(followupFormData.booking_days, 10) || 1) + 1)}
+                                                    title="Increase nights"
+                                                >
+                                                    <i className="ri-add-line fw-bold"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -1985,71 +2383,128 @@ export default function WhatsAppLeadsPage() {
                                         </div>
 
                                         {/* Rooms List */}
-                                        <div className="d-flex flex-column gap-2 mt-2">
+                                        <div className="d-flex flex-column gap-2.5 mt-2">
                                             {(followupFormData.rooms || []).map((room, rIdx) => (
                                                 <div 
                                                     key={room.id || rIdx} 
-                                                    className="p-2.5 rounded-3 border bg-light d-flex align-items-center justify-content-between flex-wrap gap-2"
+                                                    className="p-3 rounded-3 border bg-light shadow-2xs"
                                                 >
-                                                    {/* Room Label */}
-                                                    <div className="d-flex align-items-center gap-2" style={{ minWidth: '95px' }}>
-                                                        <span className="badge bg-secondary bg-opacity-10 text-dark rounded-pill px-2.5 py-1 fw-bold" style={{ fontSize: '12px' }}>
-                                                            <i className="ri ri-door-open-line me-1 text-primary"></i> Room #{rIdx + 1}
-                                                        </span>
+                                                    {/* Room Header */}
+                                                    <div className="d-flex align-items-center justify-content-between mb-2">
+                                                        <div className="d-flex align-items-center gap-2">
+                                                            <span className="badge bg-secondary bg-opacity-10 text-dark rounded-pill px-2.5 py-1 fw-bold" style={{ fontSize: '12px' }}>
+                                                                <i className="ri ri-door-open-line me-1 text-primary"></i> Room #{rIdx + 1}
+                                                            </span>
+                                                            <span className="text-muted small" style={{ fontSize: '11px' }}>
+                                                                {room.type === 'ac' ? `AC (+₹${room.extra_charge || 0})` : 'Non-AC'} • {room.bed_type || 'Double Bed'}{Number(room.bed_charge) > 0 ? ` (+₹${room.bed_charge})` : ''}
+                                                            </span>
+                                                        </div>
+                                                        {(followupFormData.rooms || []).length > 1 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleFollowupRemoveRoom(rIdx)}
+                                                                className="btn btn-outline-danger btn-sm rounded-circle p-1 d-flex align-items-center justify-content-center"
+                                                                style={{ width: '26px', height: '26px' }}
+                                                                title="Remove room"
+                                                            >
+                                                                <i className="ri ri-delete-bin-line" style={{ fontSize: '13px' }}></i>
+                                                            </button>
+                                                        )}
                                                     </div>
 
-                                                    {/* AC / Non-AC Tab Toggles */}
-                                                    <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-white border" role="group">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleFollowupRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
-                                                            className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'non_ac' ? 'btn-secondary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
-                                                            style={{ fontSize: '12px' }}
-                                                        >
-                                                            <i className="ri ri-temp-cold-line me-1"></i> Non-AC
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleFollowupRoomChange(rIdx, { type: 'ac', extra_charge: room.extra_charge !== undefined ? room.extra_charge : 0 })}
-                                                            className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'ac' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
-                                                            style={{ fontSize: '12px' }}
-                                                        >
-                                                            <i className="ri ri-windy-fill me-1"></i> AC Room
-                                                        </button>
-                                                    </div>
-
-                                                    {/* Extra AC Charge Input (Opens when AC selected) */}
-                                                    {room.type === 'ac' && (
-                                                        <div className="d-flex align-items-center gap-1.5 ms-md-2">
-                                                            <label className="small fw-semibold text-primary mb-0 text-nowrap" style={{ fontSize: '11.5px' }}>
-                                                                Extra AC Charge:
-                                                            </label>
-                                                            <div className="input-group input-group-sm" style={{ width: '130px' }}>
-                                                                <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    className="form-control border-start-0"
-                                                                    placeholder="0"
-                                                                    value={room.extra_charge}
-                                                                    onChange={(e) => handleFollowupRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
-                                                                />
+                                                    {/* Row 1: AC / Non-AC & AC Extra Charges */}
+                                                    <div className="row g-2 align-items-center mb-2">
+                                                        <div className="col-12 col-md-5">
+                                                            <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-white border w-100" role="group">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleFollowupRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
+                                                                    className={`btn btn-sm rounded-pill px-2.5 py-1 flex-fill ${room.type === 'non_ac' ? 'btn-secondary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                                    style={{ fontSize: '11.5px' }}
+                                                                >
+                                                                    <i className="ri ri-temp-cold-line me-1"></i> Non-AC
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleFollowupRoomChange(rIdx, { type: 'ac', extra_charge: room.extra_charge !== undefined ? room.extra_charge : 0 })}
+                                                                    className={`btn btn-sm rounded-pill px-2.5 py-1 flex-fill ${room.type === 'ac' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                                    style={{ fontSize: '11.5px' }}
+                                                                >
+                                                                    <i className="ri ri-windy-fill me-1"></i> AC Room
+                                                                </button>
                                                             </div>
                                                         </div>
-                                                    )}
 
-                                                    {/* Delete Room Button */}
-                                                    {(followupFormData.rooms || []).length > 1 && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleFollowupRemoveRoom(rIdx)}
-                                                            className="btn btn-outline-danger btn-sm rounded-circle p-1 d-flex align-items-center justify-content-center"
-                                                            style={{ width: '28px', height: '28px' }}
-                                                            title="Remove room"
-                                                        >
-                                                            <i className="ri ri-delete-bin-line"></i>
-                                                        </button>
-                                                    )}
+                                                        <div className="col-12 col-md-7">
+                                                            {room.type === 'ac' ? (
+                                                                <div className="d-flex align-items-center gap-1.5">
+                                                                    <label className="small fw-semibold text-primary mb-0 text-nowrap" style={{ fontSize: '11px' }}>
+                                                                        AC Charge:
+                                                                    </label>
+                                                                    <div className="input-group input-group-sm">
+                                                                        <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
+                                                                        <input
+                                                                            type="number"
+                                                                            min="0"
+                                                                            className="form-control border-start-0"
+                                                                            placeholder="0"
+                                                                            value={room.extra_charge !== undefined ? room.extra_charge : 0}
+                                                                            onChange={(e) => handleFollowupRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="small text-muted fst-italic ps-1" style={{ fontSize: '11px' }}>
+                                                                    Standard Non-AC (₹0 extra)
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Row 2: Bed Selection & Bed Charges */}
+                                                    <div className="row g-2 align-items-center pt-2 border-top">
+                                                        <div className="col-12 col-md-6">
+                                                            <div className="d-flex align-items-center gap-1.5">
+                                                                <label className="small fw-semibold text-dark mb-0 text-nowrap d-flex align-items-center gap-1" style={{ fontSize: '11px' }}>
+                                                                    <i className="ri ri-hotel-bed-line text-info"></i> Bed:
+                                                                </label>
+                                                                <select
+                                                                    className="form-select form-select-sm rounded-2 bg-white"
+                                                                    value={room.bed_type || 'Double Bed'}
+                                                                    onChange={(e) => handleFollowupRoomChange(rIdx, { bed_type: e.target.value })}
+                                                                    style={{ fontSize: '11.5px' }}
+                                                                >
+                                                                    <option value="Double Bed">Double Bed (1 Queen/King)</option>
+                                                                    <option value="Twin Beds">Twin Beds (2 Singles)</option>
+                                                                    <option value="Triple Bed">Triple Bed (1 Double + 1 Single)</option>
+                                                                    <option value="Family Suite">Family Suite (2 Double Beds)</option>
+                                                                    <option value="King Bed + Extra Mattress">King Bed + Extra Mattress</option>
+                                                                    <option value="Extra Bed / Mattress">Extra Bed / Mattress</option>
+                                                                    <option value="Single Bed">Single Bed</option>
+                                                                    <option value="Custom Bedding">Custom Bedding</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="col-12 col-md-6">
+                                                            <div className="d-flex align-items-center gap-1.5">
+                                                                <label className="small fw-semibold text-info mb-0 text-nowrap" style={{ fontSize: '11px' }}>
+                                                                    Bed Charge:
+                                                                </label>
+                                                                <div className="input-group input-group-sm">
+                                                                    <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0"
+                                                                        className="form-control border-start-0"
+                                                                        placeholder="0"
+                                                                        value={room.bed_charge !== undefined ? room.bed_charge : 0}
+                                                                        onChange={(e) => handleFollowupRoomChange(rIdx, { bed_charge: Number(e.target.value) || 0 })}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
@@ -2059,11 +2514,18 @@ export default function WhatsAppLeadsPage() {
                                             <span className="text-muted">
                                                 Configured: <strong>{(followupFormData.rooms || []).length} Rooms</strong> ({(followupFormData.rooms || []).filter(r => r.type === 'ac').length} AC, {(followupFormData.rooms || []).filter(r => r.type === 'non_ac').length} Non-AC)
                                             </span>
-                                            {(followupFormData.rooms || []).some(r => r.type === 'ac') && (
-                                                <span className="badge bg-primary bg-opacity-10 text-primary px-2.5 py-1 rounded-pill">
-                                                    Total AC Extra: +₹{(followupFormData.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
-                                                </span>
-                                            )}
+                                            <div className="d-flex align-items-center gap-1.5 flex-wrap">
+                                                {(followupFormData.rooms || []).some(r => r.type === 'ac' && Number(r.extra_charge) > 0) && (
+                                                    <span className="badge bg-primary bg-opacity-10 text-primary px-2.5 py-1 rounded-pill">
+                                                        Total AC Extra: +₹{(followupFormData.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
+                                                    </span>
+                                                )}
+                                                {(followupFormData.rooms || []).some(r => Number(r.bed_charge) > 0) && (
+                                                    <span className="badge bg-info bg-opacity-10 text-info px-2.5 py-1 rounded-pill">
+                                                        Total Bed Extra: +₹{(followupFormData.rooms || []).reduce((acc, r) => acc + (Number(r.bed_charge) || 0), 0)}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 
@@ -2076,7 +2538,8 @@ export default function WhatsAppLeadsPage() {
                                                     <span>Select Tour Package</span>
                                                 </span>
                                                 {(() => {
-                                                    const matched = packageSuggestions.find(p => (p.name === followupFormData.package_name || p.title === followupFormData.package_name));
+                                                    const pkgVal = followupFormData.package_name === '__custom__' ? followupFormData.custom_package_name : followupFormData.package_name;
+                                                    const matched = findMatchedPackage(packageSuggestions, pkgVal);
                                                     if (matched) {
                                                         const pPrice = Number(matched.actual_price || matched.base_price || matched.price || 0);
                                                         return pPrice > 0 ? (
@@ -2093,9 +2556,9 @@ export default function WhatsAppLeadsPage() {
                                                 value={followupFormData.package_name}
                                                 onChange={(e) => handleFollowupPackageChange(e.target.value)}
                                             >
-                                                <option value="">-- Choose from available packages --</option>
+                                                <option value="">-- Select Package --</option>
                                                 {packageSuggestions.map((pkg) => {
-                                                    const pkgName = pkg.name || pkg.title;
+                                                    const pkgName = pkg.title || pkg.name;
                                                     const priceVal = Number(pkg.actual_price || pkg.base_price || pkg.price || 0);
                                                     return (
                                                         <option key={pkg.id || pkgName} value={pkgName}>
@@ -2103,6 +2566,9 @@ export default function WhatsAppLeadsPage() {
                                                         </option>
                                                     );
                                                 })}
+                                                {followupFormData.package_name && followupFormData.package_name !== '__custom__' && !packageSuggestions.some(p => (p.title || p.name) === followupFormData.package_name) && (
+                                                    <option value={followupFormData.package_name}>{followupFormData.package_name}</option>
+                                                )}
                                                 <option value="__custom__">➕ Custom / Other Package...</option>
                                             </select>
 
@@ -2127,16 +2593,17 @@ export default function WhatsAppLeadsPage() {
                                                     <span>Calculated Package Rate (Total)</span>
                                                 </span>
                                                 {(() => {
-                                                    const { unitPrice, billablePersons, acExtraTotal } = calculateAutoRate(
+                                                    const { unitPrice, billablePersons, baseTotal, acExtraTotal, bedExtraTotal, days } = calculateAutoRate(
                                                         followupFormData.package_name === '__custom__' ? followupFormData.custom_package_name : followupFormData.package_name,
                                                         followupFormData.adults,
                                                         followupFormData.children,
-                                                        followupFormData.rooms
+                                                        followupFormData.rooms,
+                                                        followupFormData.booking_days
                                                     );
-                                                    if (unitPrice > 0 || acExtraTotal > 0) {
+                                                    if (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) {
                                                         return (
                                                             <small className="text-muted" style={{ fontSize: '11px' }}>
-                                                                (₹{unitPrice} × {billablePersons} billable pax{acExtraTotal > 0 ? ` + ₹${acExtraTotal} AC` : ''})
+                                                                ({days}N: ₹{baseTotal} [{billablePersons} pax]{acExtraTotal > 0 ? ` + ₹${acExtraTotal} AC` : ''}{bedExtraTotal > 0 ? ` + ₹${bedExtraTotal} Bed` : ''})
                                                             </small>
                                                         );
                                                     }
@@ -2154,7 +2621,7 @@ export default function WhatsAppLeadsPage() {
                                                 />
                                             </div>
                                             <small className="text-muted d-block mt-1" style={{ fontSize: '11px' }}>
-                                                Auto-calculated from package price, person count, and AC rooms. You can adjust manually.
+                                                Auto-calculated from package price, person count, AC rooms, and bed extra charges. You can adjust manually.
                                             </small>
                                         </div>
                                     </div>
@@ -2281,14 +2748,15 @@ export default function WhatsAppLeadsPage() {
                                     {/* 1. Booked Package Dropdown (Auto-selected from lead generation) */}
                                     <div className="card bg-white border rounded-3 p-3 mb-3">
                                         <div className="row g-3 align-items-center">
-                                            <div className="col-12 col-md-7">
+                                            <div className="col-12 col-md-5">
                                                 <label className="form-label small fw-bold text-dark d-flex align-items-center justify-content-between">
                                                     <span className="d-flex align-items-center gap-1">
                                                         <i className="ri ri-suitcase-line text-primary"></i>
                                                         <span>Booked Tour Package</span>
                                                     </span>
                                                     {(() => {
-                                                        const matched = packageSuggestions.find(p => (p.name === convertFormData.package_name || p.title === convertFormData.package_name));
+                                                        const pkgVal = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
+                                                        const matched = findMatchedPackage(packageSuggestions, pkgVal);
                                                         if (matched) {
                                                             const pPrice = Number(matched.actual_price || matched.base_price || matched.price || 0);
                                                             return pPrice > 0 ? (
@@ -2307,7 +2775,7 @@ export default function WhatsAppLeadsPage() {
                                                 >
                                                     <option value="">-- Select Booked Package --</option>
                                                     {packageSuggestions.map((pkg) => {
-                                                        const pkgName = pkg.name || pkg.title;
+                                                        const pkgName = pkg.title || pkg.name;
                                                         const priceVal = Number(pkg.actual_price || pkg.base_price || pkg.price || 0);
                                                         return (
                                                             <option key={pkg.id || pkgName} value={pkgName}>
@@ -2315,6 +2783,9 @@ export default function WhatsAppLeadsPage() {
                                                             </option>
                                                         );
                                                     })}
+                                                    {convertFormData.package_name && convertFormData.package_name !== '__custom__' && !packageSuggestions.some(p => (p.title || p.name) === convertFormData.package_name) && (
+                                                        <option value={convertFormData.package_name}>{convertFormData.package_name}</option>
+                                                    )}
                                                     <option value="__custom__">➕ Custom / Other Package...</option>
                                                 </select>
 
@@ -2333,7 +2804,7 @@ export default function WhatsAppLeadsPage() {
                                                 )}
                                             </div>
 
-                                            <div className="col-12 col-md-5">
+                                            <div className="col-12 col-md-4">
                                                 <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
                                                     <i className="ri ri-calendar-check-line text-primary"></i>
                                                     <span>Confirmed Travel Date</span>
@@ -2344,6 +2815,47 @@ export default function WhatsAppLeadsPage() {
                                                     value={convertFormData.travel_date}
                                                     onChange={(e) => setConvertFormData({ ...convertFormData, travel_date: e.target.value })}
                                                 />
+                                            </div>
+
+                                            <div className="col-12 col-md-3">
+                                                <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                    <span className="d-flex align-items-center gap-1">
+                                                        <i className="ri-moon-line text-primary"></i>
+                                                        <span>Booking Nights</span>
+                                                    </span>
+                                                    <small className="text-primary fw-bold">{convertFormData.booking_days || 1} {Number(convertFormData.booking_days) === 1 ? 'Night' : 'Nights'}</small>
+                                                </label>
+                                                <div className="input-group">
+                                                    <button 
+                                                        type="button"
+                                                        className="btn btn-outline-secondary px-2.5 d-flex align-items-center justify-content-center"
+                                                        onClick={() => handleConvertBookingDaysChange(Math.max(1, (parseInt(convertFormData.booking_days, 10) || 1) - 1))}
+                                                        disabled={Number(convertFormData.booking_days) <= 1}
+                                                        title="Decrease nights (minimum 1)"
+                                                    >
+                                                        <i className="ri-subtract-line fw-bold"></i>
+                                                    </button>
+                                                    <input 
+                                                        type="number" 
+                                                        min="1"
+                                                        max="90"
+                                                        className="form-control text-center fw-bold"
+                                                        placeholder="1"
+                                                        value={convertFormData.booking_days}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            handleConvertBookingDaysChange(val === '' ? 1 : Math.max(1, parseInt(val, 10) || 1));
+                                                        }}
+                                                    />
+                                                    <button 
+                                                        type="button"
+                                                        className="btn btn-outline-secondary px-2.5 d-flex align-items-center justify-content-center"
+                                                        onClick={() => handleConvertBookingDaysChange((parseInt(convertFormData.booking_days, 10) || 1) + 1)}
+                                                        title="Increase nights"
+                                                    >
+                                                        <i className="ri-add-line fw-bold"></i>
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -2436,71 +2948,128 @@ export default function WhatsAppLeadsPage() {
                                         </div>
 
                                         {/* Rooms List */}
-                                        <div className="d-flex flex-column gap-2 mt-2">
+                                        <div className="d-flex flex-column gap-2.5 mt-2">
                                             {(convertFormData.rooms || []).map((room, rIdx) => (
                                                 <div 
                                                     key={room.id || rIdx} 
-                                                    className="p-2.5 rounded-3 border bg-light d-flex align-items-center justify-content-between flex-wrap gap-2"
+                                                    className="p-3 rounded-3 border bg-light shadow-2xs"
                                                 >
-                                                    {/* Room Label */}
-                                                    <div className="d-flex align-items-center gap-2" style={{ minWidth: '95px' }}>
-                                                        <span className="badge bg-secondary bg-opacity-10 text-dark rounded-pill px-2.5 py-1 fw-bold" style={{ fontSize: '12px' }}>
-                                                            <i className="ri ri-door-open-line me-1 text-primary"></i> Room #{rIdx + 1}
-                                                        </span>
+                                                    {/* Room Header */}
+                                                    <div className="d-flex align-items-center justify-content-between mb-2">
+                                                        <div className="d-flex align-items-center gap-2">
+                                                            <span className="badge bg-secondary bg-opacity-10 text-dark rounded-pill px-2.5 py-1 fw-bold" style={{ fontSize: '12px' }}>
+                                                                <i className="ri ri-door-open-line me-1 text-primary"></i> Room #{rIdx + 1}
+                                                            </span>
+                                                            <span className="text-muted small" style={{ fontSize: '11px' }}>
+                                                                {room.type === 'ac' ? `AC (+₹${room.extra_charge || 0})` : 'Non-AC'} • {room.bed_type || 'Double Bed'}{Number(room.bed_charge) > 0 ? ` (+₹${room.bed_charge})` : ''}
+                                                            </span>
+                                                        </div>
+                                                        {(convertFormData.rooms || []).length > 1 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleConvertRemoveRoom(rIdx)}
+                                                                className="btn btn-outline-danger btn-sm rounded-circle p-1 d-flex align-items-center justify-content-center"
+                                                                style={{ width: '26px', height: '26px' }}
+                                                                title="Remove room"
+                                                            >
+                                                                <i className="ri ri-delete-bin-line" style={{ fontSize: '13px' }}></i>
+                                                            </button>
+                                                        )}
                                                     </div>
 
-                                                    {/* AC / Non-AC Tab Toggles */}
-                                                    <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-white border" role="group">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleConvertRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
-                                                            className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'non_ac' ? 'btn-secondary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
-                                                            style={{ fontSize: '12px' }}
-                                                        >
-                                                            <i className="ri ri-temp-cold-line me-1"></i> Non-AC
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleConvertRoomChange(rIdx, { type: 'ac', extra_charge: room.extra_charge !== undefined ? room.extra_charge : 0 })}
-                                                            className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'ac' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
-                                                            style={{ fontSize: '12px' }}
-                                                        >
-                                                            <i className="ri ri-windy-fill me-1"></i> AC Room
-                                                        </button>
-                                                    </div>
-
-                                                    {/* Extra AC Charge Input (Opens when AC selected) */}
-                                                    {room.type === 'ac' && (
-                                                        <div className="d-flex align-items-center gap-1.5 ms-md-2">
-                                                            <label className="small fw-semibold text-primary mb-0 text-nowrap" style={{ fontSize: '11.5px' }}>
-                                                                Extra AC Charge:
-                                                            </label>
-                                                            <div className="input-group input-group-sm" style={{ width: '130px' }}>
-                                                                <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    className="form-control border-start-0"
-                                                                    placeholder="0"
-                                                                    value={room.extra_charge}
-                                                                    onChange={(e) => handleConvertRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
-                                                                />
+                                                    {/* Row 1: AC / Non-AC & AC Extra Charges */}
+                                                    <div className="row g-2 align-items-center mb-2">
+                                                        <div className="col-12 col-md-5">
+                                                            <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-white border w-100" role="group">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleConvertRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
+                                                                    className={`btn btn-sm rounded-pill px-2.5 py-1 flex-fill ${room.type === 'non_ac' ? 'btn-secondary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                                    style={{ fontSize: '11.5px' }}
+                                                                >
+                                                                    <i className="ri ri-temp-cold-line me-1"></i> Non-AC
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleConvertRoomChange(rIdx, { type: 'ac', extra_charge: room.extra_charge !== undefined ? room.extra_charge : 0 })}
+                                                                    className={`btn btn-sm rounded-pill px-2.5 py-1 flex-fill ${room.type === 'ac' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                                    style={{ fontSize: '11.5px' }}
+                                                                >
+                                                                    <i className="ri ri-windy-fill me-1"></i> AC Room
+                                                                </button>
                                                             </div>
                                                         </div>
-                                                    )}
 
-                                                    {/* Delete Room Button */}
-                                                    {(convertFormData.rooms || []).length > 1 && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleConvertRemoveRoom(rIdx)}
-                                                            className="btn btn-outline-danger btn-sm rounded-circle p-1 d-flex align-items-center justify-content-center"
-                                                            style={{ width: '28px', height: '28px' }}
-                                                            title="Remove room"
-                                                        >
-                                                            <i className="ri ri-delete-bin-line"></i>
-                                                        </button>
-                                                    )}
+                                                        <div className="col-12 col-md-7">
+                                                            {room.type === 'ac' ? (
+                                                                <div className="d-flex align-items-center gap-1.5">
+                                                                    <label className="small fw-semibold text-primary mb-0 text-nowrap" style={{ fontSize: '11px' }}>
+                                                                        AC Charge:
+                                                                    </label>
+                                                                    <div className="input-group input-group-sm">
+                                                                        <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
+                                                                        <input
+                                                                            type="number"
+                                                                            min="0"
+                                                                            className="form-control border-start-0"
+                                                                            placeholder="0"
+                                                                            value={room.extra_charge !== undefined ? room.extra_charge : 0}
+                                                                            onChange={(e) => handleConvertRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="small text-muted fst-italic ps-1" style={{ fontSize: '11px' }}>
+                                                                    Standard Non-AC (₹0 extra)
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Row 2: Bed Selection & Bed Charges */}
+                                                    <div className="row g-2 align-items-center pt-2 border-top">
+                                                        <div className="col-12 col-md-6">
+                                                            <div className="d-flex align-items-center gap-1.5">
+                                                                <label className="small fw-semibold text-dark mb-0 text-nowrap d-flex align-items-center gap-1" style={{ fontSize: '11px' }}>
+                                                                    <i className="ri ri-hotel-bed-line text-info"></i> Bed:
+                                                                </label>
+                                                                <select
+                                                                    className="form-select form-select-sm rounded-2 bg-white"
+                                                                    value={room.bed_type || 'Double Bed'}
+                                                                    onChange={(e) => handleConvertRoomChange(rIdx, { bed_type: e.target.value })}
+                                                                    style={{ fontSize: '11.5px' }}
+                                                                >
+                                                                    <option value="Double Bed">Double Bed (1 Queen/King)</option>
+                                                                    <option value="Twin Beds">Twin Beds (2 Singles)</option>
+                                                                    <option value="Triple Bed">Triple Bed (1 Double + 1 Single)</option>
+                                                                    <option value="Family Suite">Family Suite (2 Double Beds)</option>
+                                                                    <option value="King Bed + Extra Mattress">King Bed + Extra Mattress</option>
+                                                                    <option value="Extra Bed / Mattress">Extra Bed / Mattress</option>
+                                                                    <option value="Single Bed">Single Bed</option>
+                                                                    <option value="Custom Bedding">Custom Bedding</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="col-12 col-md-6">
+                                                            <div className="d-flex align-items-center gap-1.5">
+                                                                <label className="small fw-semibold text-info mb-0 text-nowrap" style={{ fontSize: '11px' }}>
+                                                                    Bed Charge:
+                                                                </label>
+                                                                <div className="input-group input-group-sm">
+                                                                    <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0"
+                                                                        className="form-control border-start-0"
+                                                                        placeholder="0"
+                                                                        value={room.bed_charge !== undefined ? room.bed_charge : 0}
+                                                                        onChange={(e) => handleConvertRoomChange(rIdx, { bed_charge: Number(e.target.value) || 0 })}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
@@ -2510,45 +3079,31 @@ export default function WhatsAppLeadsPage() {
                                             <span className="text-muted">
                                                 Configured: <strong>{(convertFormData.rooms || []).length} Rooms</strong> ({(convertFormData.rooms || []).filter(r => r.type === 'ac').length} AC, {(convertFormData.rooms || []).filter(r => r.type === 'non_ac').length} Non-AC)
                                             </span>
-                                            {(convertFormData.rooms || []).some(r => r.type === 'ac') && (
-                                                <span className="badge bg-primary bg-opacity-10 text-primary px-2.5 py-1 rounded-pill">
-                                                    Total AC Extra: +₹{(convertFormData.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
-                                                </span>
-                                            )}
+                                            <div className="d-flex align-items-center gap-1.5 flex-wrap">
+                                                {(convertFormData.rooms || []).some(r => r.type === 'ac' && Number(r.extra_charge) > 0) && (
+                                                    <span className="badge bg-primary bg-opacity-10 text-primary px-2.5 py-1 rounded-pill">
+                                                        Total AC Extra: +₹{(convertFormData.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
+                                                    </span>
+                                                )}
+                                                {(convertFormData.rooms || []).some(r => Number(r.bed_charge) > 0) && (
+                                                    <span className="badge bg-info bg-opacity-10 text-info px-2.5 py-1 rounded-pill">
+                                                        Total Bed Extra: +₹{(convertFormData.rooms || []).reduce((acc, r) => acc + (Number(r.bed_charge) || 0), 0)}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 
-                                    {/* 4. Bed Type & Extra Discount */}
+                                    {/* 4. Extra Discount */}
                                     <div className="card bg-white border rounded-3 p-3 mb-3">
-                                        <div className="row g-3">
-                                            {/* Bed Type */}
-                                            <div className="col-12 col-md-6">
-                                                <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
-                                                    <i className="ri ri-hotel-bed-line text-primary"></i>
-                                                    <span>Bed Type / Room Preference</span>
-                                                </label>
-                                                <select
-                                                    className="form-select rounded-3"
-                                                    value={convertFormData.bed_type}
-                                                    onChange={(e) => setConvertFormData({ ...convertFormData, bed_type: e.target.value })}
-                                                >
-                                                    <option value="Double Bed">Double Bed (1 Queen/King Bed)</option>
-                                                    <option value="Twin Beds">Twin Beds (2 Separate Single Beds)</option>
-                                                    <option value="Triple Bed">Triple Bed (1 Double + 1 Single)</option>
-                                                    <option value="Family Suite">Family Suite (2 Double Beds)</option>
-                                                    <option value="King Bed + Extra Mattress">King Bed + Extra Mattress</option>
-                                                    <option value="Custom Bedding">Custom Bedding Arrangement</option>
-                                                </select>
-                                            </div>
-
-                                            {/* Extra Discount */}
+                                        <div className="row g-3 align-items-center">
                                             <div className="col-12 col-md-6">
                                                 <label className="form-label small fw-bold text-dark d-flex align-items-center justify-content-between">
                                                     <span className="d-flex align-items-center gap-1">
                                                         <i className="ri ri-coupon-3-line text-danger"></i>
                                                         <span>Extra Discount (₹)</span>
                                                     </span>
-                                                    <small className="text-muted">Subtracted from total</small>
+                                                    <small className="text-muted">Subtracted from package price</small>
                                                 </label>
                                                 <div className="input-group">
                                                     <span className="input-group-text bg-light text-danger fw-bold">₹</span>
@@ -2560,6 +3115,12 @@ export default function WhatsAppLeadsPage() {
                                                         value={convertFormData.extra_discount}
                                                         onChange={(e) => handleConvertDiscountChange(e.target.value)}
                                                     />
+                                                </div>
+                                            </div>
+                                            <div className="col-12 col-md-6">
+                                                <div className="small text-muted pt-md-3">
+                                                    <i className="ri ri-information-line text-primary me-1"></i>
+                                                    Special negotiated discount. Bed types and charges are configured per room in Room Configuration above.
                                                 </div>
                                             </div>
                                         </div>
@@ -2590,18 +3151,19 @@ export default function WhatsAppLeadsPage() {
                                             <div className="col-12 col-md-6">
                                                 {(() => {
                                                     const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-                                                    const { unitPrice, billablePersons, acExtraTotal, discount } = calculateConvertAutoAmount(
+                                                    const { unitPrice, billablePersons, baseTotal, acExtraTotal, bedExtraTotal, discount, days } = calculateConvertAutoAmount(
                                                         effectivePkg,
                                                         convertFormData.adults,
                                                         convertFormData.children,
                                                         convertFormData.extra_discount,
-                                                        convertFormData.rooms
+                                                        convertFormData.rooms,
+                                                        convertFormData.booking_days
                                                     );
                                                     return (
                                                         <div className="small text-muted">
-                                                            {unitPrice > 0 || acExtraTotal > 0 ? (
+                                                            {unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0 ? (
                                                                 <>
-                                                                    <div><strong>Auto-Calculation:</strong> ₹{unitPrice.toLocaleString('en-IN')} × {billablePersons} billable pax {acExtraTotal > 0 ? `+ ₹${acExtraTotal.toLocaleString('en-IN')} AC ` : ''}{discount > 0 ? `- ₹${discount.toLocaleString('en-IN')} disc` : ''}</div>
+                                                                    <div><strong>Auto-Calculation ({days} {days === 1 ? 'Night' : 'Nights'}):</strong> ₹{baseTotal.toLocaleString('en-IN')} ({billablePersons} pax){acExtraTotal > 0 ? ` + ₹${acExtraTotal.toLocaleString('en-IN')} AC` : ''}{bedExtraTotal > 0 ? ` + ₹${bedExtraTotal.toLocaleString('en-IN')} Bed` : ''}{discount > 0 ? ` - ₹${discount.toLocaleString('en-IN')} disc` : ''}</div>
                                                                     <div className="text-success" style={{ fontSize: '11px' }}>Infants: {convertFormData.infants || 0} pax (₹0 free of charge)</div>
                                                                 </>
                                                             ) : (
@@ -2877,7 +3439,7 @@ export default function WhatsAppLeadsPage() {
                                             <span>Tour &amp; Travel Requirements</span>
                                         </h6>
                                         <div className="row g-3 mb-3">
-                                            <div className="col-12 col-md-6">
+                                            <div className="col-12 col-md-5">
                                                 <label className="form-label small fw-semibold">Destination</label>
                                                 <input 
                                                     type="text" 
@@ -2887,7 +3449,7 @@ export default function WhatsAppLeadsPage() {
                                                     onChange={(e) => setManualLeadFormData({ ...manualLeadFormData, travel_destination: e.target.value })}
                                                 />
                                             </div>
-                                            <div className="col-12 col-md-6">
+                                            <div className="col-12 col-md-4">
                                                 <label className="form-label small fw-semibold">Estimated Travel Date</label>
                                                 <input 
                                                     type="date" 
@@ -2895,6 +3457,46 @@ export default function WhatsAppLeadsPage() {
                                                     value={manualLeadFormData.travel_date}
                                                     onChange={(e) => setManualLeadFormData({ ...manualLeadFormData, travel_date: e.target.value })}
                                                 />
+                                            </div>
+                                            <div className="col-12 col-md-3">
+                                                <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                    <span className="d-flex align-items-center gap-1">
+                                                        <i className="ri-moon-line text-primary"></i>
+                                                        <span>Booking Nights</span>
+                                                    </span>
+                                                    <small className="text-primary fw-bold">{manualLeadFormData.booking_days || 1} {Number(manualLeadFormData.booking_days) === 1 ? 'Night' : 'Nights'}</small>
+                                                </label>
+                                                <div className="input-group">
+                                                    <button 
+                                                        type="button"
+                                                        className="btn btn-outline-secondary px-2.5 d-flex align-items-center justify-content-center"
+                                                        onClick={() => handleManualLeadBookingDaysChange(Math.max(1, (parseInt(manualLeadFormData.booking_days, 10) || 1) - 1))}
+                                                        disabled={Number(manualLeadFormData.booking_days) <= 1}
+                                                        title="Decrease nights (minimum 1)"
+                                                    >
+                                                        <i className="ri-subtract-line fw-bold"></i>
+                                                    </button>
+                                                    <input 
+                                                        type="number" 
+                                                        min="1"
+                                                        max="90"
+                                                        className="form-control text-center fw-bold"
+                                                        placeholder="1"
+                                                        value={manualLeadFormData.booking_days}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            handleManualLeadBookingDaysChange(val === '' ? 1 : Math.max(1, parseInt(val, 10) || 1));
+                                                        }}
+                                                    />
+                                                    <button 
+                                                        type="button"
+                                                        className="btn btn-outline-secondary px-2.5 d-flex align-items-center justify-content-center"
+                                                        onClick={() => handleManualLeadBookingDaysChange((parseInt(manualLeadFormData.booking_days, 10) || 1) + 1)}
+                                                        title="Increase nights"
+                                                    >
+                                                        <i className="ri-add-line fw-bold"></i>
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
 
@@ -2986,71 +3588,128 @@ export default function WhatsAppLeadsPage() {
                                             </div>
 
                                             {/* Rooms List */}
-                                            <div className="d-flex flex-column gap-2 mt-2">
+                                            <div className="d-flex flex-column gap-2.5 mt-2">
                                                 {(manualLeadFormData.rooms || []).map((room, rIdx) => (
                                                     <div 
                                                         key={room.id || rIdx} 
-                                                        className="p-2.5 rounded-3 border bg-light d-flex align-items-center justify-content-between flex-wrap gap-2"
+                                                        className="p-3 rounded-3 border bg-light shadow-2xs"
                                                     >
-                                                        {/* Room Label */}
-                                                        <div className="d-flex align-items-center gap-2" style={{ minWidth: '95px' }}>
-                                                            <span className="badge bg-secondary bg-opacity-10 text-dark rounded-pill px-2.5 py-1 fw-bold" style={{ fontSize: '12px' }}>
-                                                                <i className="ri ri-door-open-line me-1 text-primary"></i> Room #{rIdx + 1}
-                                                            </span>
+                                                        {/* Room Header */}
+                                                        <div className="d-flex align-items-center justify-content-between mb-2">
+                                                            <div className="d-flex align-items-center gap-2">
+                                                                <span className="badge bg-secondary bg-opacity-10 text-dark rounded-pill px-2.5 py-1 fw-bold" style={{ fontSize: '12px' }}>
+                                                                    <i className="ri ri-door-open-line me-1 text-primary"></i> Room #{rIdx + 1}
+                                                                </span>
+                                                                <span className="text-muted small" style={{ fontSize: '11px' }}>
+                                                                    {room.type === 'ac' ? `AC (+₹${room.extra_charge || 0})` : 'Non-AC'} • {room.bed_type || 'Double Bed'}{Number(room.bed_charge) > 0 ? ` (+₹${room.bed_charge})` : ''}
+                                                                </span>
+                                                            </div>
+                                                            {(manualLeadFormData.rooms || []).length > 1 && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleManualLeadRemoveRoom(rIdx)}
+                                                                    className="btn btn-outline-danger btn-sm rounded-circle p-1 d-flex align-items-center justify-content-center"
+                                                                    style={{ width: '26px', height: '26px' }}
+                                                                    title="Remove room"
+                                                                >
+                                                                    <i className="ri ri-delete-bin-line" style={{ fontSize: '13px' }}></i>
+                                                                </button>
+                                                            )}
                                                         </div>
 
-                                                        {/* AC / Non-AC Tab Toggles */}
-                                                        <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-white border" role="group">
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleManualLeadRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
-                                                                className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'non_ac' ? 'btn-secondary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
-                                                                style={{ fontSize: '12px' }}
-                                                            >
-                                                                <i className="ri ri-temp-cold-line me-1"></i> Non-AC
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleManualLeadRoomChange(rIdx, { type: 'ac', extra_charge: room.extra_charge !== undefined ? room.extra_charge : 0 })}
-                                                                className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'ac' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
-                                                                style={{ fontSize: '12px' }}
-                                                            >
-                                                                <i className="ri ri-windy-fill me-1"></i> AC Room
-                                                            </button>
-                                                        </div>
-
-                                                        {/* Extra AC Charge Input (Opens when AC selected) */}
-                                                        {room.type === 'ac' && (
-                                                            <div className="d-flex align-items-center gap-1.5 ms-md-2">
-                                                                <label className="small fw-semibold text-primary mb-0 text-nowrap" style={{ fontSize: '11.5px' }}>
-                                                                    Extra AC Charge:
-                                                                </label>
-                                                                <div className="input-group input-group-sm" style={{ width: '130px' }}>
-                                                                    <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
-                                                                    <input
-                                                                        type="number"
-                                                                        min="0"
-                                                                        className="form-control border-start-0"
-                                                                        placeholder="0"
-                                                                        value={room.extra_charge}
-                                                                        onChange={(e) => handleManualLeadRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
-                                                                    />
+                                                        {/* Row 1: AC / Non-AC & AC Extra Charges */}
+                                                        <div className="row g-2 align-items-center mb-2">
+                                                            <div className="col-12 col-md-5">
+                                                                <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-white border w-100" role="group">
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleManualLeadRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
+                                                                        className={`btn btn-sm rounded-pill px-2.5 py-1 flex-fill ${room.type === 'non_ac' ? 'btn-secondary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                                        style={{ fontSize: '11.5px' }}
+                                                                    >
+                                                                        <i className="ri ri-temp-cold-line me-1"></i> Non-AC
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => handleManualLeadRoomChange(rIdx, { type: 'ac', extra_charge: room.extra_charge !== undefined ? room.extra_charge : 0 })}
+                                                                        className={`btn btn-sm rounded-pill px-2.5 py-1 flex-fill ${room.type === 'ac' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                                        style={{ fontSize: '11.5px' }}
+                                                                    >
+                                                                        <i className="ri ri-windy-fill me-1"></i> AC Room
+                                                                    </button>
                                                                 </div>
                                                             </div>
-                                                        )}
 
-                                                        {/* Delete Room Button */}
-                                                        {(manualLeadFormData.rooms || []).length > 1 && (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => handleManualLeadRemoveRoom(rIdx)}
-                                                                className="btn btn-outline-danger btn-sm rounded-circle p-1 d-flex align-items-center justify-content-center"
-                                                                style={{ width: '28px', height: '28px' }}
-                                                                title="Remove room"
-                                                            >
-                                                                <i className="ri ri-delete-bin-line"></i>
-                                                            </button>
-                                                        )}
+                                                            <div className="col-12 col-md-7">
+                                                                {room.type === 'ac' ? (
+                                                                    <div className="d-flex align-items-center gap-1.5">
+                                                                        <label className="small fw-semibold text-primary mb-0 text-nowrap" style={{ fontSize: '11px' }}>
+                                                                            AC Charge:
+                                                                        </label>
+                                                                        <div className="input-group input-group-sm">
+                                                                            <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
+                                                                            <input
+                                                                                type="number"
+                                                                                min="0"
+                                                                                className="form-control border-start-0"
+                                                                                placeholder="0"
+                                                                                value={room.extra_charge !== undefined ? room.extra_charge : 0}
+                                                                                onChange={(e) => handleManualLeadRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
+                                                                            />
+                                                                        </div>
+                                                                    </div>
+                                                                ) : (
+                                                                    <div className="small text-muted fst-italic ps-1" style={{ fontSize: '11px' }}>
+                                                                        Standard Non-AC (₹0 extra)
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Row 2: Bed Selection & Bed Charges */}
+                                                        <div className="row g-2 align-items-center pt-2 border-top">
+                                                            <div className="col-12 col-md-6">
+                                                                <div className="d-flex align-items-center gap-1.5">
+                                                                    <label className="small fw-semibold text-dark mb-0 text-nowrap d-flex align-items-center gap-1" style={{ fontSize: '11px' }}>
+                                                                        <i className="ri ri-hotel-bed-line text-info"></i> Bed:
+                                                                    </label>
+                                                                    <select
+                                                                        className="form-select form-select-sm rounded-2 bg-white"
+                                                                        value={room.bed_type || 'Double Bed'}
+                                                                        onChange={(e) => handleManualLeadRoomChange(rIdx, { bed_type: e.target.value })}
+                                                                        style={{ fontSize: '11.5px' }}
+                                                                    >
+                                                                        <option value="Double Bed">Double Bed (1 Queen/King)</option>
+                                                                        <option value="Twin Beds">Twin Beds (2 Singles)</option>
+                                                                        <option value="Triple Bed">Triple Bed (1 Double + 1 Single)</option>
+                                                                        <option value="Family Suite">Family Suite (2 Double Beds)</option>
+                                                                        <option value="King Bed + Extra Mattress">King Bed + Extra Mattress</option>
+                                                                        <option value="Extra Bed / Mattress">Extra Bed / Mattress</option>
+                                                                        <option value="Single Bed">Single Bed</option>
+                                                                        <option value="Custom Bedding">Custom Bedding</option>
+                                                                    </select>
+                                                                </div>
+                                                            </div>
+
+                                                            <div className="col-12 col-md-6">
+                                                                <div className="d-flex align-items-center gap-1.5">
+                                                                    <label className="small fw-semibold text-info mb-0 text-nowrap" style={{ fontSize: '11px' }}>
+                                                                        Bed Charge:
+                                                                    </label>
+                                                                    <div className="input-group input-group-sm">
+                                                                        <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
+                                                                        <input
+                                                                            type="number"
+                                                                            min="0"
+                                                                            className="form-control border-start-0"
+                                                                            placeholder="0"
+                                                                            value={room.bed_charge !== undefined ? room.bed_charge : 0}
+                                                                            onChange={(e) => handleManualLeadRoomChange(rIdx, { bed_charge: Number(e.target.value) || 0 })}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
@@ -3060,11 +3719,18 @@ export default function WhatsAppLeadsPage() {
                                                 <span className="text-muted">
                                                     Configured: <strong>{(manualLeadFormData.rooms || []).length} Rooms</strong> ({(manualLeadFormData.rooms || []).filter(r => r.type === 'ac').length} AC, {(manualLeadFormData.rooms || []).filter(r => r.type === 'non_ac').length} Non-AC)
                                                 </span>
-                                                {(manualLeadFormData.rooms || []).some(r => r.type === 'ac') && (
-                                                    <span className="badge bg-primary bg-opacity-10 text-primary px-2.5 py-1 rounded-pill">
-                                                        Total AC Extra: +₹{(manualLeadFormData.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
-                                                    </span>
-                                                )}
+                                                <div className="d-flex align-items-center gap-1.5 flex-wrap">
+                                                    {(manualLeadFormData.rooms || []).some(r => r.type === 'ac' && Number(r.extra_charge) > 0) && (
+                                                        <span className="badge bg-primary bg-opacity-10 text-primary px-2.5 py-1 rounded-pill">
+                                                            Total AC Extra: +₹{(manualLeadFormData.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
+                                                        </span>
+                                                    )}
+                                                    {(manualLeadFormData.rooms || []).some(r => Number(r.bed_charge) > 0) && (
+                                                        <span className="badge bg-info bg-opacity-10 text-info px-2.5 py-1 rounded-pill">
+                                                            Total Bed Extra: +₹{(manualLeadFormData.rooms || []).reduce((acc, r) => acc + (Number(r.bed_charge) || 0), 0)}
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
 
@@ -3077,7 +3743,8 @@ export default function WhatsAppLeadsPage() {
                                                         <span>Select Tour Package</span>
                                                     </span>
                                                     {(() => {
-                                                        const matched = packageSuggestions.find(p => (p.name === manualLeadFormData.package_name || p.title === manualLeadFormData.package_name));
+                                                        const pkgVal = manualLeadFormData.package_name === '__custom__' ? manualLeadFormData.custom_package_name : manualLeadFormData.package_name;
+                                                        const matched = findMatchedPackage(packageSuggestions, pkgVal);
                                                         if (matched) {
                                                             const pPrice = Number(matched.actual_price || matched.base_price || matched.price || 0);
                                                             return pPrice > 0 ? (
@@ -3096,7 +3763,7 @@ export default function WhatsAppLeadsPage() {
                                                 >
                                                     <option value="">-- Choose from available packages --</option>
                                                     {packageSuggestions.map((pkg) => {
-                                                        const pkgName = pkg.name || pkg.title;
+                                                        const pkgName = pkg.title || pkg.name;
                                                         const priceVal = Number(pkg.actual_price || pkg.base_price || pkg.price || 0);
                                                         return (
                                                             <option key={pkg.id || pkgName} value={pkgName}>
@@ -3104,6 +3771,9 @@ export default function WhatsAppLeadsPage() {
                                                             </option>
                                                         );
                                                     })}
+                                                    {manualLeadFormData.package_name && manualLeadFormData.package_name !== '__custom__' && !packageSuggestions.some(p => (p.title || p.name) === manualLeadFormData.package_name) && (
+                                                        <option value={manualLeadFormData.package_name}>{manualLeadFormData.package_name}</option>
+                                                    )}
                                                     <option value="__custom__">➕ Custom / Other Package...</option>
                                                 </select>
 
@@ -3129,16 +3799,17 @@ export default function WhatsAppLeadsPage() {
                                                         <span>Calculated Package Rate (Total)</span>
                                                     </span>
                                                     {(() => {
-                                                        const { unitPrice, billablePersons, acExtraTotal } = calculateAutoRate(
+                                                        const { unitPrice, billablePersons, baseTotal, acExtraTotal, bedExtraTotal, days } = calculateAutoRate(
                                                             manualLeadFormData.package_name === '__custom__' ? manualLeadFormData.custom_package_name : manualLeadFormData.package_name,
                                                             manualLeadFormData.adults,
                                                             manualLeadFormData.children,
-                                                            manualLeadFormData.rooms
+                                                            manualLeadFormData.rooms,
+                                                            manualLeadFormData.booking_days
                                                         );
-                                                        if (unitPrice > 0 || acExtraTotal > 0) {
+                                                        if (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) {
                                                             return (
                                                                 <small className="text-muted" style={{ fontSize: '11px' }}>
-                                                                    (₹{unitPrice} × {billablePersons} billable pax{acExtraTotal > 0 ? ` + ₹${acExtraTotal} AC` : ''})
+                                                                    ({days}N: ₹{baseTotal} [{billablePersons} pax]{acExtraTotal > 0 ? ` + ₹${acExtraTotal} AC` : ''}{bedExtraTotal > 0 ? ` + ₹${bedExtraTotal} Bed` : ''})
                                                                 </small>
                                                             );
                                                         }
@@ -3156,7 +3827,7 @@ export default function WhatsAppLeadsPage() {
                                                     />
                                                 </div>
                                                 <small className="text-muted d-block mt-1" style={{ fontSize: '11px' }}>
-                                                    Auto-calculated from package price, person count, and AC rooms. You can adjust manually.
+                                                    Auto-calculated from package price, person count, AC rooms, and bed extra charges. You can adjust manually.
                                                 </small>
                                             </div>
                                         </div>
@@ -3250,6 +3921,94 @@ export default function WhatsAppLeadsPage() {
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 6. Delete Lead Confirmation Modal (Admin Only) */}
+            {deleteModalOpen && isSuperAdmin && leadToDelete && (
+                <div 
+                    className="modal fade show d-block" 
+                    tabIndex="-1" 
+                    style={{ backgroundColor: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', zIndex: 1070 }}
+                >
+                    <div className="modal-dialog modal-dialog-centered" style={{ maxWidth: '480px' }}>
+                        <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                            <div className="modal-header bg-danger text-white py-3 px-4 d-flex align-items-center justify-content-between">
+                                <h5 className="modal-title fw-bold text-white mb-0 d-flex align-items-center gap-2">
+                                    <i className="ri ri-delete-bin-fill fs-5"></i>
+                                    <span>Delete WhatsApp Lead</span>
+                                </h5>
+                                <button 
+                                    type="button" 
+                                    className="btn-close btn-close-white" 
+                                    onClick={() => { setDeleteModalOpen(false); setLeadToDelete(null); }}
+                                    disabled={deletingLead}
+                                    aria-label="Close"
+                                ></button>
+                            </div>
+                            <div className="modal-body p-4 text-center">
+                                <div 
+                                    className="rounded-circle bg-danger bg-opacity-10 text-danger d-inline-flex align-items-center justify-content-center mb-3"
+                                    style={{ width: '64px', height: '64px', fontSize: '30px' }}
+                                >
+                                    <i className="ri ri-alert-fill"></i>
+                                </div>
+                                <h6 className="fw-bold text-dark mb-2">
+                                    Are you sure you want to permanently delete this lead?
+                                </h6>
+                                <div className="card bg-light border-0 rounded-3 p-3 text-start my-3" style={{ fontSize: '13px' }}>
+                                    <div className="d-flex justify-content-between mb-1">
+                                        <span className="text-muted">Lead Name:</span>
+                                        <strong className="text-dark">{leadToDelete.name || `Lead #${leadToDelete.id}`}</strong>
+                                    </div>
+                                    <div className="d-flex justify-content-between mb-1">
+                                        <span className="text-muted">WhatsApp Phone:</span>
+                                        <strong className="text-success font-monospace">+{leadToDelete.wa_id}</strong>
+                                    </div>
+                                    {leadToDelete.assigned_user_name && (
+                                        <div className="d-flex justify-content-between">
+                                            <span className="text-muted">Assigned Admin:</span>
+                                            <span className="text-primary fw-semibold">{leadToDelete.assigned_user_name}</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="alert alert-warning border-0 rounded-3 text-start p-2.5 d-flex gap-2 align-items-start mb-0" style={{ fontSize: '12px' }}>
+                                    <i className="ri ri-information-fill text-warning fs-6 mt-0.5 flex-shrink-0"></i>
+                                    <span>
+                                        This action will permanently delete this lead from the CRM, including its chat message thread, follow-up logs, and associated tasks. <strong>This action cannot be undone.</strong>
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="modal-footer bg-light border-top py-2.5 px-4 d-flex justify-content-end gap-2">
+                                <button
+                                    type="button"
+                                    className="btn btn-light rounded-pill px-4"
+                                    onClick={() => { setDeleteModalOpen(false); setLeadToDelete(null); }}
+                                    disabled={deletingLead}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-danger rounded-pill px-4 d-inline-flex align-items-center gap-1.5 shadow-sm fw-semibold"
+                                    onClick={handleConfirmDelete}
+                                    disabled={deletingLead}
+                                >
+                                    {deletingLead ? (
+                                        <>
+                                            <span className="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                            <span>Deleting...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i className="ri ri-delete-bin-line"></i>
+                                            <span>Yes, Delete Lead</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -45,6 +45,7 @@ export default function InvoiceConfigPage() {
         next_invoice_number: 30019,
         razorpay_key_id: 'rzp_test_RQWjJm9q5lEiA8',
         razorpay_key_secret: 'XwAWgPdeymk9XLHqndmSD27c',
+        razorpay_webhook_secret: 'R2aj8d4H3KwkKjkNO12FQ7B2',
         auto_send_whatsapp_invoice: 1,
         default_whatsapp_template_id: null
     });
@@ -590,10 +591,10 @@ Thank you for choosing *DELTA SAFARI*!
                                             <div className="card border p-3 rounded-4 bg-light mb-4 shadow-2xs">
                                                 <h6 className="fw-bold text-dark mb-2 pb-1 border-bottom d-flex align-items-center gap-1.5">
                                                     <i className="ri ri-bank-card-fill text-primary"></i>
-                                                    <span>Razorpay Integration Keys (Payment Link API)</span>
+                                                    <span>Razorpay Integration Keys (Payment Link API & Webhooks)</span>
                                                 </h6>
                                                 <div className="row g-3">
-                                                    <div className="col-12 col-md-6">
+                                                    <div className="col-12 col-md-4">
                                                         <label className="form-label small fw-semibold">Razorpay Key ID</label>
                                                         <input
                                                             type="text"
@@ -603,7 +604,7 @@ Thank you for choosing *DELTA SAFARI*!
                                                             onChange={(e) => setFormData({ ...formData, razorpay_key_id: e.target.value })}
                                                         />
                                                     </div>
-                                                    <div className="col-12 col-md-6">
+                                                    <div className="col-12 col-md-4">
                                                         <label className="form-label small fw-semibold">Razorpay Key Secret</label>
                                                         <input
                                                             type="password"
@@ -611,6 +612,16 @@ Thank you for choosing *DELTA SAFARI*!
                                                             placeholder="••••••••••••••••"
                                                             value={formData.razorpay_key_secret}
                                                             onChange={(e) => setFormData({ ...formData, razorpay_key_secret: e.target.value })}
+                                                        />
+                                                    </div>
+                                                    <div className="col-12 col-md-4">
+                                                        <label className="form-label small fw-semibold">Razorpay Webhook Secret</label>
+                                                        <input
+                                                            type="text"
+                                                            className="form-control form-control-sm rounded-3 font-monospace"
+                                                            placeholder="R2aj8d4H3KwkKjkNO12FQ7B2"
+                                                            value={formData.razorpay_webhook_secret || ''}
+                                                            onChange={(e) => setFormData({ ...formData, razorpay_webhook_secret: e.target.value })}
                                                         />
                                                     </div>
                                                 </div>
@@ -625,6 +636,84 @@ Thank you for choosing *DELTA SAFARI*!
                                                     <label className="form-check-label small fw-bold text-dark" htmlFor="autoSendSwitch">
                                                         Automatically deliver WhatsApp message with Razorpay Payment Link when creating new invoices
                                                     </label>
+                                                </div>
+
+                                                {/* Razorpay Webhook Setup Guide */}
+                                                <div className="mt-3 p-3 bg-white rounded-3 border border-primary border-opacity-25">
+                                                    <div className="d-flex align-items-center justify-content-between mb-2">
+                                                        <span className="fw-bold small text-primary d-flex align-items-center gap-1.5">
+                                                            <i className="ri ri-webhook-line fs-6"></i>
+                                                            <span>Instant Payment Confirmation Webhook Setup</span>
+                                                        </span>
+                                                        <span className="badge bg-success bg-opacity-10 text-success rounded-pill px-2 py-0.5" style={{ fontSize: '11px' }}>
+                                                            Auto-Confirmation Active
+                                                        </span>
+                                                    </div>
+                                                    <p className="small text-muted mb-2" style={{ fontSize: '12px' }}>
+                                                        When a user pays via the Razorpay payment link sent on WhatsApp, Razorpay calls this Webhook URL to immediately mark the invoice as <strong>Paid</strong>, record payment details, update the CRM lead status, and send an instant WhatsApp confirmation receipt.
+                                                    </p>
+
+                                                    <div className="row g-2 align-items-center mb-2">
+                                                        <div className="col-12 col-md-7">
+                                                            <label className="small fw-semibold text-dark mb-1" style={{ fontSize: '11px' }}>Webhook URL (Paste into Razorpay Dashboard):</label>
+                                                            <div className="input-group input-group-sm">
+                                                                <input 
+                                                                    type="text" 
+                                                                    readOnly 
+                                                                    className="form-control bg-light font-monospace text-primary fw-semibold"
+                                                                    value={`${(typeof window !== 'undefined' ? window.location.origin : 'https://sundarbandeltasafari.com').replace(':3000', ':3002').replace(':3001', ':3002')}/webhook/razorpay`}
+                                                                />
+                                                                <button 
+                                                                    className="btn btn-outline-primary"
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        const url = `${window.location.origin.replace(':3000', ':3002').replace(':3001', ':3002')}/webhook/razorpay`;
+                                                                        navigator.clipboard.writeText(url);
+                                                                        showMessage('info', 'Webhook URL copied to clipboard!');
+                                                                    }}
+                                                                >
+                                                                    <i className="ri ri-file-copy-line"></i> Copy URL
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                        <div className="col-12 col-md-5">
+                                                            <label className="small fw-semibold text-dark mb-1" style={{ fontSize: '11px' }}>Secret (Paste into Razorpay Dashboard):</label>
+                                                            <div className="input-group input-group-sm">
+                                                                <input 
+                                                                    type="text" 
+                                                                    readOnly 
+                                                                    className="form-control bg-light font-monospace"
+                                                                    value={formData.razorpay_webhook_secret || 'R2aj8d4H3KwkKjkNO12FQ7B2'}
+                                                                />
+                                                                <button 
+                                                                    className="btn btn-outline-secondary"
+                                                                    type="button"
+                                                                    onClick={() => {
+                                                                        navigator.clipboard.writeText(formData.razorpay_webhook_secret || 'R2aj8d4H3KwkKjkNO12FQ7B2');
+                                                                        showMessage('info', 'Webhook Secret copied to clipboard!');
+                                                                    }}
+                                                                >
+                                                                    <i className="ri ri-file-copy-line"></i> Copy
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="d-flex align-items-center gap-3 pt-1 flex-wrap" style={{ fontSize: '11.5px' }}>
+                                                        <span className="text-dark fw-bold">Active Events to Select in Razorpay:</span>
+                                                        <span className="badge bg-light text-dark border">
+                                                            <i className="ri ri-checkbox-circle-fill text-success me-1"></i>
+                                                            payment_link.paid (Invoice Payment)
+                                                        </span>
+                                                        <span className="badge bg-light text-dark border">
+                                                            <i className="ri ri-checkbox-circle-fill text-success me-1"></i>
+                                                            payment.captured (Payments)
+                                                        </span>
+                                                        <span className="badge bg-light text-dark border">
+                                                            <i className="ri ri-checkbox-circle-fill text-success me-1"></i>
+                                                            order.paid (Orders)
+                                                        </span>
+                                                    </div>
                                                 </div>
                                             </div>
 

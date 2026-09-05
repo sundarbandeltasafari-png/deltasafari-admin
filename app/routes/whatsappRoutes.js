@@ -8,6 +8,7 @@ export const getWhatsAppMessagesUrl = `${SERVER_URL}admin/whatsapp/messages/`;
 export const sendWhatsAppMessageUrl = `${SERVER_URL}admin/whatsapp/send`;
 export const getWhatsAppStatsUrl = `${SERVER_URL}admin/whatsapp/stats`;
 export const getWhatsAppConfigStatusUrl = `${SERVER_URL}admin/whatsapp/config-status`;
+export const deleteWhatsAppContactUrl = `${SERVER_URL}admin/whatsapp/contacts/`;
 
 // Lead Distribution & Management Endpoints (Super Admin)
 export const getLeadManagersUrl = `${SERVER_URL}admin/whatsapp/lead-managers`;
@@ -56,6 +57,7 @@ export const syncInvoicePaymentUrl = `${SERVER_URL}admin/crm/invoices/`; // appe
 export const updateInvoicePaymentStatusUrl = `${SERVER_URL}admin/crm/invoices/`; // append :id/payment-status
 export const getInvoicePaymentsHistoryUrl = `${SERVER_URL}admin/crm/invoices/`; // append :id/payments
 export const uploadInvoiceProofUrl = `${SERVER_URL}admin/crm/invoices/upload-proof`;
+export const getInvoicesByContactUrl = `${SERVER_URL}admin/crm/invoices/by-contact/`; // append :contactId
 
 // Booking Users & CRM Customer History
 export const getBookingUsersUrl = `${SERVER_URL}admin/crm/booking-users`;

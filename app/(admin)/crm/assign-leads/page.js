@@ -18,6 +18,7 @@ export default function AssignLeadsPage() {
     const user = useSelector((state) => state.adminAuth?.user);
     const token = useSelector((state) => state.adminAuth?.token);
     const router = useRouter();
+    const isSuperAdmin = Number(user?.admin) === 1;
 
     const [loading, setLoading] = useState(true);
     const [managers, setManagers] = useState([]);
@@ -35,15 +36,8 @@ export default function AssignLeadsPage() {
     const [updatingUserId, setUpdatingUserId] = useState(null);
     const [reassigningContactId, setReassigningContactId] = useState(null);
 
-    // Redirect regular admin users away from this Super Admin page
-    useEffect(() => {
-        if (user && user.admin !== 1) {
-            router.push('/crm/whatsapp');
-        }
-    }, [user, router]);
-
     const fetchLeadManagers = async () => {
-        if (!token) return;
+        if (!token || !isSuperAdmin) return;
         try {
             const res = await axios.get(getLeadManagersUrl, {
                 headers: { 'Authorization': `Bearer ${token}` }
@@ -67,7 +61,7 @@ export default function AssignLeadsPage() {
                 headers: { 'Authorization': `Bearer ${token}` },
                 params: {
                     search: searchTerm,
-                    assigned_to: filterAssignee,
+                    assigned_to: isSuperAdmin ? filterAssignee : undefined,
                     limit: 50
                 }
             });
@@ -82,13 +76,28 @@ export default function AssignLeadsPage() {
     };
 
     useEffect(() => {
+        if (user && !isSuperAdmin) {
+            router.replace('/crm/whatsapp');
+        }
+    }, [user, isSuperAdmin, router]);
+
+    useEffect(() => {
+        if (!token) return;
+        if (!isSuperAdmin) {
+            setLoading(false);
+            return;
+        }
         setLoading(true);
-        Promise.all([fetchLeadManagers(), fetchContacts()]).finally(() => {
+        Promise.all([fetchContacts(), fetchLeadManagers()]).finally(() => {
             setLoading(false);
         });
-    }, [token]);
+    }, [token, isSuperAdmin]);
 
     const handleToggleManager = async (manager) => {
+        if (!isSuperAdmin) {
+            showMessage('error', 'Only Super Admin can modify lead distribution pool.');
+            return;
+        }
         const nextState = manager.is_active ? 0 : 1;
         setUpdatingUserId(manager.user_id);
         try {
@@ -114,6 +123,10 @@ export default function AssignLeadsPage() {
     };
 
     const handleReassignLead = async (contactId, newUserId) => {
+        if (!isSuperAdmin) {
+            showMessage('error', 'Only Super Admin can reassign leads.');
+            return;
+        }
         setReassigningContactId(contactId);
         try {
             const res = await axios.post(assignLeadUrl, {
@@ -127,7 +140,7 @@ export default function AssignLeadsPage() {
                 const assignedManager = managers.find(m => String(m.user_id) === String(newUserId));
                 showMessage('success', newUserId ? `Lead assigned to ${assignedManager?.name || 'Admin User'}.` : 'Lead unassigned.');
                 fetchContacts();
-                fetchLeadManagers();
+                if (isSuperAdmin) fetchLeadManagers();
             } else {
                 showMessage('error', res.data?.msg || 'Failed to reassign lead');
             }
@@ -142,6 +155,32 @@ export default function AssignLeadsPage() {
         e.preventDefault();
         fetchContacts();
     };
+
+    if (user && !isSuperAdmin) {
+        return (
+            <div className="container-xxl flex-grow-1 container-p-y d-flex justify-content-center align-items-center" style={{ minHeight: '60vh' }}>
+                <div className="card shadow-sm border-0 rounded-4 text-center p-5" style={{ maxWidth: '480px' }}>
+                    <div className="avatar avatar-xl rounded-circle bg-label-danger mx-auto mb-3 d-flex align-items-center justify-content-center" style={{ width: '64px', height: '64px' }}>
+                        <i className="ri ri-lock-2-line fs-2 text-danger"></i>
+                    </div>
+                    <h4 className="fw-bold mb-2 text-heading">Access Denied</h4>
+                    <p className="text-muted mb-4 small">
+                        Lead Distribution &amp; Assignment is only accessible to Administrators. Redirecting you to WhatsApp CRM...
+                    </p>
+                    <div>
+                        <button 
+                            type="button" 
+                            onClick={() => router.replace('/crm/whatsapp')}
+                            className="btn btn-primary rounded-pill px-4 shadow-sm d-inline-flex align-items-center gap-2"
+                        >
+                            <i className="ri ri-whatsapp-line"></i>
+                            <span>Go to WhatsApp CRM</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     if (loading) {
         return (
@@ -158,7 +197,7 @@ export default function AssignLeadsPage() {
                 <div>
                     <h4 className="fw-bold mb-1 text-heading">
                         <i className="ri ri-user-shared-line me-2 text-primary"></i>
-                        Lead Distribution & Assignment
+                        Lead Distribution &amp; Assignment
                     </h4>
                     <p className="text-muted mb-0 small">
                         Configure auto-distribution rules for incoming WhatsApp leads and manage lead assignments across admin staff.
@@ -353,7 +392,7 @@ export default function AssignLeadsPage() {
                         <div className="col-md-5">
                             <h5 className="mb-1 fw-bold text-heading">
                                 <i className="ri ri-exchange-line me-2 text-primary"></i>
-                                Lead Assignments & Reassignment
+                                Lead Assignments &amp; Reassignment
                             </h5>
                             <p className="text-muted small mb-0">View all incoming leads and reassign them to any staff member anytime.</p>
                         </div>

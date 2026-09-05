@@ -19,7 +19,8 @@ import {
     syncInvoicePaymentUrl,
     updateInvoicePaymentStatusUrl,
     getInvoicePaymentsHistoryUrl,
-    uploadInvoiceProofUrl
+    uploadInvoiceProofUrl,
+    getInvoicesByContactUrl
 } from '@/app/routes/whatsappRoutes';
 import { getAllPackageUrl } from '@/app/routes/packageRoutes';
 import { axiosGet, axiosPost, axiosDelete } from '@/libs/axiosHelper';
@@ -28,12 +29,14 @@ import { showMessage } from '@/libs/commonHelper';
 import LoadingComponent from '@/components/common/LoadingComponent';
 import NotFound from '@/components/common/NotFound';
 import InvoicePrintTemplate from '@/components/admin/invoice/InvoicePrintTemplate';
+import LeadInvoicesModal from '@/components/admin/invoice/LeadInvoicesModal';
 import { printInvoiceDocument } from '@/libs/printHelper';
 
 export default function InvoicesPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const createForLeadParam = searchParams.get('create_for_lead') || searchParams.get('lead_id');
+    const leadInvoicesParam = searchParams.get('lead_invoices');
 
     const token = useSelector((state) => state.adminAuth?.token);
     const user = useSelector((state) => state.adminAuth?.user);
@@ -136,7 +139,7 @@ export default function InvoicesPage() {
         pickup_drop: 'Canning',
         number_of_pax: 2,
         total_rooms: 1,
-        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0 }],
+        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 }],
         room_required: '1 Room (1 Non-AC)',
         food_preference: 'Non Veg',
         departure_date_text: '',
@@ -147,6 +150,9 @@ export default function InvoicesPage() {
         gst_percent: 0,
         gst_amount: 0,
         discount_amount: 0,
+        previously_paid_amount: 0,
+        previous_payments_note: '',
+        previous_invoices_list: [],
         advance_note: '700/pax',
         advance_received: 2000,
         total_due_amount: 3400,
@@ -156,6 +162,18 @@ export default function InvoicesPage() {
         send_whatsapp: true,
         template_id: ''
     });
+
+    // Lead Portfolio Invoices & Payment Timings Modal State
+    const [leadInvoicesModalOpen, setLeadInvoicesModalOpen] = useState(false);
+    const [selectedLeadForInvoices, setSelectedLeadForInvoices] = useState(null);
+    const [leadInvoicesData, setLeadInvoicesData] = useState(null);
+    const [loadingLeadInvoices, setLoadingLeadInvoices] = useState(false);
+
+    // Lead's previous invoices & deduction tracking when creating invoice
+    const [leadPreviousInvoices, setLeadPreviousInvoices] = useState([]);
+    const [leadInvoicesSummary, setLeadInvoicesSummary] = useState(null);
+    const [loadingPreviousInvoices, setLoadingPreviousInvoices] = useState(false);
+    const [deductPreviousPayments, setDeductPreviousPayments] = useState(true);
 
     // View / Print Modal State
     const [printModalOpen, setPrintModalOpen] = useState(false);
@@ -305,6 +323,8 @@ export default function InvoicesPage() {
             '{{booking_date}}': inv.departure_date_text || inv.invoice_date || 'As scheduled',
             '{{pickup_drop}}': inv.pickup_drop || 'Canning',
             '{{total_amount}}': Number(inv.subtotal || 0).toLocaleString('en-IN'),
+            '{{discount_amount}}': Number(inv.discount_amount || 0).toLocaleString('en-IN'),
+            '{{discount}}': Number(inv.discount_amount || 0).toLocaleString('en-IN'),
             '{{advance_amount}}': Number(inv.advance_received || 0).toLocaleString('en-IN'),
             '{{due_amount}}': Number(inv.total_due_amount || 0).toLocaleString('en-IN'),
             '{{advance_note}}': inv.advance_note || '',
@@ -406,18 +426,22 @@ export default function InvoicesPage() {
         }, 50);
     };
 
-    // Auto-calculate Totals when items, GST, discount, or advance changes
-    const recalculateTotals = (items, gstPercent, discount, advance) => {
+    // Auto-calculate Totals when items, GST, discount, advance, or previously paid changes
+    const recalculateTotals = (items, gstPercent, discount, advance, previouslyPaid = null) => {
         const itemSum = items.reduce((acc, it) => acc + (parseFloat(it.amount) || 0), 0);
         const gstP = parseFloat(gstPercent) || 0;
         const gstVal = gstP > 0 ? (itemSum * (gstP / 100)) : 0;
         const discVal = parseFloat(discount) || 0;
+        const prevPaid = previouslyPaid !== null && previouslyPaid !== undefined
+            ? (parseFloat(previouslyPaid) || 0)
+            : (parseFloat(invoiceForm.previously_paid_amount) || 0);
         const advVal = parseFloat(advance) || 0;
-        const totalDue = Math.max(0, itemSum + gstVal - discVal - advVal);
+        const totalDue = Math.max(0, itemSum + gstVal - discVal - prevPaid - advVal);
 
         let status = 'pending';
-        if (totalDue <= 0 && itemSum > 0) status = 'paid';
-        else if (advVal > 0) status = 'partial';
+        if (totalDue <= 0 && itemSum > 0 && advVal <= 0) status = 'paid';
+        else if (advVal > 0) status = 'advance_pending';
+        else if (prevPaid > 0 && totalDue > 0) status = 'partial';
         else status = 'pending';
 
         return {
@@ -441,6 +465,7 @@ export default function InvoicesPage() {
         gstPercent = 0,
         discountAmount = 0,
         advanceReceived = 0,
+        previouslyPaidAmount = null,
         packagesList = packageSuggestions
     }) => {
         const adultsCount = Math.max(0, parseInt(adults, 10) || 0);
@@ -456,7 +481,11 @@ export default function InvoicesPage() {
         let pkgRate = Number(packagePrice) || 2700;
 
         if (packageName && packageName !== '__custom__' && Array.isArray(packagesList) && packagesList.length > 0) {
-            const matched = packagesList.find(p => (p.name === packageName || p.title === packageName));
+            const cleanTarget = packageName.trim().toLowerCase();
+            const matched = packagesList.find(p => (
+                (p.name && p.name.trim().toLowerCase() === cleanTarget) ||
+                (p.title && p.title.trim().toLowerCase() === cleanTarget)
+            ));
             if (matched) {
                 pkgRate = Number(matched.actual_price || matched.base_price || matched.price || pkgRate);
                 pkgTitle = matched.name || matched.title || pkgTitle;
@@ -468,6 +497,7 @@ export default function InvoicesPage() {
         const acRoomsCount = roomsList.filter(r => r.type === 'ac').length;
         const nonAcRoomsCount = roomsList.filter(r => r.type === 'non_ac').length;
         const totalAcExtraCharge = roomsList.reduce((sum, r) => sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0);
+        const totalBedExtraCharge = roomsList.reduce((sum, r) => sum + (Number(r.bed_charge) || 0), 0);
 
         let roomSummaryText = '';
         if (roomsList.length > 0) {
@@ -498,16 +528,27 @@ export default function InvoicesPage() {
             // AC Charges item if applicable
             if (totalAcExtraCharge > 0) {
                 items.push({
-                    sn: 2,
+                    sn: items.length + 1,
                     description: `AC Room Surcharge (${acRoomsCount} AC Room${acRoomsCount > 1 ? 's' : ''})`,
                     rate: totalAcExtraCharge,
                     person: '',
                     amount: totalAcExtraCharge
                 });
             }
+
+            // Bed Charges item if applicable
+            if (totalBedExtraCharge > 0) {
+                items.push({
+                    sn: items.length + 1,
+                    description: `Bedding / Extra Mattress Surcharge`,
+                    rate: totalBedExtraCharge,
+                    person: '',
+                    amount: totalBedExtraCharge
+                });
+            }
         }
 
-        const calcs = recalculateTotals(items, gstPercent, discountAmount, advanceReceived);
+        const calcs = recalculateTotals(items, gstPercent, discountAmount, advanceReceived, previouslyPaidAmount);
 
         return {
             items,
@@ -693,7 +734,7 @@ export default function InvoicesPage() {
     // Room Builder Handlers
     const handleInvoiceAddRoom = () => {
         const nextRooms = [...(invoiceForm.rooms || [])];
-        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0 });
+        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 });
 
         const sync = syncInvoiceItemsAndTotals({
             packageName: invoiceForm.package_name,
@@ -847,7 +888,9 @@ export default function InvoicesPage() {
                 id: Date.now() + i,
                 room_number: r.room_number || i + 1,
                 type: r.type === 'ac' ? 'ac' : 'non_ac',
-                extra_charge: Number(r.extra_charge) || 0
+                extra_charge: Number(r.extra_charge) || 0,
+                bed_type: r.bed_type || 'Double Bed',
+                bed_charge: Number(r.bed_charge) || 0
             }));
         } else {
             const acMatch = note.match(/(\d+)\s*AC/i);
@@ -862,8 +905,35 @@ export default function InvoicesPage() {
                 id: Date.now() + i,
                 room_number: i + 1,
                 type: i < acCount ? 'ac' : 'non_ac',
-                extra_charge: 0
+                extra_charge: 0,
+                bed_type: 'Double Bed',
+                bed_charge: 0
             }));
+        }
+
+        // Discount extraction from lead fields or conversion note
+        let leadDiscount = 0;
+        if (lead.discount_amount !== undefined && lead.discount_amount !== null && !isNaN(parseFloat(lead.discount_amount))) {
+            leadDiscount = parseFloat(lead.discount_amount);
+        } else if (lead.extra_discount !== undefined && lead.extra_discount !== null && !isNaN(parseFloat(lead.extra_discount))) {
+            leadDiscount = parseFloat(lead.extra_discount);
+        } else if (lead.discount !== undefined && lead.discount !== null && !isNaN(parseFloat(lead.discount))) {
+            leadDiscount = parseFloat(lead.discount);
+        } else {
+            const discMatch = note.match(/Discount:\s*₹?\s*(\d+(?:\.\d+)?)/i) || note.match(/\bdisc(?:ount)?\s*[:=-]?\s*₹?\s*(\d+(?:\.\d+)?)/i);
+            if (discMatch) {
+                leadDiscount = parseFloat(discMatch[1]) || 0;
+            }
+        }
+
+        // If no explicit discount note was found, but converted_amount is lower than expected sum, calculate discount
+        if (leadDiscount === 0 && lead.converted_amount) {
+            const rawConverted = parseFloat(lead.converted_amount);
+            const totalRoomExtras = initialRooms.reduce((s, r) => s + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0) + (Number(r.bed_charge) || 0), 0);
+            const expectedSum = (pkgRate * billablePax) + totalRoomExtras;
+            if (rawConverted > 0 && expectedSum > rawConverted) {
+                leadDiscount = Math.round(expectedSum - rawConverted);
+            }
         }
 
         const sync = syncInvoiceItemsAndTotals({
@@ -875,6 +945,7 @@ export default function InvoicesPage() {
             infants: infantsCount,
             rooms: initialRooms,
             advanceReceived: advanceAmt,
+            discountAmount: leadDiscount,
             packagesList: packagesList
         });
 
@@ -909,7 +980,7 @@ export default function InvoicesPage() {
                 subtotal: sync.subtotal,
                 gst_percent: 0,
                 gst_amount: sync.gst_amount,
-                discount_amount: 0,
+                discount_amount: leadDiscount,
                 advance_note: `${Math.round(advanceAmt / Math.max(1, sync.billablePax))}/pax`,
                 advance_received: advanceAmt,
                 total_due_amount: sync.total_due_amount,
@@ -977,8 +1048,46 @@ export default function InvoicesPage() {
                 setSelectedConvertedLeadId(selectedLeadId);
                 setCreateMode('converted');
                 setCreateModalOpen(true);
+
+                // Fetch previous invoices for this lead to check for payments to deduct
+                const prevRes = await fetchLeadPreviousInvoices(leadToUse.contact_id || leadToUse.id, leadToUse.phone || leadToUse.wa_id);
+                if (prevRes?.summary?.total_paid_so_far > 0) {
+                    const prevPaid = prevRes.summary.total_paid_so_far;
+                    const paidNumbers = (prevRes.summary.paid_invoices_list || []).map(p => p.invoice_no).join(', ');
+                    const note = `Deduction from previous payment(s) (${paidNumbers})`;
+                    const calcs = recalculateTotals(
+                        formData.items,
+                        formData.gst_percent,
+                        formData.discount_amount,
+                        formData.advance_received,
+                        prevPaid
+                    );
+                    setInvoiceForm(prev => ({
+                        ...prev,
+                        previously_paid_amount: prevPaid,
+                        previous_payments_note: note,
+                        previous_invoices_list: prevRes.summary.paid_invoices_list || [],
+                        subtotal: calcs.subtotal,
+                        gst_amount: calcs.gst_amount,
+                        total_due_amount: calcs.total_due_amount,
+                        payment_status: calcs.payment_status
+                    }));
+                    setDeductPreviousPayments(true);
+                } else {
+                    setInvoiceForm(prev => ({
+                        ...prev,
+                        previously_paid_amount: 0,
+                        previous_payments_note: '',
+                        previous_invoices_list: []
+                    }));
+                    setDeductPreviousPayments(false);
+                }
             } else {
-                const defaultRooms = [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0 }];
+                setLeadPreviousInvoices([]);
+                setLeadInvoicesSummary(null);
+                setDeductPreviousPayments(false);
+
+                const defaultRooms = [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 }];
                 const firstPackage = currentPkgs?.length > 0 ? (currentPkgs[0].name || currentPkgs[0].title) : '2N 3D Sundarban Safari Special Package';
                 const firstPkgPrice = currentPkgs?.length > 0 ? Number(currentPkgs[0].actual_price || currentPkgs[0].base_price || 2700) : 2700;
 
@@ -1020,6 +1129,9 @@ export default function InvoicesPage() {
                     gst_percent: 0,
                     gst_amount: sync.gst_amount,
                     discount_amount: 0,
+                    previously_paid_amount: 0,
+                    previous_payments_note: '',
+                    previous_invoices_list: [],
                     advance_note: '700/pax',
                     advance_received: 2000,
                     total_due_amount: sync.total_due_amount,
@@ -1049,10 +1161,76 @@ export default function InvoicesPage() {
         }
     }, [createForLeadParam, token]);
 
+    // Format date-time helper for exact payment timing display
+    const formatDateTime = (dt) => {
+        if (!dt) return '—';
+        try {
+            const d = new Date(dt);
+            if (isNaN(d.getTime())) return String(dt);
+            return d.toLocaleString('en-IN', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: true
+            });
+        } catch (e) {
+            return String(dt);
+        }
+    };
+
+    // Fetch previous invoices for a contact to deduct or review
+    const fetchLeadPreviousInvoices = async (contactId, phone = '') => {
+        if (!token || (!contactId && !phone)) return { invoices: [], summary: null };
+        setLoadingPreviousInvoices(true);
+        try {
+            const query = phone ? `?phone=${encodeURIComponent(phone)}` : '';
+            const cId = contactId || 0;
+            const res = await axiosGet(`${getInvoicesByContactUrl}${cId}${query}`, token);
+            if (res?.status && Array.isArray(res.invoices)) {
+                setLeadPreviousInvoices(res.invoices);
+                setLeadInvoicesSummary(res.summary || null);
+                return { invoices: res.invoices, summary: res.summary };
+            } else {
+                setLeadPreviousInvoices([]);
+                setLeadInvoicesSummary(null);
+                return { invoices: [], summary: null };
+            }
+        } catch (err) {
+            console.error('Error fetching lead previous invoices:', err);
+            setLeadPreviousInvoices([]);
+            setLeadInvoicesSummary(null);
+            return { invoices: [], summary: null };
+        } finally {
+            setLoadingPreviousInvoices(false);
+        }
+    };
+
+    // Open Portfolio Invoices Modal for a lead
+    const handleOpenLeadInvoicesModal = (contactId, phone = '', customerName = '') => {
+        setSelectedLeadForInvoices({ contactId, phone, customerName });
+        setLeadInvoicesModalOpen(true);
+    };
+
+    // Auto-open lead invoices modal when lead_invoices query param is present
+    useEffect(() => {
+        if (leadInvoicesParam && token) {
+            const phone = searchParams.get('phone') || '';
+            const name = searchParams.get('name') || '';
+            handleOpenLeadInvoicesModal(leadInvoicesParam, phone, name);
+        }
+    }, [leadInvoicesParam, token]);
+
     // When admin selects a converted lead from the dropdown
-    const handleSelectConvertedLead = (leadId) => {
+    const handleSelectConvertedLead = async (leadId) => {
         setSelectedConvertedLeadId(leadId);
-        if (!leadId) return;
+        if (!leadId) {
+            setLeadPreviousInvoices([]);
+            setLeadInvoicesSummary(null);
+            setDeductPreviousPayments(false);
+            return;
+        }
 
         const lead = convertedLeads.find(l => String(l.contact_id || l.id) === String(leadId));
         if (!lead) return;
@@ -1072,6 +1250,105 @@ export default function InvoicesPage() {
             template_id: prev.template_id || formData.template_id
         }));
         setSelectedConvertedLeadId(selectedLeadId);
+
+        // Check for previous invoices & payments for this lead
+        const prevRes = await fetchLeadPreviousInvoices(lead.contact_id || lead.id, lead.phone || lead.wa_id);
+        if (prevRes?.summary?.total_paid_so_far > 0) {
+            const prevPaid = prevRes.summary.total_paid_so_far;
+            const paidNumbers = (prevRes.summary.paid_invoices_list || []).map(p => p.invoice_no).join(', ');
+            const note = `Deduction from previous payment(s) (${paidNumbers})`;
+            const calcs = recalculateTotals(
+                formData.items,
+                formData.gst_percent,
+                formData.discount_amount,
+                formData.advance_received,
+                prevPaid
+            );
+            setInvoiceForm(prev => ({
+                ...prev,
+                previously_paid_amount: prevPaid,
+                previous_payments_note: note,
+                previous_invoices_list: prevRes.summary.paid_invoices_list || [],
+                subtotal: calcs.subtotal,
+                gst_amount: calcs.gst_amount,
+                total_due_amount: calcs.total_due_amount,
+                payment_status: calcs.payment_status
+            }));
+            setDeductPreviousPayments(true);
+        } else {
+            setInvoiceForm(prev => ({
+                ...prev,
+                previously_paid_amount: 0,
+                previous_payments_note: '',
+                previous_invoices_list: []
+            }));
+            setDeductPreviousPayments(false);
+        }
+    };
+
+    // Toggle deduction of previous payments
+    const handleToggleDeductPreviousPayments = (checked) => {
+        setDeductPreviousPayments(checked);
+        if (checked && leadInvoicesSummary?.total_paid_so_far > 0) {
+            const prevPaid = leadInvoicesSummary.total_paid_so_far;
+            const paidNumbers = (leadInvoicesSummary.paid_invoices_list || []).map(p => p.invoice_no).join(', ');
+            const note = `Deduction from previous payment(s) (${paidNumbers})`;
+            const calcs = recalculateTotals(
+                invoiceForm.items,
+                invoiceForm.gst_percent,
+                invoiceForm.discount_amount,
+                invoiceForm.advance_received,
+                prevPaid
+            );
+            setInvoiceForm(prev => ({
+                ...prev,
+                previously_paid_amount: prevPaid,
+                previous_payments_note: note,
+                previous_invoices_list: leadInvoicesSummary.paid_invoices_list || [],
+                subtotal: calcs.subtotal,
+                gst_amount: calcs.gst_amount,
+                total_due_amount: calcs.total_due_amount,
+                payment_status: calcs.payment_status
+            }));
+        } else {
+            const calcs = recalculateTotals(
+                invoiceForm.items,
+                invoiceForm.gst_percent,
+                invoiceForm.discount_amount,
+                invoiceForm.advance_received,
+                0
+            );
+            setInvoiceForm(prev => ({
+                ...prev,
+                previously_paid_amount: 0,
+                previous_payments_note: '',
+                previous_invoices_list: [],
+                subtotal: calcs.subtotal,
+                gst_amount: calcs.gst_amount,
+                total_due_amount: calcs.total_due_amount,
+                payment_status: calcs.payment_status
+            }));
+        }
+    };
+
+    // Handle manual edit of previously paid amount
+    const handlePreviouslyPaidChange = (val) => {
+        const num = parseFloat(val) || 0;
+        const calcs = recalculateTotals(
+            invoiceForm.items,
+            invoiceForm.gst_percent,
+            invoiceForm.discount_amount,
+            invoiceForm.advance_received,
+            num
+        );
+        setInvoiceForm(prev => ({
+            ...prev,
+            previously_paid_amount: val,
+            subtotal: calcs.subtotal,
+            gst_amount: calcs.gst_amount,
+            total_due_amount: calcs.total_due_amount,
+            payment_status: calcs.payment_status
+        }));
     };
 
     // Dynamic Item Rows Add / Edit / Remove
@@ -1085,7 +1362,13 @@ export default function InvoicesPage() {
             updated[index].amount = r * p;
         }
 
-        const calcs = recalculateTotals(updated, invoiceForm.gst_percent, invoiceForm.discount_amount, invoiceForm.advance_received);
+        const calcs = recalculateTotals(
+            updated, 
+            invoiceForm.gst_percent, 
+            invoiceForm.discount_amount, 
+            invoiceForm.advance_received, 
+            invoiceForm.previously_paid_amount
+        );
         setInvoiceForm(prev => ({
             ...prev,
             items: updated,
@@ -1100,7 +1383,13 @@ export default function InvoicesPage() {
         const nextSn = invoiceForm.items.length + 1;
         const newRow = { sn: nextSn, description: 'AC / Boat / Extra Charges', rate: 1000, person: '', amount: 1000 };
         const updated = [...invoiceForm.items, newRow];
-        const calcs = recalculateTotals(updated, invoiceForm.gst_percent, invoiceForm.discount_amount, invoiceForm.advance_received);
+        const calcs = recalculateTotals(
+            updated, 
+            invoiceForm.gst_percent, 
+            invoiceForm.discount_amount, 
+            invoiceForm.advance_received, 
+            invoiceForm.previously_paid_amount
+        );
         setInvoiceForm(prev => ({
             ...prev,
             items: updated,
@@ -1117,7 +1406,13 @@ export default function InvoicesPage() {
             return;
         }
         const updated = invoiceForm.items.filter((_, idx) => idx !== index).map((it, idx) => ({ ...it, sn: idx + 1 }));
-        const calcs = recalculateTotals(updated, invoiceForm.gst_percent, invoiceForm.discount_amount, invoiceForm.advance_received);
+        const calcs = recalculateTotals(
+            updated, 
+            invoiceForm.gst_percent, 
+            invoiceForm.discount_amount, 
+            invoiceForm.advance_received, 
+            invoiceForm.previously_paid_amount
+        );
         setInvoiceForm(prev => ({
             ...prev,
             items: updated,
@@ -1135,7 +1430,8 @@ export default function InvoicesPage() {
             updatedForm.items,
             field === 'gst_percent' ? val : updatedForm.gst_percent,
             field === 'discount_amount' ? val : updatedForm.discount_amount,
-            field === 'advance_received' ? val : updatedForm.advance_received
+            field === 'advance_received' ? val : updatedForm.advance_received,
+            field === 'previously_paid_amount' ? val : updatedForm.previously_paid_amount
         );
         setInvoiceForm({
             ...updatedForm,
@@ -1270,14 +1566,14 @@ _Thank you for choosing Delta Safari!_`;
         const adv = parseFloat(inv.advance_received) || 0;
         
         let initialStatus = inv.payment_status || 'pending';
-        if (!initialStatus || initialStatus === 'pending') {
-            initialStatus = due <= 0 ? 'paid' : (adv > 0 ? 'partial' : 'pending');
+        if (!inv.payment_status) {
+            initialStatus = due <= 0 ? 'paid' : (adv > 0 ? 'advance_pending' : 'pending');
         }
 
         setPaymentForm({
             payment_status: initialStatus,
             payment_method: inv.payment_method || 'UPI',
-            amount_paid: due > 0 ? due : (adv > 0 ? adv : ''),
+            amount_paid: initialStatus === 'advance_pending' ? (adv > 0 ? adv : '') : (due > 0 ? due : (adv > 0 ? adv : '')),
             payment_note: inv.payment_note || '',
             proof_file: inv.payment_proof_file || '',
             proof_file_name: inv.payment_proof_file ? 'Uploaded Receipt' : ''
@@ -1574,9 +1870,10 @@ _Thank you for choosing Delta Safari!_`;
                                 onChange={(e) => setPaymentStatusFilter(e.target.value)}
                             >
                                 <option value="">All Statuses</option>
-                                <option value="pending">Pending Verification</option>
+                                <option value="advance_pending">Advance Pending</option>
+                                <option value="partial">Advance Paid</option>
                                 <option value="paid">Paid in Full</option>
-                                <option value="partial">Partial / Advance Paid</option>
+                                <option value="pending">Pending Verification</option>
                                 <option value="unpaid">Unpaid / Full Due</option>
                             </select>
                         </div>
@@ -1693,6 +1990,17 @@ _Thank you for choosing Delta Safari!_`;
                                                     <i className="ri ri-whatsapp-fill"></i>
                                                     <span>+{inv.customer_phone}</span>
                                                 </a>
+                                                {inv.contact_invoices_count > 1 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => handleOpenLeadInvoicesModal(inv.contact_id, inv.customer_phone, inv.customer_name)}
+                                                        className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2 py-0.5 mt-1 d-inline-flex align-items-center gap-1 cursor-pointer"
+                                                        title="Click to view all invoices and payment history for this lead"
+                                                    >
+                                                        <i className="ri ri-file-list-3-line"></i>
+                                                        <span>{inv.contact_invoices_count} Invoices for Lead</span>
+                                                    </button>
+                                                )}
                                             </div>
                                         </td>
 
@@ -1716,9 +2024,19 @@ _Thank you for choosing Delta Safari!_`;
 
                                         {/* Billed */}
                                         <td>
-                                            <strong className="text-dark">
+                                            <strong className="text-dark d-block">
                                                 ₹{inv.subtotal}
                                             </strong>
+                                            {Number(inv.discount_amount) > 0 && (
+                                                <small className="text-danger d-block font-monospace" style={{ fontSize: '11px' }}>
+                                                    Disc: -₹{inv.discount_amount}
+                                                </small>
+                                            )}
+                                            {Number(inv.previously_paid_amount) > 0 && (
+                                                <span className="badge bg-info-subtle text-info border border-info-subtle rounded-pill px-1.5 py-0.2 mt-0.5 font-monospace d-inline-block" style={{ fontSize: '10px' }} title={inv.previous_payments_note || ''}>
+                                                    Prev: -₹{Number(inv.previously_paid_amount).toLocaleString('en-IN')}
+                                                </span>
+                                            )}
                                         </td>
 
                                         {/* Advance */}
@@ -1742,17 +2060,27 @@ _Thank you for choosing Delta Safari!_`;
                                                     <span className="badge bg-success rounded-pill px-2.5 py-1">
                                                         <i className="ri ri-checkbox-circle-fill me-1"></i>Paid in Full
                                                     </span>
+                                                ) : inv.payment_status === 'advance_pending' ? (
+                                                    <span className="badge bg-warning text-dark rounded-pill px-2.5 py-1 shadow-2xs">
+                                                        <i className="ri ri-time-fill me-1"></i>Advance Pending
+                                                    </span>
                                                 ) : inv.payment_status === 'partial' ? (
                                                     <span className="badge bg-info text-white rounded-pill px-2.5 py-1">
-                                                        <i className="ri ri-pie-chart-2-fill me-1"></i>Advance Paid
+                                                        <i className="ri ri-checkbox-circle-fill me-1"></i>Advance Paid
                                                     </span>
                                                 ) : inv.payment_status === 'pending' ? (
-                                                    <span className="badge bg-warning text-dark rounded-pill px-2.5 py-1">
-                                                        <i className="ri ri-time-fill me-1"></i>Pending Verification
+                                                    <span className="badge bg-secondary text-white rounded-pill px-2.5 py-1">
+                                                        <i className="ri ri-time-line me-1"></i>Pending Verification
                                                     </span>
                                                 ) : (
                                                     <span className="badge bg-danger rounded-pill px-2.5 py-1">
                                                         <i className="ri ri-close-circle-fill me-1"></i>Unpaid / Due
+                                                    </span>
+                                                )}
+                                                {inv.paid_timing && (
+                                                    <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0.5 d-inline-flex align-items-center gap-0.5" style={{ fontSize: '10px' }} title="Exact Confirmed Payment Timing">
+                                                        <i className="ri ri-time-line"></i>
+                                                        <span>{formatDateTime(inv.paid_timing)}</span>
                                                     </span>
                                                 )}
                                                 {inv.payment_method && (
@@ -1911,6 +2239,46 @@ _Thank you for choosing Delta Safari!_`;
                                                             </button>
                                                         </li>
 
+                                                        {/* View Lead Invoices Portfolio */}
+                                                        <li>
+                                                            <button
+                                                                type="button"
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                onClick={() => {
+                                                                    setActiveDropdownId(null);
+                                                                    handleOpenLeadInvoicesModal(inv.contact_id, inv.customer_phone, inv.customer_name);
+                                                                }}
+                                                            >
+                                                                <span className="badge bg-primary bg-opacity-10 text-primary p-1.5 rounded-2">
+                                                                    <i className="ri ri-file-list-3-line fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">All Invoices for Lead</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>View all payments &amp; timings</small>
+                                                                </div>
+                                                            </button>
+                                                        </li>
+
+                                                        {/* Create Another Invoice for this Lead */}
+                                                        <li>
+                                                            <button
+                                                                type="button"
+                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                onClick={() => {
+                                                                    setActiveDropdownId(null);
+                                                                    handleOpenCreateModal(inv.contact_id);
+                                                                }}
+                                                            >
+                                                                <span className="badge bg-success bg-opacity-10 text-success p-1.5 rounded-2">
+                                                                    <i className="ri ri-add-circle-line fs-6"></i>
+                                                                </span>
+                                                                <div>
+                                                                    <div className="fw-semibold small text-dark">Create Another Invoice</div>
+                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Auto-minus already paid</small>
+                                                                </div>
+                                                            </button>
+                                                        </li>
+
                                                         {/* 6. Delete Invoice (Super Admin only - Employees cannot delete) */}
                                                         {Number(user?.admin) === 1 && (
                                                             <>
@@ -2051,9 +2419,123 @@ _Thank you for choosing Delta Safari!_`;
                                                 <small className="text-muted d-block mt-1">
                                                     Selecting a converted lead automatically fills in customer name, phone, package rate, pax, and travel dates.
                                                 </small>
+                                                {(() => {
+                                                    if (!selectedConvertedLeadId) return null;
+                                                    return (
+                                                        <div className="mt-2 pt-2 border-top d-flex align-items-center flex-wrap gap-2">
+                                                            <span className="badge bg-primary-subtle text-primary border border-primary-subtle rounded-pill px-2.5 py-1">
+                                                                <i className="ri ri-checkbox-circle-line me-1"></i> Lead Auto-Loaded
+                                                            </span>
+                                                            {Number(invoiceForm.discount_amount) > 0 && (
+                                                                <span className="badge bg-danger-subtle text-danger border border-danger-subtle rounded-pill px-2.5 py-1 fw-bold">
+                                                                    <i className="ri ri-price-tag-3-line me-1"></i> Special Discount: ₹{Number(invoiceForm.discount_amount).toLocaleString('en-IN')} Applied
+                                                                </span>
+                                                            )}
+                                                            {Number(invoiceForm.advance_received) > 0 && (
+                                                                <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1">
+                                                                    <i className="ri ri-wallet-3-line me-1"></i> Advance: ₹{Number(invoiceForm.advance_received).toLocaleString('en-IN')}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         )}
                                     </div>
+
+                                    {/* Previous Invoices Found Alert & Deduction Selector */}
+                                    {loadingPreviousInvoices && (
+                                        <div className="p-3 bg-light rounded-4 mb-4 border text-center">
+                                            <span className="spinner-border spinner-border-sm text-primary me-2" role="status"></span>
+                                            <span className="small text-muted">Checking previous invoices &amp; payments for this lead...</span>
+                                        </div>
+                                    )}
+
+                                    {leadPreviousInvoices.length > 0 && (
+                                        <div className="card border-info border-opacity-50 rounded-4 mb-4 overflow-hidden shadow-2xs">
+                                            <div className="card-header bg-info bg-opacity-10 border-bottom border-info border-opacity-25 py-2.5 px-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                                <div className="d-flex align-items-center gap-2">
+                                                    <span className="badge bg-info text-dark rounded-pill px-2.5 py-1 fw-bold">
+                                                        <i className="ri ri-history-line me-1"></i> {leadPreviousInvoices.length} Existing Invoice{leadPreviousInvoices.length > 1 ? 's' : ''} Found
+                                                    </span>
+                                                    <span className="small text-dark fw-semibold">
+                                                        Total Previously Paid: <strong className="text-success font-monospace">₹{Number(leadInvoicesSummary?.total_paid_so_far || 0).toLocaleString('en-IN')}</strong>
+                                                    </span>
+                                                </div>
+                                                <div className="form-check form-switch m-0">
+                                                    <input 
+                                                        className="form-check-input" 
+                                                        type="checkbox" 
+                                                        role="switch" 
+                                                        id="deductPrevPaymentsSwitch"
+                                                        checked={deductPreviousPayments}
+                                                        onChange={(e) => handleToggleDeductPreviousPayments(e.target.checked)}
+                                                    />
+                                                    <label className="form-check-label small fw-bold text-dark cursor-pointer" htmlFor="deductPrevPaymentsSwitch">
+                                                        Minus Paid Amount from New Invoice
+                                                    </label>
+                                                </div>
+                                            </div>
+
+                                            <div className="table-responsive bg-white">
+                                                <table className="table table-sm table-hover align-middle mb-0" style={{ fontSize: '11.5px' }}>
+                                                    <thead className="table-light text-muted">
+                                                        <tr>
+                                                            <th className="ps-3">Invoice #</th>
+                                                            <th>Date</th>
+                                                            <th>Package</th>
+                                                            <th>Billed Amount</th>
+                                                            <th>Paid Amount</th>
+                                                            <th>Exact Payment Timing</th>
+                                                            <th>Status</th>
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {leadPreviousInvoices.map((pinv) => (
+                                                            <tr key={pinv.id} className="border-bottom">
+                                                                <td className="ps-3 fw-bold font-monospace text-primary">{pinv.invoice_no}</td>
+                                                                <td>{pinv.invoice_date}</td>
+                                                                <td className="text-truncate" style={{ maxWidth: '160px' }}>{pinv.package_name || 'Safari Package'}</td>
+                                                                <td>₹{Number(pinv.subtotal || 0).toLocaleString('en-IN')}</td>
+                                                                <td className="text-success fw-bold font-monospace">₹{Number(pinv.amount_paid || 0).toLocaleString('en-IN')}</td>
+                                                                <td>
+                                                                    {pinv.paid_timing ? (
+                                                                        <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2 py-0.5">
+                                                                            <i className="ri ri-time-line me-1"></i>{formatDateTime(pinv.paid_timing)}
+                                                                        </span>
+                                                                    ) : (
+                                                                        <span className="text-muted fst-italic">Pending</span>
+                                                                    )}
+                                                                </td>
+                                                                <td>
+                                                                    <span className={`badge rounded-pill ${pinv.payment_status === 'paid' ? 'bg-success' : pinv.payment_status === 'partial' || pinv.payment_status === 'advance_pending' ? 'bg-warning text-dark' : 'bg-danger'}`}>
+                                                                        {pinv.payment_status?.toUpperCase()}
+                                                                    </span>
+                                                                </td>
+                                                            </tr>
+                                                        ))}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+
+                                            {deductPreviousPayments && Number(invoiceForm.previously_paid_amount) > 0 ? (
+                                                <div className="p-2.5 bg-success bg-opacity-10 border-top border-success border-opacity-25 d-flex align-items-center justify-content-between flex-wrap gap-2">
+                                                    <span className="small text-success fw-semibold">
+                                                        <i className="ri ri-checkbox-circle-fill me-1"></i>
+                                                        ₹{Number(invoiceForm.previously_paid_amount).toLocaleString('en-IN')} will be subtracted from this invoice's due amount and mentioned on the PDF.
+                                                    </span>
+                                                    <span className="badge bg-success text-white rounded-pill px-2.5 py-0.5" style={{ fontSize: '11px' }}>
+                                                        Auto-Deduction Active
+                                                    </span>
+                                                </div>
+                                            ) : (
+                                                <div className="p-2.5 bg-light border-top text-muted small">
+                                                    <i className="ri ri-information-line me-1 text-info"></i>
+                                                    Previous payment deduction is currently disabled for this invoice. Toggle switch above to minus paid amounts.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
 
                                     {/* Invoice Number & Date */}
                                     <div className="row g-3 mb-4">
@@ -2278,30 +2760,16 @@ _Thank you for choosing Delta Safari!_`;
 
                                                     <div className="d-flex flex-column gap-2" style={{ maxHeight: '200px', overflowY: 'auto' }}>
                                                         {(invoiceForm.rooms || []).map((rm, rIdx) => (
-                                                            <div key={rm.id || rIdx} className="p-2 bg-white rounded-3 border shadow-2xs">
+                                                            <div key={rm.id || rIdx} className="p-2.5 bg-white rounded-3 border shadow-2xs d-flex flex-column gap-2">
+                                                                {/* Header */}
                                                                 <div className="d-flex align-items-center justify-content-between flex-wrap gap-2">
-                                                                    <span className="badge bg-dark text-white rounded-pill px-2 py-0.5" style={{ fontSize: '11px' }}>
-                                                                        Room #{rIdx + 1}
-                                                                    </span>
-
-                                                                    {/* AC / Non-AC Tab Selector */}
-                                                                    <div className="btn-group btn-group-sm" role="group">
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleInvoiceRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
-                                                                            className={`btn btn-xs rounded-start-pill px-2.5 ${rm.type === 'non_ac' ? 'btn-secondary text-white' : 'btn-outline-secondary'}`}
-                                                                            style={{ fontSize: '11px' }}
-                                                                        >
-                                                                            Non-AC
-                                                                        </button>
-                                                                        <button
-                                                                            type="button"
-                                                                            onClick={() => handleInvoiceRoomChange(rIdx, { type: 'ac', extra_charge: rm.extra_charge || 0 })}
-                                                                            className={`btn btn-xs rounded-end-pill px-2.5 ${rm.type === 'ac' ? 'btn-primary text-white' : 'btn-outline-primary'}`}
-                                                                            style={{ fontSize: '11px', backgroundColor: rm.type === 'ac' ? '#0066cc' : '', borderColor: '#0066cc' }}
-                                                                        >
-                                                                            ❄️ AC Room
-                                                                        </button>
+                                                                    <div className="d-flex align-items-center gap-1.5">
+                                                                        <span className="badge bg-dark text-white rounded-pill px-2 py-0.5" style={{ fontSize: '11px' }}>
+                                                                            Room #{rIdx + 1}
+                                                                        </span>
+                                                                        <span className="badge bg-light text-muted border px-2 py-0.5 rounded-pill" style={{ fontSize: '10.5px' }}>
+                                                                            {rm.type === 'ac' ? `AC (+₹${rm.extra_charge || 0})` : 'Non-AC'} • {rm.bed_type || 'Double Bed'}{Number(rm.bed_charge) > 0 ? ` (+₹${rm.bed_charge})` : ''}
+                                                                        </span>
                                                                     </div>
 
                                                                     {/* Remove Room Button */}
@@ -2318,32 +2786,115 @@ _Thank you for choosing Delta Safari!_`;
                                                                     )}
                                                                 </div>
 
-                                                                {/* Extra AC Charge Input when AC is chosen */}
-                                                                {rm.type === 'ac' && (
-                                                                    <div className="mt-2 pt-2 border-top d-flex align-items-center justify-content-between gap-2">
-                                                                        <label className="form-label small text-muted mb-0 fw-semibold" style={{ fontSize: '11px' }}>
-                                                                            <i className="ri ri-money-dollar-circle-line text-success me-1"></i>
-                                                                            Extra AC Charge (₹):
-                                                                        </label>
-                                                                        <div className="input-group input-group-sm" style={{ maxWidth: '140px' }}>
-                                                                            <span className="input-group-text bg-light border-end-0 py-0 px-2 small">₹</span>
-                                                                            <input
-                                                                                type="number"
-                                                                                min="0"
-                                                                                className="form-control form-control-sm text-end fw-bold font-monospace"
-                                                                                placeholder="0"
-                                                                                value={rm.extra_charge}
-                                                                                onChange={(e) => handleInvoiceRoomChange(rIdx, { extra_charge: e.target.value })}
-                                                                            />
+                                                                {/* Row 1: AC / Non-AC & Extra Charge */}
+                                                                <div className="row g-2 align-items-center">
+                                                                    <div className="col-12 col-md-5">
+                                                                        <div className="btn-group btn-group-sm w-100" role="group">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleInvoiceRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
+                                                                                className={`btn btn-xs rounded-start-pill px-2.5 flex-fill ${rm.type === 'non_ac' ? 'btn-secondary text-white' : 'btn-outline-secondary'}`}
+                                                                                style={{ fontSize: '11px' }}
+                                                                            >
+                                                                                Non-AC
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => handleInvoiceRoomChange(rIdx, { type: 'ac', extra_charge: rm.extra_charge || 0 })}
+                                                                                className={`btn btn-xs rounded-end-pill px-2.5 flex-fill ${rm.type === 'ac' ? 'btn-primary text-white' : 'btn-outline-primary'}`}
+                                                                                style={{ fontSize: '11px', backgroundColor: rm.type === 'ac' ? '#0066cc' : '', borderColor: '#0066cc' }}
+                                                                            >
+                                                                                ❄️ AC Room
+                                                                            </button>
                                                                         </div>
                                                                     </div>
-                                                                )}
+                                                                    <div className="col-12 col-md-7">
+                                                                        {rm.type === 'ac' ? (
+                                                                            <div className="d-flex align-items-center gap-1.5">
+                                                                                <label className="form-label small text-muted mb-0 fw-semibold text-nowrap" style={{ fontSize: '11px' }}>
+                                                                                    Extra AC (₹):
+                                                                                </label>
+                                                                                <div className="input-group input-group-sm">
+                                                                                    <span className="input-group-text bg-light border-end-0 py-0 px-2 small">₹</span>
+                                                                                    <input
+                                                                                        type="number"
+                                                                                        min="0"
+                                                                                        className="form-control form-control-sm text-end fw-bold font-monospace"
+                                                                                        placeholder="0"
+                                                                                        value={rm.extra_charge}
+                                                                                        onChange={(e) => handleInvoiceRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
+                                                                                    />
+                                                                                </div>
+                                                                            </div>
+                                                                        ) : (
+                                                                            <span className="small text-muted fst-italic ps-1" style={{ fontSize: '11px' }}>Standard Non-AC</span>
+                                                                        )}
+                                                                    </div>
+                                                                </div>
+
+                                                                {/* Row 2: Bed Type & Bed Extra Charge */}
+                                                                <div className="row g-2 align-items-center pt-1.5 border-top">
+                                                                    <div className="col-12 col-md-6">
+                                                                        <div className="d-flex align-items-center gap-1.5">
+                                                                            <label className="form-label small text-muted mb-0 fw-semibold text-nowrap" style={{ fontSize: '11px' }}>
+                                                                                <i className="ri ri-hotel-bed-line text-info me-1"></i>Bed:
+                                                                            </label>
+                                                                            <select
+                                                                                className="form-select form-select-sm"
+                                                                                value={rm.bed_type || 'Double Bed'}
+                                                                                onChange={(e) => handleInvoiceRoomChange(rIdx, { bed_type: e.target.value })}
+                                                                                style={{ fontSize: '11px' }}
+                                                                            >
+                                                                                <option value="Double Bed">Double Bed</option>
+                                                                                <option value="Twin Beds">Twin Beds</option>
+                                                                                <option value="Triple Bed">Triple Bed</option>
+                                                                                <option value="Family Suite">Family Suite</option>
+                                                                                <option value="King Bed + Extra Mattress">King Bed + Extra Mattress</option>
+                                                                                <option value="Extra Bed / Mattress">Extra Bed / Mattress</option>
+                                                                                <option value="Single Bed">Single Bed</option>
+                                                                                <option value="Custom Bedding">Custom Bedding</option>
+                                                                            </select>
+                                                                        </div>
+                                                                    </div>
+                                                                    <div className="col-12 col-md-6">
+                                                                        <div className="d-flex align-items-center gap-1.5">
+                                                                            <label className="form-label small text-info mb-0 fw-semibold text-nowrap" style={{ fontSize: '11px' }}>
+                                                                                Bed (₹):
+                                                                            </label>
+                                                                            <div className="input-group input-group-sm">
+                                                                                <span className="input-group-text bg-light border-end-0 py-0 px-2 small">₹</span>
+                                                                                <input
+                                                                                    type="number"
+                                                                                    min="0"
+                                                                                    className="form-control form-control-sm text-end fw-bold font-monospace"
+                                                                                    placeholder="0"
+                                                                                    value={rm.bed_charge !== undefined ? rm.bed_charge : 0}
+                                                                                    onChange={(e) => handleInvoiceRoomChange(rIdx, { bed_charge: Number(e.target.value) || 0 })}
+                                                                                />
+                                                                            </div>
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
                                                             </div>
                                                         ))}
                                                     </div>
-                                                    <small className="text-muted d-block mt-1.5" style={{ fontSize: '11px' }}>
-                                                        Summary: <strong className="text-dark">{invoiceForm.room_required}</strong>
-                                                    </small>
+                                                    <div className="d-flex align-items-center justify-content-between mt-2 pt-1 border-top flex-wrap gap-2" style={{ fontSize: '11px' }}>
+                                                        <span className="text-muted">
+                                                            Summary: <strong className="text-dark">{invoiceForm.room_required}</strong>
+                                                        </span>
+                                                        <div className="d-flex align-items-center gap-1.5 flex-wrap">
+                                                            {(invoiceForm.rooms || []).some(r => r.type === 'ac' && Number(r.extra_charge) > 0) && (
+                                                                <span className="badge bg-primary bg-opacity-10 text-primary px-2 py-0.5 rounded-pill">
+                                                                    AC Extra: +₹{(invoiceForm.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
+                                                                </span>
+                                                            )}
+                                                            {(invoiceForm.rooms || []).some(r => Number(r.bed_charge) > 0) && (
+                                                                <span className="badge bg-info bg-opacity-10 text-info px-2 py-0.5 rounded-pill">
+                                                                    Bed Extra: +₹{(invoiceForm.rooms || []).reduce((acc, r) => acc + (Number(r.bed_charge) || 0), 0)}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
                                                 </div>
 
                                                 {/* Customer Email & Food Preference */}
@@ -2492,21 +3043,75 @@ _Thank you for choosing Delta Safari!_`;
 
                                                 {/* Discount */}
                                                 <div className="d-flex justify-content-between align-items-center mb-2">
-                                                    <span className="small text-muted">Less Discount (₹):</span>
-                                                    <input
-                                                        type="number"
-                                                        min="0"
-                                                        className="form-control form-control-sm rounded-2 text-end p-1"
-                                                        style={{ width: '100px' }}
-                                                        value={invoiceForm.discount_amount}
-                                                        onChange={(e) => handleFinancialChange('discount_amount', e.target.value)}
-                                                    />
+                                                    <div className="d-flex align-items-center gap-1">
+                                                        <span className="small text-muted">Less Discount:</span>
+                                                        <div className="input-group input-group-sm" style={{ width: '110px' }}>
+                                                            <span className="input-group-text p-1 text-muted" style={{ fontSize: '11px' }}>₹</span>
+                                                            <input
+                                                                type="number"
+                                                                min="0"
+                                                                className="form-control form-control-sm rounded-end-2 text-end p-1 fw-bold text-danger"
+                                                                placeholder="0"
+                                                                value={invoiceForm.discount_amount}
+                                                                onChange={(e) => handleFinancialChange('discount_amount', e.target.value)}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <span className="small font-monospace text-danger fw-bold">
+                                                        {Number(invoiceForm.discount_amount) > 0 ? `- ₹${Number(invoiceForm.discount_amount).toLocaleString('en-IN')}` : '₹0'}
+                                                    </span>
                                                 </div>
 
-                                                {/* Advance Received */}
+                                                {/* Net Amount / Due Breakdown if Discount > 0 */}
+                                                {Number(invoiceForm.discount_amount) > 0 && (
+                                                    <div className="d-flex justify-content-between align-items-center py-1.5 px-2 mb-2 bg-white rounded-2 border border-danger-subtle">
+                                                        <span className="small text-muted">
+                                                            <i className="ri ri-price-tag-3-fill text-danger me-1"></i>
+                                                            Total After Discount:
+                                                        </span>
+                                                        <strong className="small font-monospace text-dark">
+                                                            ₹{(Math.max(0, (parseFloat(invoiceForm.subtotal) || 0) + (parseFloat(invoiceForm.gst_amount) || 0) - (parseFloat(invoiceForm.discount_amount) || 0))).toLocaleString('en-IN')}
+                                                        </strong>
+                                                    </div>
+                                                )}
+
+                                                {/* Less: Previously Paid Amount (-) */}
+                                                <div className="d-flex justify-content-between align-items-center mb-2 pb-1 border-bottom border-dashed">
+                                                    <div>
+                                                        <span className="small text-muted d-block fw-semibold">
+                                                            <i className="ri ri-subtract-line text-danger me-1"></i>
+                                                            Less: Previously Paid (-):
+                                                        </span>
+                                                        <input
+                                                            type="text"
+                                                            className="form-control form-control-sm rounded-2 p-1"
+                                                            style={{ width: '130px', fontSize: '11px' }}
+                                                            placeholder="e.g. Paid in INV-123"
+                                                            value={invoiceForm.previous_payments_note || ''}
+                                                            onChange={(e) => setInvoiceForm({ ...invoiceForm, previous_payments_note: e.target.value })}
+                                                        />
+                                                    </div>
+                                                    <div className="text-end">
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            className="form-control form-control-sm rounded-2 text-end p-1 text-danger fw-bold"
+                                                            style={{ width: '100px' }}
+                                                            value={invoiceForm.previously_paid_amount || 0}
+                                                            onChange={(e) => handlePreviouslyPaidChange(e.target.value)}
+                                                        />
+                                                        {Number(invoiceForm.previously_paid_amount) > 0 && (
+                                                            <small className="text-danger d-block font-monospace mt-0.5" style={{ fontSize: '10.5px' }}>
+                                                                -₹{Number(invoiceForm.previously_paid_amount).toLocaleString('en-IN')}
+                                                            </small>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                {/* Advance Payment */}
                                                 <div className="d-flex justify-content-between align-items-center mb-2">
                                                     <div>
-                                                        <span className="small text-muted d-block">Advance Received (-):</span>
+                                                        <span className="small text-muted d-block">Advance Payment (-):</span>
                                                         <input
                                                             type="text"
                                                             className="form-control form-control-sm rounded-2 p-1"
@@ -2525,6 +3130,17 @@ _Thank you for choosing Delta Safari!_`;
                                                         onChange={(e) => handleFinancialChange('advance_received', e.target.value)}
                                                     />
                                                 </div>
+
+                                                {parseFloat(invoiceForm.advance_received) > 0 && (
+                                                    <div className="d-flex justify-content-between align-items-center mb-2 p-1.5 rounded-2 bg-warning bg-opacity-10 border border-warning-subtle">
+                                                        <span className="badge bg-warning text-dark px-2 py-0.5" style={{ fontSize: '10px' }}>
+                                                            <i className="ri ri-time-fill me-1"></i>Status: Advance Pending
+                                                        </span>
+                                                        <small className="text-dark fw-semibold" style={{ fontSize: '10.5px' }}>
+                                                            Razorpay link will be for ₹{(parseFloat(invoiceForm.advance_received) || 0).toLocaleString('en-IN')}
+                                                        </small>
+                                                    </div>
+                                                )}
 
                                                 {/* Total Due Amount */}
                                                 <div className="d-flex justify-content-between align-items-center pt-2 border-top border-2 border-dark">
@@ -2746,9 +3362,11 @@ _Thank you for choosing Delta Safari!_`;
                                         <label className="form-label small fw-bold text-dark mb-0">
                                             Select WhatsApp Template:
                                         </label>
-                                        <Link href="/crm/invoices/config" className="small text-primary fw-semibold" target="_blank">
-                                            Manage Templates <i className="ri ri-external-link-line"></i>
-                                        </Link>
+                                        {Number(user?.admin) === 1 && (
+                                            <Link href="/crm/invoices/config" className="small text-primary fw-semibold" target="_blank">
+                                                Manage Templates <i className="ri ri-external-link-line"></i>
+                                            </Link>
+                                        )}
                                     </div>
                                     <select
                                         className="form-select rounded-3"
@@ -2884,6 +3502,11 @@ _Thank you for choosing Delta Safari!_`;
                                                         (parseFloat(selectedInvoiceForPayment.discount_amount) || 0)
                                                     )}
                                                 </div>
+                                                {Number(selectedInvoiceForPayment.discount_amount) > 0 && (
+                                                    <small className="text-danger d-block font-monospace" style={{ fontSize: '11px' }}>
+                                                        (Disc: -₹{selectedInvoiceForPayment.discount_amount})
+                                                    </small>
+                                                )}
                                             </div>
                                             <div className="col-6 col-md-3">
                                                 <span className="text-muted small">Advance Received:</span>
@@ -2902,10 +3525,12 @@ _Thank you for choosing Delta Safari!_`;
                                                 <div>
                                                     {selectedInvoiceForPayment.payment_status === 'paid' ? (
                                                         <span className="badge bg-success rounded-pill px-2 py-0.5">Paid in Full</span>
+                                                    ) : selectedInvoiceForPayment.payment_status === 'advance_pending' ? (
+                                                        <span className="badge bg-warning text-dark rounded-pill px-2 py-0.5">Advance Pending</span>
                                                     ) : selectedInvoiceForPayment.payment_status === 'partial' ? (
                                                         <span className="badge bg-info text-white rounded-pill px-2 py-0.5">Advance Paid</span>
                                                     ) : selectedInvoiceForPayment.payment_status === 'pending' ? (
-                                                        <span className="badge bg-warning text-dark rounded-pill px-2 py-0.5">Pending</span>
+                                                        <span className="badge bg-secondary text-white rounded-pill px-2 py-0.5">Pending</span>
                                                     ) : (
                                                         <span className="badge bg-danger rounded-pill px-2 py-0.5">Unpaid</span>
                                                     )}
@@ -2921,9 +3546,10 @@ _Thank you for choosing Delta Safari!_`;
                                         </label>
                                         <div className="row g-2">
                                             {[
+                                                { key: 'advance_pending', label: 'Advance Pending', desc: 'Advance payment link generated, awaiting customer payment', color: 'warning' },
+                                                { key: 'partial', label: 'Advance Paid / Partial', desc: 'Advance received & confirmed, remaining balance due on arrival', color: 'info' },
                                                 { key: 'paid', label: 'Paid in Full (Settled)', desc: 'Mark entire balance due as paid', color: 'success' },
-                                                { key: 'partial', label: 'Partial Payment', desc: 'Advance received, balance remaining', color: 'info' },
-                                                { key: 'pending', label: 'Pending Verification', desc: 'Initial invoice status awaiting verification', color: 'warning' },
+                                                { key: 'pending', label: 'Pending Verification', desc: 'Initial invoice status awaiting verification', color: 'secondary' },
                                                 { key: 'unpaid', label: 'Unpaid / Due', desc: 'Payment not yet received', color: 'danger' }
                                             ].map(st => (
                                                 <div key={st.key} className="col-12 col-sm-6">
@@ -2934,6 +3560,8 @@ _Thank you for choosing Delta Safari!_`;
                                                                 payment_status: st.key,
                                                                 amount_paid: st.key === 'paid' 
                                                                     ? (parseFloat(selectedInvoiceForPayment.total_due_amount) || '')
+                                                                    : (st.key === 'partial' || st.key === 'advance_pending') && selectedInvoiceForPayment.advance_received
+                                                                    ? (parseFloat(selectedInvoiceForPayment.advance_received) || '')
                                                                     : prev.amount_paid
                                                             }));
                                                         }}
@@ -2980,7 +3608,13 @@ _Thank you for choosing Delta Safari!_`;
                                                 />
                                             </div>
                                             <small className="text-muted" style={{ fontSize: '11px' }}>
-                                                {paymentForm.payment_status === 'paid' ? 'Full balance due will be cleared' : 'Amount to add to collected advance'}
+                                                {paymentForm.payment_status === 'paid'
+                                                    ? 'Full balance due will be cleared'
+                                                    : paymentForm.payment_status === 'partial'
+                                                    ? 'Advance amount confirmed; balance will remain due on arrival'
+                                                    : paymentForm.payment_status === 'advance_pending'
+                                                    ? 'Advance amount requested from customer'
+                                                    : 'Amount to adjust against invoice'}
                                             </small>
                                         </div>
 
@@ -3084,8 +3718,8 @@ _Thank you for choosing Delta Safari!_`;
                                                             <tr key={ph.id || phIdx}>
                                                                 <td>{formatDate(ph.created_at)}</td>
                                                                 <td>
-                                                                    <span className={`badge ${ph.payment_status === 'paid' ? 'bg-success' : ph.payment_status === 'partial' ? 'bg-info' : ph.payment_status === 'pending' ? 'bg-warning text-dark' : 'bg-danger'} rounded-pill px-2 py-0.5`}>
-                                                                        {ph.payment_status?.toUpperCase()}
+                                                                    <span className={`badge ${ph.payment_status === 'paid' ? 'bg-success' : ph.payment_status === 'advance_pending' ? 'bg-warning text-dark' : ph.payment_status === 'partial' ? 'bg-info text-white' : ph.payment_status === 'pending' ? 'bg-secondary text-white' : 'bg-danger'} rounded-pill px-2 py-0.5`}>
+                                                                        {ph.payment_status === 'advance_pending' ? 'ADVANCE PENDING' : ph.payment_status === 'partial' ? 'ADVANCE PAID' : ph.payment_status?.toUpperCase()}
                                                                     </span>
                                                                 </td>
                                                                 <td className="fw-semibold">{ph.payment_method || '—'}</td>
@@ -3143,6 +3777,23 @@ _Thank you for choosing Delta Safari!_`;
                     </div>
                 </div>
             )}
+
+            {/* 7. Lead Invoices & Payment Timings Modal */}
+            <LeadInvoicesModal
+                isOpen={leadInvoicesModalOpen}
+                onClose={() => setLeadInvoicesModalOpen(false)}
+                contactId={selectedLeadForInvoices?.contactId}
+                phone={selectedLeadForInvoices?.phone}
+                customerName={selectedLeadForInvoices?.customerName}
+                token={token}
+                onCreateNewInvoice={(cId) => {
+                    handleOpenCreateModal(cId);
+                }}
+                onViewInvoicePrint={(inv) => {
+                    setSelectedInvoiceToPrint(inv);
+                    setPrintModalOpen(true);
+                }}
+            />
         </div>
     );
 }

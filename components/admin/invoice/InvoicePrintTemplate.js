@@ -72,6 +72,25 @@ export default function InvoicePrintTemplate({ invoice, config }) {
         }
     };
 
+    const formatDateTime = (dStr) => {
+        if (!dStr) return '';
+        try {
+            const d = new Date(dStr);
+            if (isNaN(d.getTime())) return dStr;
+            const day = String(d.getDate()).padStart(2, '0');
+            const month = String(d.getMonth() + 1).padStart(2, '0');
+            const year = d.getFullYear();
+            let hours = d.getHours();
+            const minutes = String(d.getMinutes()).padStart(2, '0');
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12;
+            hours = hours ? hours : 12; // 0 should be 12
+            return `${day}/${month}/${year} at ${String(hours).padStart(2, '0')}:${minutes} ${ampm}`;
+        } catch (e) {
+            return dStr;
+        }
+    };
+
     return (
         <div className="invoice-container-outer bg-white text-dark mx-auto" style={{
             width: '100%',
@@ -292,19 +311,35 @@ export default function InvoicePrintTemplate({ invoice, config }) {
                                 {/* Discount row */}
                                 <tr>
                                     <td style={{ borderRight: '1px solid #000000' }}></td>
-                                    <td style={{ padding: '3px 0 3px 6px', fontWeight: '500' }}>Add :</td>
-                                    <td colSpan={2} style={{ padding: '3px 4px', borderRight: '1px solid #000000' }}>Discount</td>
+                                    <td style={{ padding: '3px 0 3px 6px', fontWeight: '500' }}>Less :</td>
+                                    <td colSpan={2} style={{ padding: '3px 4px', borderRight: '1px solid #000000' }}>Discount (-)</td>
                                     <td style={{ width: '110px', textAlign: 'center', padding: '3px 6px' }}>
                                         {invoice.discount_amount !== undefined && invoice.discount_amount !== null ? invoice.discount_amount : 0}
                                     </td>
                                 </tr>
 
+                                {/* Previously Paid Amount row (if multiple invoices / installments exist) */}
+                                {Number(invoice.previously_paid_amount) > 0 && (
+                                    <tr style={{ borderBottom: '1px solid #000000' }}>
+                                        <td style={{ borderRight: '1px solid #000000' }}></td>
+                                        <td style={{ padding: '3px 0 3px 6px', fontWeight: '500' }}>Less :</td>
+                                        <td colSpan={2} style={{ padding: '3px 4px', borderRight: '1px solid #000000' }}>
+                                            Previously Paid Amount (-) {invoice.previous_payments_note ? `[${invoice.previous_payments_note}]` : ''}
+                                        </td>
+                                        <td style={{ width: '110px', textAlign: 'center', padding: '3px 6px', fontWeight: 'bold' }}>
+                                            {invoice.previously_paid_amount}
+                                        </td>
+                                    </tr>
+                                )}
+
                                 {/* Advance Received row */}
                                 <tr style={{ borderBottom: '1px solid #000000' }}>
                                     <td style={{ borderRight: '1px solid #000000' }}></td>
-                                    <td style={{ padding: '3px 0 3px 6px', fontWeight: '500' }}>Add :</td>
+                                    <td style={{ padding: '3px 0 3px 6px', fontWeight: '500' }}>Less :</td>
                                     <td colSpan={2} style={{ padding: '3px 4px', borderRight: '1px solid #000000' }}>
-                                        Advance Received(-) {invoice.advance_note || ''}
+                                        {invoice.payment_status === 'advance_pending'
+                                            ? `Advance Required (-) ${invoice.advance_note || ''}`
+                                            : `Advance Received (-) ${invoice.advance_note || ''}`}
                                     </td>
                                     <td style={{ width: '110px', textAlign: 'center', padding: '3px 6px' }}>
                                         {invoice.advance_received !== undefined && invoice.advance_received !== null ? invoice.advance_received : 0}
@@ -324,6 +359,41 @@ export default function InvoicePrintTemplate({ invoice, config }) {
                         </table>
                     </div>
                 </div>
+
+                {/* Payment Receipts, Deduction Details & Timing Record */}
+                {(Number(invoice.previously_paid_amount) > 0 || invoice.payment_verified_at || invoice.payment_status === 'paid' || invoice.payment_status === 'partial') && (
+                    <div style={{ marginBottom: '12px', border: '1px solid #16a34a', borderRadius: '4px', overflow: 'hidden', backgroundColor: '#f0fdf4' }}>
+                        <div style={{ padding: '3px 8px', backgroundColor: '#dcfce7', borderBottom: '1px solid #16a34a', fontSize: '10.5px', fontWeight: 'bold', color: '#166534', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>✓ OFFICIAL PAYMENT RECEIPTS &amp; SETTLEMENT TIMINGS</span>
+                            <span style={{ fontSize: '9.5px', textTransform: 'uppercase', padding: '1px 6px', backgroundColor: '#16a34a', color: '#ffffff', borderRadius: '10px' }}>
+                                {invoice.payment_status === 'paid' ? 'Paid in Full' : invoice.payment_status === 'partial' ? 'Advance Paid' : (invoice.payment_status || 'Partial')}
+                            </span>
+                        </div>
+                        <div style={{ padding: '6px 8px', fontSize: '10px', color: '#14532d', lineHeight: '1.4' }}>
+                            {Number(invoice.previously_paid_amount) > 0 && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px', paddingBottom: '3px', borderBottom: '1px dashed #86efac' }}>
+                                    <span>
+                                        <strong>Previous Payment(s) Deducted:</strong> {invoice.previous_payments_note ? `[${invoice.previous_payments_note}]` : 'Credited towards booking balance'}
+                                    </span>
+                                    <span style={{ fontWeight: 'bold' }}>
+                                        - ₹{Number(invoice.previously_paid_amount).toLocaleString('en-IN')}
+                                    </span>
+                                </div>
+                            )}
+                            {(invoice.payment_status === 'paid' || invoice.payment_status === 'partial' || Number(invoice.advance_received) > 0) && (
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '4px' }}>
+                                    <span>
+                                        <strong>{invoice.payment_status === 'paid' ? 'Current Payment Settled:' : 'Advance Received:'}</strong> ₹{Number(invoice.payment_status === 'paid' ? (Number(invoice.subtotal || 0) + Number(invoice.gst_amount || 0) - Number(invoice.discount_amount || 0) - Number(invoice.previously_paid_amount || 0)) : (invoice.advance_received || 0)).toLocaleString('en-IN')} via <strong>{invoice.payment_method || 'Online / Razorpay'}</strong>
+                                        {invoice.payment_note ? ` (${invoice.payment_note})` : ''}
+                                    </span>
+                                    <span style={{ fontStyle: 'italic', fontWeight: '500' }}>
+                                        Confirmed Timing: <strong>{formatDateTime(invoice.payment_verified_at || invoice.created_at)}</strong>
+                                    </span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {/* 5. Account Details */}
                 <div style={{ marginBottom: '14px', fontSize: '10.5px', lineHeight: '1.4' }}>

@@ -53,11 +53,7 @@ const SignIn = () => {
           const userPerms = res?.permissions || [];
           dispatch(updatePermision({ permisions: userPerms }));
           showMessage("success", "Admin authentication successful!");
-          if (res?.userDetails?.admin === 2 && !userPerms.includes('/dashboard') && !userPerms.includes('*')) {
-            route.push("/crm/whatsapp");
-          } else {
-            route.push("/");
-          }
+          route.push("/crm/calendar");
         } else {
           const msg = res?.msg || "Authentication failed. Please verify credentials.";
           setServerError(msg);

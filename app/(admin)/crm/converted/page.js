@@ -3,18 +3,24 @@
 import React, { useState, useEffect } from 'react';
 import { useSelector } from 'react-redux';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { 
     getFollowupsListUrl, 
     getFollowupStatsUrl, 
     reopenLeadUrl,
-    getFollowupLogsUrl
+    getFollowupLogsUrl,
+    getInvoiceConfigUrl
 } from '@/app/routes/whatsappRoutes';
 import { axiosGet, axiosPost } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
 import LoadingComponent from '@/components/common/LoadingComponent';
 import NotFound from '@/components/common/NotFound';
+import InvoicePrintTemplate from '@/components/admin/invoice/InvoicePrintTemplate';
+import LeadInvoicesModal from '@/components/admin/invoice/LeadInvoicesModal';
+import { printInvoiceDocument } from '@/libs/printHelper';
 
 export default function ConvertedLeadsPage() {
+    const router = useRouter();
     const token = useSelector((state) => state.adminAuth?.token);
     const user = useSelector((state) => state.adminAuth?.user);
     const isSuperAdmin = user?.admin === 1;
@@ -38,6 +44,15 @@ export default function ConvertedLeadsPage() {
     const [selectedContactLogs, setSelectedContactLogs] = useState([]);
     const [selectedContactInfo, setSelectedContactInfo] = useState(null);
     const [activeDropdownId, setActiveDropdownId] = useState(null);
+
+    // Lead Invoices & Payment Timings Modal State
+    const [leadInvoicesModalOpen, setLeadInvoicesModalOpen] = useState(false);
+    const [selectedLeadForInvoices, setSelectedLeadForInvoices] = useState(null);
+
+    // View / Print Modal State
+    const [printModalOpen, setPrintModalOpen] = useState(false);
+    const [selectedInvoiceToPrint, setSelectedInvoiceToPrint] = useState(null);
+    const [invoiceConfig, setInvoiceConfig] = useState(null);
 
     // Click outside to close actions dropdown
     useEffect(() => {
@@ -101,10 +116,28 @@ export default function ConvertedLeadsPage() {
         }
     };
 
+    const fetchInvoiceConfig = async () => {
+        if (!token) return;
+        try {
+            const res = await axiosGet(getInvoiceConfigUrl, token);
+            if (res?.status && res?.data) {
+                setInvoiceConfig(res.data);
+            }
+        } catch (e) {
+            console.error('Error fetching invoice config:', e);
+        }
+    };
+
+    const handleOpenLeadInvoices = (contactId, phone = '', customerName = '') => {
+        setSelectedLeadForInvoices({ contactId, phone, customerName });
+        setLeadInvoicesModalOpen(true);
+    };
+
     useEffect(() => {
         if (token) {
             fetchConvertedLeads(1);
             fetchStats();
+            fetchInvoiceConfig();
         }
     }, [token, user]);
 
@@ -333,6 +366,7 @@ export default function ConvertedLeadsPage() {
                                 <tr>
                                     <th className="ps-4">Customer &amp; Contact</th>
                                     <th>Booked Package &amp; Deal Rate</th>
+                                    <th>Invoices &amp; Payments</th>
                                     <th>Travel Destination &amp; Date</th>
                                     <th>Converted Date &amp; Staff</th>
                                     <th>Conversion Remarks</th>
@@ -386,6 +420,58 @@ export default function ConvertedLeadsPage() {
                                                     <span className="fw-bold text-dark d-block fs-6">
                                                         ₹{item.converted_amount || item.package_rate}
                                                     </span>
+                                                )}
+                                            </div>
+                                        </td>
+
+                                        {/* Invoices & Payments */}
+                                        <td>
+                                            <div>
+                                                {Number(item.total_invoices_count) > 0 ? (
+                                                    <div>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleOpenLeadInvoices(item.contact_id || item.id, item.phone || item.wa_id, item.lead_name || item.name)}
+                                                            className="badge bg-primary text-white border-0 rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1 shadow-2xs mb-1 cursor-pointer"
+                                                            title="Click to view all invoices and payment history"
+                                                        >
+                                                            <i className="ri ri-file-list-3-line"></i>
+                                                            <span>{item.total_invoices_count} Invoice{item.total_invoices_count > 1 ? 's' : ''}</span>
+                                                        </button>
+                                                        <div className="small">
+                                                            <span className="text-success fw-bold font-monospace d-block" style={{ fontSize: '11.5px' }}>
+                                                                Paid: ₹{Number(item.total_invoices_paid_amount || 0).toLocaleString('en-IN')}
+                                                            </span>
+                                                            {Number(item.total_invoices_due_amount) > 0 ? (
+                                                                <span className="text-danger fw-semibold font-monospace d-block" style={{ fontSize: '10.5px' }}>
+                                                                    Due: ₹{Number(item.total_invoices_due_amount).toLocaleString('en-IN')}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-success small d-block" style={{ fontSize: '10px' }}>
+                                                                    <i className="ri ri-checkbox-circle-fill me-0.5"></i>All Cleared
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                        {item.latest_payment_timing && (
+                                                            <small className="text-muted d-block mt-0.5" style={{ fontSize: '10px' }} title="Latest Payment Timing">
+                                                                <i className="ri ri-time-line text-success me-0.5"></i>{formatDateTime(item.latest_payment_timing)}
+                                                            </small>
+                                                        )}
+                                                    </div>
+                                                ) : (
+                                                    <div>
+                                                        <span className="badge bg-secondary bg-opacity-10 text-muted rounded-pill px-2 py-0.5 small mb-1 d-inline-block">
+                                                            No Invoices
+                                                        </span>
+                                                        <Link
+                                                            href={`/crm/invoices?create_for_lead=${item.contact_id || item.id}`}
+                                                            className="btn btn-xs btn-outline-primary rounded-pill px-2 py-0.5 d-inline-flex align-items-center gap-1 text-decoration-none d-block mt-0.5"
+                                                            style={{ fontSize: '11px', width: 'fit-content' }}
+                                                        >
+                                                            <i className="ri ri-add-line"></i>
+                                                            <span>Create Invoice</span>
+                                                        </Link>
+                                                    </div>
                                                 )}
                                             </div>
                                         </td>
@@ -457,32 +543,70 @@ export default function ConvertedLeadsPage() {
                                                     <ul
                                                         className="dropdown-menu dropdown-menu-end show border-0 shadow-lg rounded-3 py-2 position-absolute"
                                                         style={{
-                                                            right: 0,
-                                                            top: '100%',
-                                                            marginTop: '6px',
-                                                            zIndex: 1050,
-                                                            minWidth: '235px',
-                                                            boxShadow: '0 12px 32px rgba(15, 23, 42, 0.15)',
-                                                            border: '1px solid rgba(0,0,0,0.08)'
+                                                             right: 0,
+                                                             top: '100%',
+                                                             marginTop: '6px',
+                                                             zIndex: 1050,
+                                                             minWidth: '245px',
+                                                             boxShadow: '0 12px 32px rgba(15, 23, 42, 0.15)',
+                                                             border: '1px solid rgba(0,0,0,0.08)'
                                                         }}
                                                         onClick={(e) => e.stopPropagation()}
                                                     >
-                                                        {/* 1. Create Invoice */}
-                                                        <li>
-                                                            <Link
-                                                                href={`/crm/invoices?create_for_lead=${item.contact_id || item.id}`}
-                                                                className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
-                                                                onClick={() => setActiveDropdownId(null)}
-                                                            >
-                                                                <span className="badge bg-primary bg-opacity-10 text-primary p-1.5 rounded-2">
-                                                                    <i className="ri ri-file-list-3-line fs-6"></i>
-                                                                </span>
-                                                                <div>
-                                                                    <div className="fw-semibold small text-dark">Create Invoice</div>
-                                                                    <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Generate billing &amp; pay link</small>
-                                                                </div>
-                                                            </Link>
-                                                        </li>
+                                                        {/* Invoices Portfolio or Create Invoice */}
+                                                        {Number(item.total_invoices_count) > 0 ? (
+                                                            <>
+                                                                <li>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                        onClick={() => {
+                                                                            setActiveDropdownId(null);
+                                                                            handleOpenLeadInvoices(item.contact_id || item.id, item.phone || item.wa_id, item.lead_name || item.name);
+                                                                        }}
+                                                                    >
+                                                                        <span className="badge bg-primary bg-opacity-10 text-primary p-1.5 rounded-2">
+                                                                            <i className="ri ri-file-list-3-line fs-6"></i>
+                                                                        </span>
+                                                                        <div>
+                                                                            <div className="fw-semibold small text-dark">View Invoices ({item.total_invoices_count})</div>
+                                                                            <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Paid history &amp; exact timings</small>
+                                                                        </div>
+                                                                    </button>
+                                                                </li>
+                                                                <li>
+                                                                    <Link
+                                                                        href={`/crm/invoices?create_for_lead=${item.contact_id || item.id}`}
+                                                                        className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                        onClick={() => setActiveDropdownId(null)}
+                                                                    >
+                                                                        <span className="badge bg-success bg-opacity-10 text-success p-1.5 rounded-2">
+                                                                            <i className="ri ri-add-circle-line fs-6"></i>
+                                                                        </span>
+                                                                        <div>
+                                                                            <div className="fw-semibold small text-dark">Create Another Invoice</div>
+                                                                            <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Auto-minus already paid</small>
+                                                                        </div>
+                                                                    </Link>
+                                                                </li>
+                                                            </>
+                                                        ) : (
+                                                            <li>
+                                                                <Link
+                                                                    href={`/crm/invoices?create_for_lead=${item.contact_id || item.id}`}
+                                                                    className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                    onClick={() => setActiveDropdownId(null)}
+                                                                >
+                                                                    <span className="badge bg-primary bg-opacity-10 text-primary p-1.5 rounded-2">
+                                                                        <i className="ri ri-file-list-3-line fs-6"></i>
+                                                                    </span>
+                                                                    <div>
+                                                                        <div className="fw-semibold small text-dark">Create Invoice</div>
+                                                                        <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Generate billing &amp; pay link</small>
+                                                                    </div>
+                                                                </Link>
+                                                            </li>
+                                                        )}
 
                                                         {/* 2. Timeline Logs */}
                                                         <li>
@@ -644,6 +768,71 @@ export default function ConvertedLeadsPage() {
                             <div className="modal-footer bg-light py-2.5 px-4">
                                 <button type="button" className="btn btn-secondary btn-sm rounded-pill px-4" onClick={() => setLogsModalOpen(false)}>
                                     Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Lead Invoices & Payment Timings Modal */}
+            <LeadInvoicesModal
+                isOpen={leadInvoicesModalOpen}
+                onClose={() => setLeadInvoicesModalOpen(false)}
+                contactId={selectedLeadForInvoices?.contactId}
+                phone={selectedLeadForInvoices?.phone}
+                customerName={selectedLeadForInvoices?.customerName}
+                token={token}
+                onCreateNewInvoice={(cId) => {
+                    router.push(`/crm/invoices?create_for_lead=${cId}`);
+                }}
+                onViewInvoicePrint={(inv) => {
+                    setSelectedInvoiceToPrint(inv);
+                    setPrintModalOpen(true);
+                }}
+            />
+
+            {/* View / Print Invoice Modal */}
+            {printModalOpen && selectedInvoiceToPrint && (
+                <div 
+                    className="modal fade show d-block" 
+                    tabIndex="-1" 
+                    style={{ backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)', zIndex: 1065 }}
+                >
+                    <div className="modal-dialog modal-dialog-centered modal-lg">
+                        <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                            <div className="modal-header bg-white border-bottom py-3 px-4 d-flex align-items-center justify-content-between">
+                                <div>
+                                    <h5 className="modal-title fw-bold text-dark mb-0 d-flex align-items-center gap-2">
+                                        <i className="ri ri-printer-fill text-primary"></i>
+                                        <span>Official Safari Invoice — {selectedInvoiceToPrint.invoice_no}</span>
+                                    </h5>
+                                    <small className="text-muted">
+                                        Official billing receipt formatted 1:1 with Delta Safari standard
+                                    </small>
+                                </div>
+                                <button type="button" className="btn-close" onClick={() => setPrintModalOpen(false)} aria-label="Close"></button>
+                            </div>
+                            <div className="modal-body p-3 bg-secondary bg-opacity-10" style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+                                <div id="converted-invoice-printable-wrapper" className="d-flex justify-content-center">
+                                    <InvoicePrintTemplate 
+                                        invoice={selectedInvoiceToPrint} 
+                                        config={invoiceConfig} 
+                                    />
+                                </div>
+                            </div>
+                            <div className="modal-footer bg-light py-2.5 px-4 d-flex justify-content-between">
+                                <button type="button" className="btn btn-outline-secondary rounded-pill px-3" onClick={() => setPrintModalOpen(false)}>
+                                    Close
+                                </button>
+                                <button 
+                                    type="button" 
+                                    onClick={() => printInvoiceDocument('converted-invoice-printable-wrapper')} 
+                                    className="btn btn-primary rounded-pill px-4 d-inline-flex align-items-center gap-1.5 shadow-sm"
+                                    style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
+                                >
+                                    <i className="ri ri-printer-line"></i>
+                                    <span>Print / Save PDF</span>
                                 </button>
                             </div>
                         </div>

@@ -267,8 +267,12 @@ export default function PeakCalendarPage() {
         router.push(`/crm/bookings?date=${dateStr}`);
     };
 
-    // Open Add Peak Date Modal
+    // Open Add Peak Date Modal (Admin only)
     const handleOpenAddPeakModal = (initialDate = '') => {
+        if (!isSuperAdmin) {
+            showMessage('error', 'Only administrators can mark peak dates. Employees do not have this permission.');
+            return;
+        }
         const defaultDate = initialDate || selectedDateStr || new Date().toISOString().split('T')[0];
         setEditingPeakId(null);
         setPeakFormData({
@@ -283,8 +287,12 @@ export default function PeakCalendarPage() {
         setPeakModalOpen(true);
     };
 
-    // Open Edit Peak Date Modal
+    // Open Edit Peak Date Modal (Admin only)
     const handleOpenEditPeakModal = (peakItem) => {
+        if (!isSuperAdmin) {
+            showMessage('error', 'Only administrators can edit peak dates. Employees do not have this permission.');
+            return;
+        }
         setEditingPeakId(peakItem.id);
         setPeakFormData({
             title: peakItem.title || '',
@@ -298,9 +306,13 @@ export default function PeakCalendarPage() {
         setPeakModalOpen(true);
     };
 
-    // Submit Add / Edit Peak Date
+    // Submit Add / Edit Peak Date (Admin only)
     const handleSavePeakDate = async (e) => {
         e.preventDefault();
+        if (!isSuperAdmin) {
+            showMessage('error', 'Only administrators can mark or edit peak dates.');
+            return;
+        }
         if (!peakFormData.title?.trim()) {
             showMessage('error', 'Please enter peak date title.');
             return;
@@ -353,8 +365,12 @@ export default function PeakCalendarPage() {
         }
     };
 
-    // Delete Peak Date
+    // Delete Peak Date (Admin only)
     const handleDeletePeakDate = async (peakId) => {
+        if (!isSuperAdmin) {
+            showMessage('error', 'Only administrators can remove peak dates.');
+            return;
+        }
         if (!window.confirm("Are you sure you want to remove this peak date mark?")) {
             return;
         }
@@ -443,15 +459,17 @@ export default function PeakCalendarPage() {
                         <i className="ri ri-ticket-2-fill"></i>
                         <span>CRM Booking List</span>
                     </Link>
-                    <button
-                        type="button"
-                        onClick={() => handleOpenAddPeakModal()}
-                        className="btn btn-danger rounded-pill px-3.5 d-inline-flex align-items-center gap-1.5 shadow-sm"
-                        style={{ backgroundColor: '#dc2626', borderColor: '#dc2626' }}
-                    >
-                        <i className="ri ri-fire-fill"></i>
-                        <span>+ Mark Peak Dates</span>
-                    </button>
+                    {isSuperAdmin && (
+                        <button
+                            type="button"
+                            onClick={() => handleOpenAddPeakModal()}
+                            className="btn btn-danger rounded-pill px-3.5 d-inline-flex align-items-center gap-1.5 shadow-sm"
+                            style={{ backgroundColor: '#dc2626', borderColor: '#dc2626' }}
+                        >
+                            <i className="ri ri-fire-fill"></i>
+                            <span>+ Mark Peak Dates</span>
+                        </button>
+                    )}
                     <Link href="/crm/followups" className="btn btn-outline-primary rounded-pill px-3 d-inline-flex align-items-center gap-1.5 shadow-xs">
                         <i className="ri ri-calendar-check-line"></i>
                         <span>Lead Follow-ups</span>
@@ -929,14 +947,16 @@ export default function PeakCalendarPage() {
                                     <i className="ri ri-fire-fill"></i>
                                     <span>Peak Safari Dates ({peakDates.length})</span>
                                 </h5>
-                                <button 
-                                    type="button" 
-                                    onClick={() => handleOpenAddPeakModal()}
-                                    className="btn btn-sm btn-danger rounded-pill px-2.5 py-1"
-                                    style={{ fontSize: '11px' }}
-                                >
-                                    + Add Peak
-                                </button>
+                                {isSuperAdmin && (
+                                    <button 
+                                        type="button" 
+                                        onClick={() => handleOpenAddPeakModal()}
+                                        className="btn btn-sm btn-danger rounded-pill px-2.5 py-1"
+                                        style={{ fontSize: '11px' }}
+                                    >
+                                        + Add Peak
+                                    </button>
+                                )}
                             </div>
 
                             <div className="card-body p-0" style={{ maxHeight: '550px', overflowY: 'auto' }}>
@@ -947,13 +967,15 @@ export default function PeakCalendarPage() {
                                 ) : peakDates.length === 0 ? (
                                     <div className="p-4 text-center text-muted">
                                         <p className="mb-2">No peak safari dates configured yet.</p>
-                                        <button 
-                                            type="button" 
-                                            onClick={() => handleOpenAddPeakModal()}
-                                            className="btn btn-sm btn-outline-danger rounded-pill px-3"
-                                        >
-                                            Mark first peak date
-                                        </button>
+                                        {isSuperAdmin && (
+                                            <button 
+                                                type="button" 
+                                                onClick={() => handleOpenAddPeakModal()}
+                                                className="btn btn-sm btn-outline-danger rounded-pill px-3"
+                                            >
+                                                Mark first peak date
+                                            </button>
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="list-group list-group-flush">
@@ -984,26 +1006,28 @@ export default function PeakCalendarPage() {
                                                     )}
                                                 </div>
 
-                                                <div className="d-flex align-items-center gap-1.5">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleOpenEditPeakModal(peak)}
-                                                        className="btn btn-sm btn-outline-secondary rounded-circle p-1.5"
-                                                        title="Edit Peak Date"
-                                                        style={{ width: '32px', height: '32px' }}
-                                                    >
-                                                        <i className="ri ri-pencil-line"></i>
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleDeletePeakDate(peak.id)}
-                                                        className="btn btn-sm btn-outline-danger rounded-circle p-1.5"
-                                                        title="Delete Peak Date"
-                                                        style={{ width: '32px', height: '32px' }}
-                                                    >
-                                                        <i className="ri ri-delete-bin-line"></i>
-                                                    </button>
-                                                </div>
+                                                {isSuperAdmin && (
+                                                    <div className="d-flex align-items-center gap-1.5">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleOpenEditPeakModal(peak)}
+                                                            className="btn btn-sm btn-outline-secondary rounded-circle p-1.5"
+                                                            title="Edit Peak Date"
+                                                            style={{ width: '32px', height: '32px' }}
+                                                        >
+                                                            <i className="ri ri-pencil-line"></i>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => handleDeletePeakDate(peak.id)}
+                                                            className="btn btn-sm btn-outline-danger rounded-circle p-1.5"
+                                                            title="Delete Peak Date"
+                                                            style={{ width: '32px', height: '32px' }}
+                                                        >
+                                                            <i className="ri ri-delete-bin-line"></i>
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                         ))}
                                     </div>
@@ -1193,16 +1217,18 @@ export default function PeakCalendarPage() {
                                 {getPeakDatesForDate(selectedDateStr).length === 0 ? (
                                     <div className="p-3 bg-light rounded-3 text-center mb-1">
                                         <p className="text-muted small mb-2">This date is currently marked as Regular Standard Season.</p>
-                                        <button
-                                            type="button"
-                                            onClick={() => {
-                                                setDayDetailModalOpen(false);
-                                                handleOpenAddPeakModal(selectedDateStr);
-                                            }}
-                                            className="btn btn-sm btn-danger rounded-pill px-3 shadow-xs"
-                                        >
-                                            <i className="ri ri-fire-fill me-1"></i> Mark as Peak Date
-                                        </button>
+                                        {isSuperAdmin && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setDayDetailModalOpen(false);
+                                                    handleOpenAddPeakModal(selectedDateStr);
+                                                }}
+                                                className="btn btn-sm btn-danger rounded-pill px-3 shadow-xs"
+                                            >
+                                                <i className="ri ri-fire-fill me-1"></i> Mark as Peak Date
+                                            </button>
+                                        )}
                                     </div>
                                 ) : (
                                     <div className="d-flex flex-column gap-2 mb-1">
@@ -1215,25 +1241,27 @@ export default function PeakCalendarPage() {
                                                             {p.peak_type?.toUpperCase()} {p.surge_percentage > 0 && `(+${p.surge_percentage}% Surge)`}
                                                         </span>
                                                     </div>
-                                                    <div className="d-flex gap-1">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => {
-                                                                setDayDetailModalOpen(false);
-                                                                handleOpenEditPeakModal(p);
-                                                            }}
-                                                            className="btn btn-xs btn-outline-secondary rounded-pill px-2 py-1"
-                                                        >
-                                                            Edit
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleDeletePeakDate(p.id)}
-                                                            className="btn btn-xs btn-outline-danger rounded-pill px-2 py-1"
-                                                        >
-                                                            Delete
-                                                        </button>
-                                                    </div>
+                                                    {isSuperAdmin && (
+                                                        <div className="d-flex gap-1">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setDayDetailModalOpen(false);
+                                                                    handleOpenEditPeakModal(p);
+                                                                }}
+                                                                className="btn btn-xs btn-outline-secondary rounded-pill px-2 py-1"
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleDeletePeakDate(p.id)}
+                                                                className="btn btn-xs btn-outline-danger rounded-pill px-2 py-1"
+                                                            >
+                                                                Delete
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </div>
                                                 {p.notes && (
                                                     <small className="text-muted mt-1 d-block">
@@ -1266,16 +1294,18 @@ export default function PeakCalendarPage() {
                                             <i className="ri ri-ticket-2-fill me-1"></i> View {selectedDayBookings.length} Bookings
                                         </button>
                                     )}
-                                    <button 
-                                        type="button" 
-                                        onClick={() => {
-                                            setDayDetailModalOpen(false);
-                                            handleOpenAddPeakModal(selectedDateStr);
-                                        }}
-                                        className="btn btn-danger btn-sm rounded-pill px-3 shadow-xs"
-                                    >
-                                        + Mark Peak
-                                    </button>
+                                    {isSuperAdmin && (
+                                        <button 
+                                            type="button" 
+                                            onClick={() => {
+                                                setDayDetailModalOpen(false);
+                                                handleOpenAddPeakModal(selectedDateStr);
+                                            }}
+                                            className="btn btn-danger btn-sm rounded-pill px-3 shadow-xs"
+                                        >
+                                            + Mark Peak
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
@@ -1284,7 +1314,7 @@ export default function PeakCalendarPage() {
             )}
 
             {/* 7. ADD / EDIT PEAK DATE MODAL */}
-            {peakModalOpen && (
+            {peakModalOpen && isSuperAdmin && (
                 <div 
                     className="modal fade show d-block" 
                     tabIndex="-1" 

@@ -11,10 +11,11 @@ import {
     convertLeadUrl,
     reopenLeadUrl,
     getFollowupLogsUrl, 
-    getLeadManagersUrl 
+    getLeadManagersUrl,
+    deleteWhatsAppContactUrl
 } from '@/app/routes/whatsappRoutes';
 import { getAllPackageUrl } from '@/app/routes/packageRoutes';
-import { axiosGet, axiosPost } from '@/libs/axiosHelper';
+import { axiosGet, axiosPost, axiosDelete } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
 
 export default function LeadFollowupsPage() {
@@ -50,6 +51,7 @@ export default function LeadFollowupsPage() {
     const [toDate, setToDate] = useState('');
     const [dateFilterType, setDateFilterType] = useState('next_followup'); // 'next_followup', 'travel_date', 'last_followup', 'converted_at'
     const [filterAssignee, setFilterAssignee] = useState('');
+    const [sortBy, setSortBy] = useState('followup_date_asc'); // 'followup_date_asc', 'followup_date_desc', 'priority', 'last_followup', 'travel_date', 'newest'
     const [currentPage, setCurrentPage] = useState(1);
     const [totalPages, setTotalPages] = useState(1);
     const [totalItems, setTotalItems] = useState(0);
@@ -65,6 +67,48 @@ export default function LeadFollowupsPage() {
     const [selectedContactLogs, setSelectedContactLogs] = useState([]);
     const [selectedContactInfo, setSelectedContactInfo] = useState(null);
     const [activeDropdownId, setActiveDropdownId] = useState(null);
+
+    // Delete Lead Confirmation Modal State (Admin Only)
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [leadToDelete, setLeadToDelete] = useState(null);
+    const [deletingLead, setDeletingLead] = useState(false);
+
+    const handleOpenDeleteModal = (item) => {
+        if (!isSuperAdmin) {
+            showMessage('error', 'Only administrators have permission to delete leads.');
+            return;
+        }
+        setLeadToDelete(item);
+        setDeleteModalOpen(true);
+    };
+
+    const handleConfirmDelete = async () => {
+        const contactId = leadToDelete?.contact_id || leadToDelete?.id;
+        if (!isSuperAdmin || !contactId) {
+            setDeleteModalOpen(false);
+            setLeadToDelete(null);
+            return;
+        }
+
+        setDeletingLead(true);
+        try {
+            const res = await axiosDelete(`${deleteWhatsAppContactUrl}${contactId}`, token);
+            if (res?.status) {
+                showMessage('success', res.msg || 'Lead deleted successfully.');
+                setDeleteModalOpen(false);
+                setLeadToDelete(null);
+                fetchFollowups(currentPage, activeTab);
+                fetchStats();
+            } else {
+                showMessage('error', res?.msg || 'Failed to delete lead.');
+            }
+        } catch (err) {
+            console.error('Error deleting lead:', err);
+            showMessage('error', 'An error occurred while deleting the lead.');
+        } finally {
+            setDeletingLead(false);
+        }
+    };
 
     // Click outside to close actions dropdown
     useEffect(() => {
@@ -85,13 +129,14 @@ export default function LeadFollowupsPage() {
         email: '',
         lead_type: 'warm',
         travel_date: '',
+        booking_days: 1,
         travel_destination: '',
         adults: 2,
         children: 0,
         infants: 0,
         number_of_persons: 2,
         total_rooms: 1,
-        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0 }],
+        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 }],
         package_name: '',
         custom_package_name: '',
         package_rate: '',
@@ -107,12 +152,14 @@ export default function LeadFollowupsPage() {
         email: '',
         package_name: '',
         custom_package_name: '',
+        booking_days: 1,
         adults: 2,
         children: 0,
         infants: 0,
         total_rooms: 1,
-        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0 }],
+        rooms: [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 }],
         bed_type: 'Double Bed',
+        bed_charge: 0,
         extra_discount: 0,
         converted_amount: '',
         travel_date: '',
@@ -148,13 +195,32 @@ export default function LeadFollowupsPage() {
         }
     };
 
+    // Helper to find matched package from package suggestions by title or name (case-insensitive & trimmed)
+    const findMatchedPackage = (pkgList, pkgName) => {
+        if (!pkgName || !String(pkgName).trim()) return null;
+        const cleanTarget = String(pkgName).trim().toLowerCase();
+        return (pkgList || []).find(p => {
+            const pTitle = String(p.title || p.name || '').trim().toLowerCase();
+            const pName = String(p.name || p.title || '').trim().toLowerCase();
+            return pTitle === cleanTarget || pName === cleanTarget;
+        }) || null;
+    };
+
     // Fetch Package Suggestions
     const fetchPackages = async () => {
         if (!token) return;
         try {
             const res = await axiosGet(getAllPackageUrl, token);
             if (res?.status && Array.isArray(res.packages)) {
-                setPackageSuggestions(res.packages);
+                const cleaned = res.packages.map(p => {
+                    const cleanTitle = String(p.title || p.name || '').trim();
+                    return {
+                        ...p,
+                        title: cleanTitle,
+                        name: cleanTitle
+                    };
+                });
+                setPackageSuggestions(cleaned);
             }
         } catch (err) {
             console.error('Error loading package suggestions:', err);
@@ -162,7 +228,7 @@ export default function LeadFollowupsPage() {
     };
 
     // Fetch Follow-ups List
-    const fetchFollowups = async (page = 1, currentTab = activeTab) => {
+    const fetchFollowups = async (page = 1, currentTab = activeTab, currentSort = sortBy) => {
         if (!token) return;
         setLoading(true);
         try {
@@ -172,6 +238,10 @@ export default function LeadFollowupsPage() {
                 `search=${encodeURIComponent(searchTerm || '')}`,
                 `date_filter_type=${encodeURIComponent(dateFilterType)}`
             ];
+
+            if (currentSort) {
+                queryParams.push(`sort_by=${encodeURIComponent(currentSort)}`);
+            }
 
             if (currentTab === 'converted') {
                 queryParams.push(`is_converted=true`);
@@ -196,7 +266,24 @@ export default function LeadFollowupsPage() {
                 const filtered = currentTab === 'converted' 
                     ? res.followups.filter(f => f.is_converted == 1)
                     : res.followups.filter(f => f.is_converted != 1);
-                setFollowups(filtered);
+
+                // Client-side sort guarantee for follow-up date
+                let sortedList = [...filtered];
+                if (currentSort === 'followup_date_asc') {
+                    sortedList.sort((a, b) => {
+                        if (!a.next_followup_date) return 1;
+                        if (!b.next_followup_date) return -1;
+                        return new Date(a.next_followup_date).getTime() - new Date(b.next_followup_date).getTime();
+                    });
+                } else if (currentSort === 'followup_date_desc') {
+                    sortedList.sort((a, b) => {
+                        if (!a.next_followup_date) return 1;
+                        if (!b.next_followup_date) return -1;
+                        return new Date(b.next_followup_date).getTime() - new Date(a.next_followup_date).getTime();
+                    });
+                }
+
+                setFollowups(sortedList);
                 setTotalPages(res.totalPages || 1);
                 setTotalItems(res.total || filtered.length);
                 setCurrentPage(res.page || 1);
@@ -216,7 +303,7 @@ export default function LeadFollowupsPage() {
     useEffect(() => {
         if (token) {
             fetchStats();
-            fetchFollowups(1, activeTab);
+            fetchFollowups(1, activeTab, sortBy);
             fetchPackages();
             if (isSuperAdmin) {
                 fetchLeadManagers();
@@ -224,11 +311,42 @@ export default function LeadFollowupsPage() {
         }
     }, [token, user]);
 
+    // Automatically sync and link package once package suggestions load
+    useEffect(() => {
+        if (!packageSuggestions || packageSuggestions.length === 0) return;
+        setFormData(prev => {
+            const currentPkg = prev.package_name === '__custom__' ? prev.custom_package_name : prev.package_name;
+            if (!currentPkg) return prev;
+            const matched = findMatchedPackage(packageSuggestions, currentPkg);
+            if (matched && prev.package_name !== matched.title) {
+                return {
+                    ...prev,
+                    package_name: matched.title,
+                    custom_package_name: ''
+                };
+            }
+            return prev;
+        });
+        setConvertFormData(prev => {
+            const currentPkg = prev.package_name === '__custom__' ? prev.custom_package_name : prev.package_name;
+            if (!currentPkg) return prev;
+            const matched = findMatchedPackage(packageSuggestions, currentPkg);
+            if (matched && prev.package_name !== matched.title) {
+                return {
+                    ...prev,
+                    package_name: matched.title,
+                    custom_package_name: ''
+                };
+            }
+            return prev;
+        });
+    }, [packageSuggestions]);
+
     // Handle Filter Submit
     const handleFilterSubmit = (e) => {
         if (e) e.preventDefault();
         setCurrentPage(1);
-        fetchFollowups(1, activeTab);
+        fetchFollowups(1, activeTab, sortBy);
     };
 
     // Handle Quick Tab Change
@@ -241,7 +359,7 @@ export default function LeadFollowupsPage() {
         } else if (tabName !== 'converted' && dateFilterType === 'converted_at') {
             setDateFilterType('next_followup');
         }
-        fetchFollowups(1, tabName);
+        fetchFollowups(1, tabName, sortBy);
     };
 
     // Handle Reset Filter
@@ -251,11 +369,20 @@ export default function LeadFollowupsPage() {
         setToDate('');
         setDateFilterType('next_followup');
         setFilterAssignee('');
+        setSortBy('followup_date_asc');
         setActiveTab('all');
         setCurrentPage(1);
         setTimeout(() => {
-            fetchFollowups(1, 'all');
+            fetchFollowups(1, 'all', 'followup_date_asc');
         }, 50);
+    };
+
+    // Toggle Follow-up Date Sort
+    const handleToggleFollowupDateSort = () => {
+        const nextSort = sortBy === 'followup_date_asc' ? 'followup_date_desc' : 'followup_date_asc';
+        setSortBy(nextSort);
+        setCurrentPage(1);
+        fetchFollowups(1, activeTab, nextSort);
     };
 
     // Helper to build default rooms array based on count
@@ -263,7 +390,7 @@ export default function LeadFollowupsPage() {
         const roomCount = Math.max(1, parseInt(count, 10) || 1);
         const arr = [];
         for (let i = 1; i <= roomCount; i++) {
-            arr.push({ id: i, room_number: i, type: 'non_ac', extra_charge: 0 });
+            arr.push({ id: i, room_number: i, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 });
         }
         return arr;
     };
@@ -282,11 +409,13 @@ export default function LeadFollowupsPage() {
                 id: r.id || i + 1,
                 room_number: r.room_number || i + 1,
                 type: r.type === 'ac' ? 'ac' : 'non_ac',
-                extra_charge: Number(r.extra_charge) || 0
+                extra_charge: Number(r.extra_charge) || 0,
+                bed_type: r.bed_type || 'Double Bed',
+                bed_charge: Number(r.bed_charge) || 0
             }));
         } else {
-            const effectivePkgName = item.package_name || '';
-            const matched = (packageSuggestions || []).find(p => (p.name === effectivePkgName || p.title === effectivePkgName));
+            const effectivePkgName = (item.package_name || '').trim();
+            const matched = findMatchedPackage(packageSuggestions, effectivePkgName);
             const unitPrice = matched ? Number(matched.actual_price || matched.base_price || matched.price || 0) : 0;
             const baseTotal = unitPrice > 0 ? (unitPrice * (parseInt(item.number_of_persons, 10) || 1)) : 0;
             const currentRate = Number(item.package_rate) || 0;
@@ -299,7 +428,9 @@ export default function LeadFollowupsPage() {
                     id: i + 1,
                     room_number: i + 1,
                     type: i === 0 ? 'ac' : 'non_ac',
-                    extra_charge: i === 0 ? (diff > 0 ? diff : 0) : 0
+                    extra_charge: i === 0 ? (diff > 0 ? diff : 0) : 0,
+                    bed_type: 'Double Bed',
+                    bed_charge: 0
                 }));
             } else {
                 loadedRooms = createInitialRooms(loadedRoomsCount);
@@ -308,29 +439,43 @@ export default function LeadFollowupsPage() {
         return loadedRooms;
     };
 
-    // Helper to calculate total convert amount based on package price, adults, children, extra discount and rooms
-    // NOTE: Infants are free (₹0) and NOT included in price calculation as requested
-    const calculateConvertAutoAmount = (packageName, adultsCount, childrenCount, discountVal, roomsList) => {
+    // Helper to calculate total convert amount based on package price, adults, children, extra discount, rooms, and booking nights
+    // Nightly Base Rate + Nightly Room Charges multiplied by bookingDays (nights)
+    const calculateConvertAutoAmount = (packageName, adultsCount, childrenCount, discountVal, roomsList = [], bookingDaysCount = 1) => {
         const adults = Math.max(0, parseInt(adultsCount, 10) || 0);
         const children = Math.max(0, parseInt(childrenCount, 10) || 0);
         const billablePersons = adults + children;
+        const days = Math.max(1, parseInt(bookingDaysCount, 10) || 1);
 
-        const matched = (packageSuggestions || []).find(p => (p.name === packageName || p.title === packageName));
+        const matched = findMatchedPackage(packageSuggestions, packageName);
         const unitPrice = matched ? Number(matched.actual_price || matched.base_price || matched.price || 0) : 0;
-        const baseTotal = unitPrice > 0 ? (unitPrice * billablePersons) : 0;
+        const standardNights = matched ? (Math.max(1, parseInt(matched.duration_nights, 10) || (parseInt(matched.duration_days, 10) ? Math.max(1, parseInt(matched.duration_days, 10) - 1) : 1))) : 1;
+
+        const nightlyBaseRate = standardNights > 0 ? (unitPrice / standardNights) : unitPrice;
+        const baseTotal = nightlyBaseRate > 0 ? Math.round(nightlyBaseRate * days * billablePersons) : 0;
         
+        // Extra room charges (AC and Extra Bed) are entered as total calculated prices (flat total, not multiplied by nights)
         const acExtraTotal = (roomsList || []).reduce((sum, r) => {
             return sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0);
         }, 0);
 
+        const bedExtraTotal = (roomsList || []).reduce((sum, r) => {
+            return sum + (Number(r.bed_charge) || 0);
+        }, 0);
+
         const discount = Math.max(0, Number(discountVal) || 0);
-        const finalTotal = (unitPrice > 0 || acExtraTotal > 0) ? Math.max(0, baseTotal + acExtraTotal - discount) : 0;
+        const finalTotal = (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? Math.max(0, baseTotal + acExtraTotal + bedExtraTotal - discount) : 0;
 
         return {
             unitPrice,
+            standardDays: standardNights,
+            standardNights,
+            days,
+            nights: days,
             billablePersons,
             baseTotal,
             acExtraTotal,
+            bedExtraTotal,
             discount,
             finalTotal
         };
@@ -347,11 +492,12 @@ export default function LeadFollowupsPage() {
             }
         };
 
-        const existingPkgName = item.package_name || '';
-        const isExistingPkgInList = (packageSuggestions || []).some(p => (p.name === existingPkgName || p.title === existingPkgName));
-        const selectedPkgVal = isExistingPkgInList ? existingPkgName : (existingPkgName ? '__custom__' : '');
-        const customPkgVal = isExistingPkgInList ? '' : existingPkgName;
+        const rawPkgName = (item.package_name || '').trim();
+        const matchedPkg = findMatchedPackage(packageSuggestions, rawPkgName);
+        const selectedPkgVal = matchedPkg ? matchedPkg.title : (rawPkgName || '');
+        const customPkgVal = matchedPkg ? '' : (rawPkgName || '');
 
+        const initialBookingDays = Math.max(1, parseInt(item.booking_days, 10) || (matchedPkg ? (parseInt(matchedPkg.duration_nights, 10) || (parseInt(matchedPkg.duration_days, 10) ? Math.max(1, parseInt(matchedPkg.duration_days, 10) - 1) : 1)) : 1));
         const loadedRooms = parseItemRooms(item);
         const initialAdults = item.adults !== undefined && item.adults !== null ? Number(item.adults) : Math.max(1, parseInt(item.number_of_persons, 10) || 2);
         const initialChildren = item.children !== undefined && item.children !== null ? Number(item.children) : 0;
@@ -359,10 +505,10 @@ export default function LeadFollowupsPage() {
         const initialDiscount = 0;
 
         const effectivePkg = selectedPkgVal === '__custom__' ? customPkgVal : selectedPkgVal;
-        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, initialAdults, initialChildren, initialDiscount, loadedRooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, initialAdults, initialChildren, initialDiscount, loadedRooms, initialBookingDays);
 
         let initialAmount = item.package_rate || item.converted_amount || '';
-        if (!initialAmount && (unitPrice > 0 || acExtraTotal > 0)) {
+        if (!initialAmount && (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0)) {
             initialAmount = String(finalTotal);
         }
 
@@ -373,12 +519,14 @@ export default function LeadFollowupsPage() {
             email: item.email || '',
             package_name: selectedPkgVal,
             custom_package_name: customPkgVal,
+            booking_days: initialBookingDays,
             adults: initialAdults,
             children: initialChildren,
             infants: initialInfants,
             total_rooms: loadedRooms.length,
             rooms: loadedRooms,
-            bed_type: 'Double Bed',
+            bed_type: loadedRooms[0]?.bed_type || 'Double Bed',
+            bed_charge: loadedRooms[0]?.bed_charge || 0,
             extra_discount: initialDiscount,
             converted_amount: initialAmount,
             travel_date: formatDateVal(item.travel_date),
@@ -388,35 +536,49 @@ export default function LeadFollowupsPage() {
     };
 
     const handleConvertPackageChange = (val) => {
+        const matched = findMatchedPackage(packageSuggestions, val);
+        const defaultDays = matched ? (Math.max(1, parseInt(matched.duration_nights, 10) || (parseInt(matched.duration_days, 10) ? Math.max(1, parseInt(matched.duration_days, 10) - 1) : 1))) : (convertFormData.booking_days || 1);
         const effectivePkg = val === '__custom__' ? convertFormData.custom_package_name : val;
-        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, convertFormData.rooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, convertFormData.rooms, defaultDays);
         setConvertFormData(prev => ({
             ...prev,
             package_name: val,
+            booking_days: defaultDays,
             custom_package_name: val === '__custom__' ? prev.custom_package_name : '',
-            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+        }));
+    };
+
+    const handleConvertBookingDaysChange = (val) => {
+        const days = Math.max(1, parseInt(val, 10) || 1);
+        const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, convertFormData.rooms, days);
+        setConvertFormData(prev => ({
+            ...prev,
+            booking_days: days,
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
         }));
     };
 
     const handleConvertAdultsChange = (val) => {
         const adults = Math.max(0, parseInt(val, 10) || 0);
         const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, adults, convertFormData.children, convertFormData.extra_discount, convertFormData.rooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, adults, convertFormData.children, convertFormData.extra_discount, convertFormData.rooms, convertFormData.booking_days);
         setConvertFormData(prev => ({
             ...prev,
             adults: val,
-            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
         }));
     };
 
     const handleConvertChildrenChange = (val) => {
         const children = Math.max(0, parseInt(val, 10) || 0);
         const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, children, convertFormData.extra_discount, convertFormData.rooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, children, convertFormData.extra_discount, convertFormData.rooms, convertFormData.booking_days);
         setConvertFormData(prev => ({
             ...prev,
             children: val,
-            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
         }));
     };
 
@@ -431,24 +593,24 @@ export default function LeadFollowupsPage() {
     const handleConvertDiscountChange = (val) => {
         const discount = Math.max(0, Number(val) || 0);
         const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, discount, convertFormData.rooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, discount, convertFormData.rooms, convertFormData.booking_days);
         setConvertFormData(prev => ({
             ...prev,
             extra_discount: val,
-            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
         }));
     };
 
     const handleConvertAddRoom = () => {
         const nextRooms = [...(convertFormData.rooms || [])];
-        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0 });
+        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 });
         const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms, convertFormData.booking_days);
         setConvertFormData(prev => ({
             ...prev,
             total_rooms: nextRooms.length,
             rooms: nextRooms,
-            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
         }));
     };
 
@@ -456,25 +618,46 @@ export default function LeadFollowupsPage() {
         if ((convertFormData.rooms || []).length <= 1) return;
         const nextRooms = convertFormData.rooms.filter((_, i) => i !== idx).map((r, i) => ({ ...r, room_number: i + 1 }));
         const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms);
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms, convertFormData.booking_days);
         setConvertFormData(prev => ({
             ...prev,
             total_rooms: nextRooms.length,
             rooms: nextRooms,
-            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
+            converted_amount: (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
         }));
     };
 
     const handleConvertRoomChange = (idx, changes) => {
         const nextRooms = convertFormData.rooms.map((r, i) => i === idx ? { ...r, ...changes } : r);
         const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-        const { finalTotal, unitPrice, acExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms);
-        setConvertFormData(prev => ({
-            ...prev,
-            total_rooms: nextRooms.length,
-            rooms: nextRooms,
-            converted_amount: (unitPrice > 0 || acExtraTotal > 0) ? String(finalTotal) : prev.converted_amount
-        }));
+        const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, convertFormData.adults, convertFormData.children, convertFormData.extra_discount, nextRooms, convertFormData.booking_days);
+        setConvertFormData(prev => {
+            let nextAmount = prev.converted_amount;
+            if (unitPrice > 0) {
+                nextAmount = String(finalTotal);
+            } else if (prev.converted_amount && !isNaN(Number(prev.converted_amount))) {
+                const prevAcTotal = (prev.rooms || []).reduce((sum, r) => sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0);
+                const prevBedTotal = (prev.rooms || []).reduce((sum, r) => sum + (Number(r.bed_charge) || 0), 0);
+                const delta = (acExtraTotal - prevAcTotal) + (bedExtraTotal - prevBedTotal);
+                nextAmount = String(Math.max(0, Number(prev.converted_amount) + delta));
+            }
+            return {
+                ...prev,
+                total_rooms: nextRooms.length,
+                rooms: nextRooms,
+                bed_type: idx === 0 && changes.bed_type !== undefined ? changes.bed_type : prev.bed_type,
+                bed_charge: idx === 0 && changes.bed_charge !== undefined ? changes.bed_charge : prev.bed_charge,
+                converted_amount: nextAmount
+            };
+        });
+    };
+
+    const handleConvertBedTypeChange = (newBedType) => {
+        handleConvertRoomChange(0, { bed_type: newBedType });
+    };
+
+    const handleConvertBedChargeChange = (newBedChargeVal) => {
+        handleConvertRoomChange(0, { bed_charge: Math.max(0, Number(newBedChargeVal) || 0) });
     };
 
     // Confirm Convert Lead
@@ -493,12 +676,13 @@ export default function LeadFollowupsPage() {
 
         const totalPax = (parseInt(convertFormData.adults, 10) || 0) + (parseInt(convertFormData.children, 10) || 0) + (parseInt(convertFormData.infants, 10) || 0);
 
+        const bookingDays = Math.max(1, parseInt(convertFormData.booking_days, 10) || 1);
         const roomsArr = convertFormData.rooms || [];
         const roomsDesc = roomsArr.length > 0
-            ? roomsArr.map((r, i) => `Room #${i+1}: ${r.type === 'ac' ? `AC (+₹${r.extra_charge || 0})` : 'Non-AC'}`).join(', ')
+            ? roomsArr.map((r, i) => `Room #${i+1}: ${r.type === 'ac' ? `AC (+₹${r.extra_charge || 0})` : 'Non-AC'}, Bed: ${r.bed_type || 'Double Bed'}${Number(r.bed_charge) > 0 ? ` (+₹${r.bed_charge})` : ''}`).join(', ')
             : '1 Room';
 
-        const bookingDetailsSummary = `Package: ${finalPackageName || 'Standard Package'} | Rooms: ${roomsArr.length} (${roomsDesc}) | Total Members: ${totalPax} Pax (${convertFormData.adults || 0} Adults, ${convertFormData.children || 0} Children, ${convertFormData.infants || 0} Infants) | Bed Type: ${convertFormData.bed_type || 'Double Bed'}${Number(convertFormData.extra_discount) > 0 ? ` | Discount: ₹${convertFormData.extra_discount}` : ''}`;
+        const bookingDetailsSummary = `Package: ${finalPackageName || 'Standard Package'} (${bookingDays} ${bookingDays === 1 ? 'Night' : 'Nights'}) | Rooms: ${roomsArr.length} (${roomsDesc}) | Total Members: ${totalPax} Pax (${convertFormData.adults || 0} Adults, ${convertFormData.children || 0} Children, ${convertFormData.infants || 0} Infants)${Number(convertFormData.extra_discount) > 0 ? ` | Discount: ₹${convertFormData.extra_discount}` : ''}`;
 
         const finalNote = convertFormData.conversion_note 
             ? `${convertFormData.conversion_note.trim()}\n[${bookingDetailsSummary}]`
@@ -507,6 +691,7 @@ export default function LeadFollowupsPage() {
         const payload = {
             contact_id: convertFormData.contact_id,
             package_name: finalPackageName,
+            booking_days: bookingDays,
             converted_amount: convertFormData.converted_amount,
             travel_date: convertFormData.travel_date,
             conversion_note: finalNote,
@@ -516,7 +701,8 @@ export default function LeadFollowupsPage() {
             number_of_persons: totalPax,
             total_rooms: roomsArr.length || convertFormData.total_rooms || 1,
             rooms: roomsArr,
-            room_details: roomsArr
+            room_details: roomsArr,
+            extra_discount: convertFormData.extra_discount
         };
 
         try {
@@ -565,25 +751,41 @@ export default function LeadFollowupsPage() {
         }
     };
 
-    // Helper to calculate total package rate based on package price, adults, children, and AC extra charges
-    const calculateAutoRate = (packageName, adultsCount, childrenCount, roomsList) => {
+    // Helper to calculate total package rate based on package price, adults, children, AC extra charges, and booking nights
+    // Nightly Base Rate + Nightly Room Charges multiplied by bookingDays (nights)
+    const calculateAutoRate = (packageName, adultsCount, childrenCount, roomsList, bookingDaysCount = 1) => {
         const adults = Math.max(0, parseInt(adultsCount, 10) || 0);
         const children = Math.max(0, parseInt(childrenCount, 10) || 0);
         const billablePersons = adults + children;
-        const matched = (packageSuggestions || []).find(p => (p.name === packageName || p.title === packageName));
+        const days = Math.max(1, parseInt(bookingDaysCount, 10) || 1);
+
+        const matched = findMatchedPackage(packageSuggestions, packageName);
         const unitPrice = matched ? Number(matched.actual_price || matched.base_price || matched.price || 0) : 0;
-        const baseTotal = unitPrice > 0 ? (unitPrice * billablePersons) : 0;
+        const standardNights = matched ? (Math.max(1, parseInt(matched.duration_nights, 10) || (parseInt(matched.duration_days, 10) ? Math.max(1, parseInt(matched.duration_days, 10) - 1) : 1))) : 1;
+
+        const nightlyBaseRate = standardNights > 0 ? (unitPrice / standardNights) : unitPrice;
+        const baseTotal = nightlyBaseRate > 0 ? Math.round(nightlyBaseRate * days * billablePersons) : 0;
         
+        // Extra room charges (AC and Extra Bed) are entered as total calculated prices (flat total, not multiplied by nights)
         const acExtraTotal = (roomsList || []).reduce((sum, r) => {
             return sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0);
         }, 0);
 
-        const totalRate = (unitPrice > 0 || acExtraTotal > 0) ? (baseTotal + acExtraTotal) : 0;
+        const bedExtraTotal = (roomsList || []).reduce((sum, r) => {
+            return sum + (Number(r.bed_charge) || 0);
+        }, 0);
+
+        const totalRate = (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) ? (baseTotal + acExtraTotal + bedExtraTotal) : 0;
         return {
             unitPrice,
+            standardDays: standardNights,
+            standardNights,
+            days,
+            nights: days,
             billablePersons,
             baseTotal,
             acExtraTotal,
+            bedExtraTotal,
             totalRate
         };
     };
@@ -600,8 +802,12 @@ export default function LeadFollowupsPage() {
         };
 
         const loadedRooms = parseItemRooms(item);
-        const isExistingPkgInList = (packageSuggestions || []).some(p => (p.name === item.package_name || p.title === item.package_name));
+        const rawPkgName = (item.package_name || '').trim();
+        const matchedPkg = findMatchedPackage(packageSuggestions, rawPkgName);
+        const selectedPkgVal = matchedPkg ? matchedPkg.title : (rawPkgName || '');
+        const customPkgVal = matchedPkg ? '' : (rawPkgName || '');
 
+        const loadedBookingDays = Math.max(1, parseInt(item.booking_days, 10) || (matchedPkg ? (parseInt(matchedPkg.duration_nights, 10) || (parseInt(matchedPkg.duration_days, 10) ? Math.max(1, parseInt(matchedPkg.duration_days, 10) - 1) : 1)) : 1));
         const loadedAdults = item.adults !== undefined && item.adults !== null ? Number(item.adults) : Math.max(1, parseInt(item.number_of_persons, 10) || 2);
         const loadedChildren = item.children !== undefined && item.children !== null ? Number(item.children) : 0;
         const loadedInfants = item.infants !== undefined && item.infants !== null ? Number(item.infants) : 0;
@@ -614,6 +820,7 @@ export default function LeadFollowupsPage() {
             email: item.email || '',
             lead_type: item.lead_type || 'warm',
             travel_date: formatDateVal(item.travel_date),
+            booking_days: loadedBookingDays,
             travel_destination: item.travel_destination || 'Sundarban',
             adults: loadedAdults,
             children: loadedChildren,
@@ -621,8 +828,8 @@ export default function LeadFollowupsPage() {
             number_of_persons: totalPax,
             total_rooms: loadedRooms.length,
             rooms: loadedRooms,
-            package_name: isExistingPkgInList ? (item.package_name || '') : (item.package_name ? '__custom__' : ''),
-            custom_package_name: isExistingPkgInList ? '' : (item.package_name || ''),
+            package_name: selectedPkgVal,
+            custom_package_name: customPkgVal,
             package_rate: item.package_rate || '',
             next_followup_date: formatDateVal(item.next_followup_date),
             extra_note: ''
@@ -631,12 +838,25 @@ export default function LeadFollowupsPage() {
     };
 
     const handlePackageChange = (val) => {
-        const effectivePkg = val === '__custom__' ? formData.custom_package_name : val;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, formData.adults, formData.children, formData.rooms);
+        const matched = findMatchedPackage(packageSuggestions, val);
+        const defaultDays = matched ? (Math.max(1, parseInt(matched.duration_nights, 10) || (parseInt(matched.duration_days, 10) ? Math.max(1, parseInt(matched.duration_days, 10) - 1) : 1))) : (formData.booking_days || 1);
+        const { totalRate, unitPrice } = calculateAutoRate(val, formData.adults, formData.children, formData.rooms, defaultDays);
         setFormData(prev => ({
             ...prev,
             package_name: val,
+            booking_days: defaultDays,
             custom_package_name: val === '__custom__' ? prev.custom_package_name : '',
+            package_rate: unitPrice > 0 ? String(totalRate) : prev.package_rate
+        }));
+    };
+
+    const handleBookingDaysChange = (val) => {
+        const days = Math.max(1, parseInt(val, 10) || 1);
+        const effectivePkg = formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name;
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, formData.adults, formData.children, formData.rooms, days);
+        setFormData(prev => ({
+            ...prev,
+            booking_days: days,
             package_rate: unitPrice > 0 ? String(totalRate) : prev.package_rate
         }));
     };
@@ -646,7 +866,7 @@ export default function LeadFollowupsPage() {
         const children = Math.max(0, parseInt(formData.children, 10) || 0);
         const infants = Math.max(0, parseInt(formData.infants, 10) || 0);
         const effectivePkg = formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, adults, children, formData.rooms);
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, adults, children, formData.rooms, formData.booking_days);
         setFormData(prev => ({
             ...prev,
             adults: val,
@@ -660,7 +880,7 @@ export default function LeadFollowupsPage() {
         const children = Math.max(0, parseInt(val, 10) || 0);
         const infants = Math.max(0, parseInt(formData.infants, 10) || 0);
         const effectivePkg = formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, adults, children, formData.rooms);
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, adults, children, formData.rooms, formData.booking_days);
         setFormData(prev => ({
             ...prev,
             children: val,
@@ -686,9 +906,9 @@ export default function LeadFollowupsPage() {
 
     const handleAddRoom = () => {
         const nextRooms = [...(formData.rooms || [])];
-        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0 });
+        nextRooms.push({ id: Date.now(), room_number: nextRooms.length + 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 });
         const effectivePkg = formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, formData.adults, formData.children, nextRooms);
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, formData.adults, formData.children, nextRooms, formData.booking_days);
         setFormData(prev => ({
             ...prev,
             total_rooms: nextRooms.length,
@@ -701,7 +921,7 @@ export default function LeadFollowupsPage() {
         if ((formData.rooms || []).length <= 1) return;
         const nextRooms = formData.rooms.filter((_, i) => i !== idx).map((r, i) => ({ ...r, room_number: i + 1 }));
         const effectivePkg = formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name;
-        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, formData.adults, formData.children, nextRooms);
+        const { totalRate, unitPrice } = calculateAutoRate(effectivePkg, formData.adults, formData.children, nextRooms, formData.booking_days);
         setFormData(prev => ({
             ...prev,
             total_rooms: nextRooms.length,
@@ -713,14 +933,16 @@ export default function LeadFollowupsPage() {
     const handleRoomChange = (idx, changes) => {
         const nextRooms = formData.rooms.map((r, i) => i === idx ? { ...r, ...changes } : r);
         const effectivePkg = formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name;
-        const { totalRate, unitPrice, acExtraTotal } = calculateAutoRate(effectivePkg, formData.adults, formData.children, nextRooms);
+        const { totalRate, unitPrice, acExtraTotal, bedExtraTotal } = calculateAutoRate(effectivePkg, formData.adults, formData.children, nextRooms, formData.booking_days);
         setFormData(prev => {
             let nextRate = prev.package_rate;
             if (unitPrice > 0) {
                 nextRate = String(totalRate);
             } else if (prev.package_rate && !isNaN(Number(prev.package_rate))) {
                 const prevAcTotal = (prev.rooms || []).reduce((sum, r) => sum + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0);
-                nextRate = String(Math.max(0, Number(prev.package_rate) + (acExtraTotal - prevAcTotal)));
+                const prevBedTotal = (prev.rooms || []).reduce((sum, r) => sum + (Number(r.bed_charge) || 0), 0);
+                const delta = (acExtraTotal - prevAcTotal) + (bedExtraTotal - prevBedTotal);
+                nextRate = String(Math.max(0, Number(prev.package_rate) + delta));
             }
             return {
                 ...prev,
@@ -750,6 +972,7 @@ export default function LeadFollowupsPage() {
         const payload = {
             ...formData,
             package_name: finalPackageName,
+            booking_days: formData.booking_days || 1,
             adults: formData.adults,
             children: formData.children,
             infants: formData.infants,
@@ -1068,65 +1291,100 @@ export default function LeadFollowupsPage() {
             {/* 3. Comprehensive Filter Toolbar */}
             <div className="card shadow-sm border-0 rounded-4 mb-4">
                 <div className="card-body p-3 p-md-4">
-                    {/* Quick Filter Pill Buttons */}
-                    <div className="d-flex align-items-center gap-2 mb-3 flex-wrap border-bottom pb-3">
-                        <span className="small text-muted fw-semibold me-1">Quick Filters:</span>
-                        
-                        <button
-                            type="button"
-                            onClick={() => handleTabChange('all')}
-                            className={`btn btn-sm rounded-pill px-3 ${activeTab === 'all' ? 'btn-primary shadow-sm' : 'btn-outline-secondary'}`}
-                        >
-                            All Active Leads ({stats.total_followups})
-                        </button>
+                    {/* Quick Filter Pill Buttons & Quick Sort */}
+                    <div className="d-flex align-items-center justify-content-between gap-2 mb-3 flex-wrap border-bottom pb-3">
+                        <div className="d-flex align-items-center gap-2 flex-wrap">
+                            <span className="small text-muted fw-semibold me-1">Quick Filters:</span>
+                            
+                            <button
+                                type="button"
+                                onClick={() => handleTabChange('all')}
+                                className={`btn btn-sm rounded-pill px-3 ${activeTab === 'all' ? 'btn-primary shadow-sm' : 'btn-outline-secondary'}`}
+                            >
+                                All Active Leads ({stats.total_followups})
+                            </button>
 
-                        <button
-                            type="button"
-                            onClick={() => handleTabChange('today')}
-                            className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 ${activeTab === 'today' ? 'btn-danger text-white shadow-sm' : 'btn-outline-danger'}`}
-                        >
-                            <i className="ri ri-alarm-warning-fill"></i>
-                            <span>Today's Follow-up ({stats.today_followups})</span>
-                        </button>
+                            <button
+                                type="button"
+                                onClick={() => handleTabChange('today')}
+                                className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 ${activeTab === 'today' ? 'btn-danger text-white shadow-sm' : 'btn-outline-danger'}`}
+                            >
+                                <i className="ri ri-alarm-warning-fill"></i>
+                                <span>Today's Follow-up ({stats.today_followups})</span>
+                            </button>
 
-                        <button
-                            type="button"
-                            onClick={() => handleTabChange('hot')}
-                            className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 ${activeTab === 'hot' ? 'btn-danger shadow-sm' : 'btn-outline-secondary'}`}
-                        >
-                            <span>🔥 Hot ({stats.hot_leads})</span>
-                        </button>
+                            <button
+                                type="button"
+                                onClick={() => handleTabChange('hot')}
+                                className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 ${activeTab === 'hot' ? 'btn-danger shadow-sm' : 'btn-outline-secondary'}`}
+                            >
+                                <span>🔥 Hot ({stats.hot_leads})</span>
+                            </button>
 
-                        <button
-                            type="button"
-                            onClick={() => handleTabChange('warm')}
-                            className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 ${activeTab === 'warm' ? 'btn-warning text-dark shadow-sm' : 'btn-outline-secondary'}`}
-                        >
-                            <span>☀️ Warm ({stats.warm_leads})</span>
-                        </button>
+                            <button
+                                type="button"
+                                onClick={() => handleTabChange('warm')}
+                                className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 ${activeTab === 'warm' ? 'btn-warning text-dark shadow-sm' : 'btn-outline-secondary'}`}
+                            >
+                                <span>☀️ Warm ({stats.warm_leads})</span>
+                            </button>
 
-                        <button
-                            type="button"
-                            onClick={() => handleTabChange('cold')}
-                            className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 ${activeTab === 'cold' ? 'btn-info text-white shadow-sm' : 'btn-outline-secondary'}`}
-                        >
-                            <span>❄️ Cold ({stats.cold_leads})</span>
-                        </button>
+                            <button
+                                type="button"
+                                onClick={() => handleTabChange('cold')}
+                                className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 ${activeTab === 'cold' ? 'btn-info text-white shadow-sm' : 'btn-outline-secondary'}`}
+                            >
+                                <span>❄️ Cold ({stats.cold_leads})</span>
+                            </button>
 
-                        <button
-                            type="button"
-                            onClick={() => handleTabChange('converted')}
-                            className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 ${activeTab === 'converted' ? 'btn-success text-white shadow-sm' : 'btn-outline-success'}`}
-                        >
-                            <i className="ri ri-checkbox-circle-fill"></i>
-                            <span>🎉 Converted Leads ({stats.converted_leads || 0})</span>
-                        </button>
+                            <button
+                                type="button"
+                                onClick={() => handleTabChange('converted')}
+                                className={`btn btn-sm rounded-pill px-3 d-inline-flex align-items-center gap-1 ${activeTab === 'converted' ? 'btn-success text-white shadow-sm' : 'btn-outline-success'}`}
+                            >
+                                <i className="ri ri-checkbox-circle-fill"></i>
+                                <span>🎉 Converted Leads ({stats.converted_leads || 0})</span>
+                            </button>
+                        </div>
+
+                        {/* Quick Sort Toggle Button */}
+                        <div className="d-flex align-items-center gap-2">
+                            <span className="small text-muted fw-semibold d-none d-lg-inline">Sort:</span>
+                            <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-light border" role="group">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSortBy('followup_date_asc');
+                                        setCurrentPage(1);
+                                        fetchFollowups(1, activeTab, 'followup_date_asc');
+                                    }}
+                                    className={`btn btn-xs rounded-pill px-2.5 py-1 ${sortBy === 'followup_date_asc' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                    style={sortBy === 'followup_date_asc' ? { backgroundColor: '#0066cc', borderColor: '#0066cc', fontSize: '11px' } : { fontSize: '11px' }}
+                                    title="Sort by Next Follow-up Date: Earliest First"
+                                >
+                                    <i className="ri ri-sort-asc me-1"></i> Follow-up Date (Earliest)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSortBy('followup_date_desc');
+                                        setCurrentPage(1);
+                                        fetchFollowups(1, activeTab, 'followup_date_desc');
+                                    }}
+                                    className={`btn btn-xs rounded-pill px-2.5 py-1 ${sortBy === 'followup_date_desc' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                    style={sortBy === 'followup_date_desc' ? { backgroundColor: '#0066cc', borderColor: '#0066cc', fontSize: '11px' } : { fontSize: '11px' }}
+                                    title="Sort by Next Follow-up Date: Latest First"
+                                >
+                                    <i className="ri ri-sort-desc me-1"></i> Follow-up Date (Latest)
+                                </button>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Detailed Filter Form */}
                     <form onSubmit={handleFilterSubmit} className="row g-3 align-items-end">
                         {/* Search Term */}
-                        <div className="col-12 col-md-3">
+                        <div className="col-12 col-md-3 col-lg-3">
                             <label className="form-label small text-muted fw-semibold">Search Lead Name / Phone</label>
                             <div className="input-group">
                                 <span className="input-group-text bg-transparent border-end-0">
@@ -1142,8 +1400,33 @@ export default function LeadFollowupsPage() {
                             </div>
                         </div>
 
+                        {/* Sort by Follow-up Date Filter Option */}
+                        <div className="col-6 col-md-3 col-lg-2">
+                            <label className="form-label small text-muted fw-semibold d-flex align-items-center gap-1">
+                                <i className="ri ri-sort-desc text-primary"></i>
+                                <span>Sort By</span>
+                            </label>
+                            <select 
+                                className="form-select rounded-pill"
+                                value={sortBy}
+                                onChange={(e) => {
+                                    const val = e.target.value;
+                                    setSortBy(val);
+                                    setCurrentPage(1);
+                                    fetchFollowups(1, activeTab, val);
+                                }}
+                            >
+                                <option value="followup_date_asc">📅 Follow-up Date (Earliest First)</option>
+                                <option value="followup_date_desc">📅 Follow-up Date (Latest First)</option>
+                                <option value="priority">⚡ Smart Priority (Today &amp; Overdue)</option>
+                                <option value="last_followup">🕒 Last Contacted Date</option>
+                                <option value="travel_date">✈️ Travel Date</option>
+                                <option value="newest">🆕 Newly Created First</option>
+                            </select>
+                        </div>
+
                         {/* Date Filter Type */}
-                        <div className="col-6 col-md-2">
+                        <div className="col-6 col-md-2 col-lg-2">
                             <label className="form-label small text-muted fw-semibold">Date Type</label>
                             <select 
                                 className="form-select rounded-pill"
@@ -1160,7 +1443,7 @@ export default function LeadFollowupsPage() {
                         </div>
 
                         {/* From Date */}
-                        <div className="col-6 col-md-2">
+                        <div className="col-6 col-md-2 col-lg-2">
                             <label className="form-label small text-muted fw-semibold">From Date</label>
                             <input
                                 type="date"
@@ -1171,7 +1454,7 @@ export default function LeadFollowupsPage() {
                         </div>
 
                         {/* To Date */}
-                        <div className="col-6 col-md-2">
+                        <div className="col-6 col-md-2 col-lg-2">
                             <label className="form-label small text-muted fw-semibold">To Date</label>
                             <input
                                 type="date"
@@ -1183,7 +1466,7 @@ export default function LeadFollowupsPage() {
 
                         {/* Super Admin Assignee Filter */}
                         {isSuperAdmin && (
-                            <div className="col-6 col-md-2">
+                            <div className="col-6 col-md-2 col-lg-2">
                                 <label className="form-label small text-muted fw-semibold">Assigned Staff</label>
                                 <select
                                     className="form-select rounded-pill"
@@ -1199,16 +1482,17 @@ export default function LeadFollowupsPage() {
                         )}
 
                         {/* Action Buttons */}
-                        <div className="col-12 col-md-1 d-flex gap-2">
+                        <div className="col-12 col-md-auto d-flex gap-2">
                             <button
                                 type="submit"
-                                className="btn btn-primary rounded-pill flex-grow-1 d-inline-flex align-items-center justify-content-center"
+                                className="btn btn-primary rounded-pill px-3 d-inline-flex align-items-center justify-content-center gap-1"
                                 style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
                                 title="Apply Filters"
                             >
                                 <i className="ri ri-filter-3-line"></i>
+                                <span className="small">Filter</span>
                             </button>
-                            {(searchTerm || fromDate || toDate || filterAssignee || activeTab !== 'all') && (
+                            {(searchTerm || fromDate || toDate || filterAssignee || activeTab !== 'all' || sortBy !== 'followup_date_asc') && (
                                 <button
                                     type="button"
                                     onClick={handleResetFilter}
@@ -1342,9 +1626,12 @@ export default function LeadFollowupsPage() {
                                                 </span>
                                                 <small className="text-muted d-block mt-0.5">
                                                     <i className="ri ri-calendar-line me-1"></i>
-                                                    Travel: <strong>{formatDate(item.travel_date)}</strong>
+                                                    Travel: <strong>{formatDate(item.travel_date)}</strong>{item.booking_days ? ` (${item.booking_days} ${item.booking_days == 1 ? 'Night' : 'Nights'})` : ''}
                                                 </small>
                                                 <div className="d-flex align-items-center gap-2 mt-1">
+                                                    <span className="badge bg-light text-dark border px-2 py-0.5 rounded-pill" style={{ fontSize: '10.5px' }}>
+                                                        <i className="ri-moon-line me-1"></i>{item.booking_days || 1} {Number(item.booking_days) === 1 ? 'Night' : 'Nights'}
+                                                    </span>
                                                     <span className="badge bg-light text-dark border px-2 py-0.5 rounded-pill" style={{ fontSize: '10.5px' }}>
                                                         <i className="ri ri-group-line me-1"></i>{item.number_of_persons || 1} Persons
                                                     </span>
@@ -1490,6 +1777,29 @@ export default function LeadFollowupsPage() {
                                                                 </div>
                                                             </Link>
                                                         </li>
+                                                        {isSuperAdmin && (
+                                                            <>
+                                                                <li><hr className="dropdown-divider my-1" /></li>
+                                                                <li>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start text-danger"
+                                                                        onClick={() => {
+                                                                            setActiveDropdownId(null);
+                                                                            handleOpenDeleteModal(item);
+                                                                        }}
+                                                                    >
+                                                                        <span className="badge bg-danger bg-opacity-10 text-danger p-1.5 rounded-2">
+                                                                            <i className="ri ri-delete-bin-line fs-6"></i>
+                                                                        </span>
+                                                                        <div>
+                                                                            <div className="fw-semibold small text-danger">Delete Lead</div>
+                                                                            <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Permanently remove lead &amp; history</small>
+                                                                        </div>
+                                                                    </button>
+                                                                </li>
+                                                            </>
+                                                        )}
                                                     </ul>
                                                 )}
                                             </div>
@@ -1506,7 +1816,27 @@ export default function LeadFollowupsPage() {
                                     <th className="ps-4">Lead &amp; Contact</th>
                                     <th>Status / Type</th>
                                     <th>Travel Details</th>
-                                    <th>Next Follow-up</th>
+                                    <th 
+                                        className="cursor-pointer user-select-none text-nowrap"
+                                        onClick={handleToggleFollowupDateSort}
+                                        title="Click to toggle sorting by Follow-up Date (Earliest / Latest)"
+                                        style={{ cursor: 'pointer' }}
+                                    >
+                                        <div className="d-inline-flex align-items-center gap-1">
+                                            <span>Next Follow-up</span>
+                                            {sortBy === 'followup_date_asc' ? (
+                                                <span className="badge bg-primary text-white rounded-pill px-1.5 py-0.5 ms-1" style={{ fontSize: '10px' }}>
+                                                    <i className="ri ri-arrow-up-line"></i> Earliest
+                                                </span>
+                                            ) : sortBy === 'followup_date_desc' ? (
+                                                <span className="badge bg-primary text-white rounded-pill px-1.5 py-0.5 ms-1" style={{ fontSize: '10px' }}>
+                                                    <i className="ri ri-arrow-down-line"></i> Latest
+                                                </span>
+                                            ) : (
+                                                <i className="ri ri-arrow-up-down-line text-muted opacity-50 ms-1" style={{ fontSize: '12px' }}></i>
+                                            )}
+                                        </div>
+                                    </th>
                                     <th>Latest Note</th>
                                     {isSuperAdmin && <th>Assigned Admin</th>}
                                     <th className="text-center pe-4" style={{ width: '80px' }}>Action</th>
@@ -1561,9 +1891,12 @@ export default function LeadFollowupsPage() {
                                                 </span>
                                                 <small className="text-muted d-block mt-0.5">
                                                     <i className="ri ri-calendar-line me-1"></i>
-                                                    {formatDate(item.travel_date)}
+                                                    {formatDate(item.travel_date)}{item.booking_days ? ` (${item.booking_days} ${item.booking_days == 1 ? 'Night' : 'Nights'})` : ''}
                                                 </small>
                                                 <div className="d-flex align-items-center gap-2 mt-1">
+                                                    <span className="badge bg-light text-dark border px-2 py-0.5 rounded-pill" style={{ fontSize: '10.5px' }}>
+                                                        <i className="ri-moon-line me-1"></i>{item.booking_days || 1} {Number(item.booking_days) === 1 ? 'Night' : 'Nights'}
+                                                    </span>
                                                     <span className="badge bg-light text-dark border px-2 py-0.5 rounded-pill" style={{ fontSize: '10.5px' }}>
                                                         <i className="ri ri-group-line me-1"></i>{item.number_of_persons || 1} Persons
                                                     </span>
@@ -1758,6 +2091,29 @@ export default function LeadFollowupsPage() {
                                                                 </div>
                                                             </Link>
                                                         </li>
+                                                        {isSuperAdmin && (
+                                                            <>
+                                                                <li><hr className="dropdown-divider my-1" /></li>
+                                                                <li>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start text-danger"
+                                                                        onClick={() => {
+                                                                            setActiveDropdownId(null);
+                                                                            handleOpenDeleteModal(item);
+                                                                        }}
+                                                                    >
+                                                                        <span className="badge bg-danger bg-opacity-10 text-danger p-1.5 rounded-2">
+                                                                            <i className="ri ri-delete-bin-line fs-6"></i>
+                                                                        </span>
+                                                                        <div>
+                                                                            <div className="fw-semibold small text-danger">Delete Lead</div>
+                                                                            <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Permanently remove lead &amp; history</small>
+                                                                        </div>
+                                                                    </button>
+                                                                </li>
+                                                            </>
+                                                        )}
                                                     </ul>
                                                 )}
                                             </div>
@@ -1852,14 +2208,15 @@ export default function LeadFollowupsPage() {
                                     {/* 1. Booked Package Dropdown (Auto-selected from lead generation) */}
                                     <div className="card bg-white border rounded-3 p-3 mb-3">
                                         <div className="row g-3 align-items-center">
-                                            <div className="col-12 col-md-7">
+                                            <div className="col-12 col-md-5">
                                                 <label className="form-label small fw-bold text-dark d-flex align-items-center justify-content-between">
                                                     <span className="d-flex align-items-center gap-1">
                                                         <i className="ri ri-suitcase-line text-primary"></i>
                                                         <span>Booked Tour Package</span>
                                                     </span>
                                                     {(() => {
-                                                        const matched = packageSuggestions.find(p => (p.name === convertFormData.package_name || p.title === convertFormData.package_name));
+                                                        const pkgVal = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
+                                                        const matched = findMatchedPackage(packageSuggestions, pkgVal);
                                                         if (matched) {
                                                             const pPrice = Number(matched.actual_price || matched.base_price || matched.price || 0);
                                                             return pPrice > 0 ? (
@@ -1878,7 +2235,7 @@ export default function LeadFollowupsPage() {
                                                 >
                                                     <option value="">-- Select Booked Package --</option>
                                                     {packageSuggestions.map((pkg) => {
-                                                        const pkgName = pkg.name || pkg.title;
+                                                        const pkgName = pkg.title || pkg.name;
                                                         const priceVal = Number(pkg.actual_price || pkg.base_price || pkg.price || 0);
                                                         return (
                                                             <option key={pkg.id || pkgName} value={pkgName}>
@@ -1886,6 +2243,9 @@ export default function LeadFollowupsPage() {
                                                             </option>
                                                         );
                                                     })}
+                                                    {convertFormData.package_name && convertFormData.package_name !== '__custom__' && !packageSuggestions.some(p => (p.title || p.name) === convertFormData.package_name) && (
+                                                        <option value={convertFormData.package_name}>{convertFormData.package_name}</option>
+                                                    )}
                                                     <option value="__custom__">➕ Custom / Other Package...</option>
                                                 </select>
 
@@ -1904,7 +2264,7 @@ export default function LeadFollowupsPage() {
                                                 )}
                                             </div>
 
-                                            <div className="col-12 col-md-5">
+                                            <div className="col-12 col-md-4">
                                                 <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
                                                     <i className="ri ri-calendar-check-line text-primary"></i>
                                                     <span>Confirmed Travel Date</span>
@@ -1915,6 +2275,47 @@ export default function LeadFollowupsPage() {
                                                     value={convertFormData.travel_date}
                                                     onChange={(e) => setConvertFormData({ ...convertFormData, travel_date: e.target.value })}
                                                 />
+                                            </div>
+
+                                            <div className="col-12 col-md-3">
+                                                <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                    <span className="d-flex align-items-center gap-1">
+                                                        <i className="ri-moon-line text-primary"></i>
+                                                        <span>Booking Nights</span>
+                                                    </span>
+                                                    <small className="text-primary fw-bold">{convertFormData.booking_days || 1} {Number(convertFormData.booking_days) === 1 ? 'Night' : 'Nights'}</small>
+                                                </label>
+                                                <div className="input-group">
+                                                    <button 
+                                                        type="button"
+                                                        className="btn btn-outline-secondary px-2.5 d-flex align-items-center justify-content-center"
+                                                        onClick={() => handleConvertBookingDaysChange(Math.max(1, (parseInt(convertFormData.booking_days, 10) || 1) - 1))}
+                                                        disabled={Number(convertFormData.booking_days) <= 1}
+                                                        title="Decrease nights (minimum 1)"
+                                                    >
+                                                        <i className="ri-subtract-line fw-bold"></i>
+                                                    </button>
+                                                    <input 
+                                                        type="number" 
+                                                        min="1"
+                                                        max="90"
+                                                        className="form-control text-center fw-bold"
+                                                        placeholder="1"
+                                                        value={convertFormData.booking_days}
+                                                        onChange={(e) => {
+                                                            const val = e.target.value;
+                                                            handleConvertBookingDaysChange(val === '' ? 1 : Math.max(1, parseInt(val, 10) || 1));
+                                                        }}
+                                                    />
+                                                    <button 
+                                                        type="button"
+                                                        className="btn btn-outline-secondary px-2.5 d-flex align-items-center justify-content-center"
+                                                        onClick={() => handleConvertBookingDaysChange((parseInt(convertFormData.booking_days, 10) || 1) + 1)}
+                                                        title="Increase nights"
+                                                    >
+                                                        <i className="ri-add-line fw-bold"></i>
+                                                    </button>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -2007,71 +2408,128 @@ export default function LeadFollowupsPage() {
                                         </div>
 
                                         {/* Rooms List */}
-                                        <div className="d-flex flex-column gap-2 mt-2">
+                                        <div className="d-flex flex-column gap-2.5 mt-2">
                                             {(convertFormData.rooms || []).map((room, rIdx) => (
                                                 <div 
                                                     key={room.id || rIdx} 
-                                                    className="p-2.5 rounded-3 border bg-light d-flex align-items-center justify-content-between flex-wrap gap-2"
+                                                    className="p-3 rounded-3 border bg-light shadow-2xs"
                                                 >
-                                                    {/* Room Label */}
-                                                    <div className="d-flex align-items-center gap-2" style={{ minWidth: '95px' }}>
-                                                        <span className="badge bg-secondary bg-opacity-10 text-dark rounded-pill px-2.5 py-1 fw-bold" style={{ fontSize: '12px' }}>
-                                                            <i className="ri ri-door-open-line me-1 text-primary"></i> Room #{rIdx + 1}
-                                                        </span>
+                                                    {/* Room Header */}
+                                                    <div className="d-flex align-items-center justify-content-between mb-2">
+                                                        <div className="d-flex align-items-center gap-2">
+                                                            <span className="badge bg-secondary bg-opacity-10 text-dark rounded-pill px-2.5 py-1 fw-bold" style={{ fontSize: '12px' }}>
+                                                                <i className="ri ri-door-open-line me-1 text-primary"></i> Room #{rIdx + 1}
+                                                            </span>
+                                                            <span className="text-muted small" style={{ fontSize: '11px' }}>
+                                                                {room.type === 'ac' ? `AC (+₹${room.extra_charge || 0})` : 'Non-AC'} • {room.bed_type || 'Double Bed'}{Number(room.bed_charge) > 0 ? ` (+₹${room.bed_charge})` : ''}
+                                                            </span>
+                                                        </div>
+                                                        {(convertFormData.rooms || []).length > 1 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleConvertRemoveRoom(rIdx)}
+                                                                className="btn btn-outline-danger btn-sm rounded-circle p-1 d-flex align-items-center justify-content-center"
+                                                                style={{ width: '26px', height: '26px' }}
+                                                                title="Remove room"
+                                                            >
+                                                                <i className="ri ri-delete-bin-line" style={{ fontSize: '13px' }}></i>
+                                                            </button>
+                                                        )}
                                                     </div>
 
-                                                    {/* AC / Non-AC Tab Toggles */}
-                                                    <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-white border" role="group">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleConvertRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
-                                                            className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'non_ac' ? 'btn-secondary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
-                                                            style={{ fontSize: '12px' }}
-                                                        >
-                                                            <i className="ri ri-temp-cold-line me-1"></i> Non-AC
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleConvertRoomChange(rIdx, { type: 'ac', extra_charge: room.extra_charge !== undefined ? room.extra_charge : 0 })}
-                                                            className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'ac' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
-                                                            style={{ fontSize: '12px' }}
-                                                        >
-                                                            <i className="ri ri-windy-fill me-1"></i> AC Room
-                                                        </button>
-                                                    </div>
-
-                                                    {/* Extra AC Charge Input (Opens when AC selected) */}
-                                                    {room.type === 'ac' && (
-                                                        <div className="d-flex align-items-center gap-1.5 ms-md-2">
-                                                            <label className="small fw-semibold text-primary mb-0 text-nowrap" style={{ fontSize: '11.5px' }}>
-                                                                Extra AC Charge:
-                                                            </label>
-                                                            <div className="input-group input-group-sm" style={{ width: '130px' }}>
-                                                                <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    className="form-control border-start-0"
-                                                                    placeholder="0"
-                                                                    value={room.extra_charge}
-                                                                    onChange={(e) => handleConvertRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
-                                                                />
+                                                    {/* Row 1: AC / Non-AC & AC Extra Charges */}
+                                                    <div className="row g-2 align-items-center mb-2">
+                                                        <div className="col-12 col-md-5">
+                                                            <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-white border w-100" role="group">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleConvertRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
+                                                                    className={`btn btn-sm rounded-pill px-2.5 py-1 flex-fill ${room.type === 'non_ac' ? 'btn-secondary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                                    style={{ fontSize: '11.5px' }}
+                                                                >
+                                                                    <i className="ri ri-temp-cold-line me-1"></i> Non-AC
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleConvertRoomChange(rIdx, { type: 'ac', extra_charge: room.extra_charge !== undefined ? room.extra_charge : 0 })}
+                                                                    className={`btn btn-sm rounded-pill px-2.5 py-1 flex-fill ${room.type === 'ac' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                                    style={{ fontSize: '11.5px' }}
+                                                                >
+                                                                    <i className="ri ri-windy-fill me-1"></i> AC Room
+                                                                </button>
                                                             </div>
                                                         </div>
-                                                    )}
 
-                                                    {/* Delete Room Button */}
-                                                    {(convertFormData.rooms || []).length > 1 && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleConvertRemoveRoom(rIdx)}
-                                                            className="btn btn-outline-danger btn-sm rounded-circle p-1 d-flex align-items-center justify-content-center"
-                                                            style={{ width: '28px', height: '28px' }}
-                                                            title="Remove room"
-                                                        >
-                                                            <i className="ri ri-delete-bin-line"></i>
-                                                        </button>
-                                                    )}
+                                                        <div className="col-12 col-md-7">
+                                                            {room.type === 'ac' ? (
+                                                                <div className="d-flex align-items-center gap-1.5">
+                                                                    <label className="small fw-semibold text-primary mb-0 text-nowrap" style={{ fontSize: '11px' }}>
+                                                                        AC Charge:
+                                                                    </label>
+                                                                    <div className="input-group input-group-sm">
+                                                                        <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
+                                                                        <input
+                                                                            type="number"
+                                                                            min="0"
+                                                                            className="form-control border-start-0"
+                                                                            placeholder="0"
+                                                                            value={room.extra_charge !== undefined ? room.extra_charge : 0}
+                                                                            onChange={(e) => handleConvertRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="small text-muted fst-italic ps-1" style={{ fontSize: '11px' }}>
+                                                                    Standard Non-AC (₹0 extra)
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Row 2: Bed Selection & Bed Charges */}
+                                                    <div className="row g-2 align-items-center pt-2 border-top">
+                                                        <div className="col-12 col-md-6">
+                                                            <div className="d-flex align-items-center gap-1.5">
+                                                                <label className="small fw-semibold text-dark mb-0 text-nowrap d-flex align-items-center gap-1" style={{ fontSize: '11px' }}>
+                                                                    <i className="ri ri-hotel-bed-line text-info"></i> Bed:
+                                                                </label>
+                                                                <select
+                                                                    className="form-select form-select-sm rounded-2 bg-white"
+                                                                    value={room.bed_type || 'Double Bed'}
+                                                                    onChange={(e) => handleConvertRoomChange(rIdx, { bed_type: e.target.value })}
+                                                                    style={{ fontSize: '11.5px' }}
+                                                                >
+                                                                    <option value="Double Bed">Double Bed (1 Queen/King)</option>
+                                                                    <option value="Twin Beds">Twin Beds (2 Singles)</option>
+                                                                    <option value="Triple Bed">Triple Bed (1 Double + 1 Single)</option>
+                                                                    <option value="Family Suite">Family Suite (2 Double Beds)</option>
+                                                                    <option value="King Bed + Extra Mattress">King Bed + Extra Mattress</option>
+                                                                    <option value="Extra Bed / Mattress">Extra Bed / Mattress</option>
+                                                                    <option value="Single Bed">Single Bed</option>
+                                                                    <option value="Custom Bedding">Custom Bedding</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="col-12 col-md-6">
+                                                            <div className="d-flex align-items-center gap-1.5">
+                                                                <label className="small fw-semibold text-info mb-0 text-nowrap" style={{ fontSize: '11px' }}>
+                                                                    Bed Charge:
+                                                                </label>
+                                                                <div className="input-group input-group-sm">
+                                                                    <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0"
+                                                                        className="form-control border-start-0"
+                                                                        placeholder="0"
+                                                                        value={room.bed_charge !== undefined ? room.bed_charge : 0}
+                                                                        onChange={(e) => handleConvertRoomChange(rIdx, { bed_charge: Number(e.target.value) || 0 })}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
@@ -2081,45 +2539,31 @@ export default function LeadFollowupsPage() {
                                             <span className="text-muted">
                                                 Configured: <strong>{(convertFormData.rooms || []).length} Rooms</strong> ({(convertFormData.rooms || []).filter(r => r.type === 'ac').length} AC, {(convertFormData.rooms || []).filter(r => r.type === 'non_ac').length} Non-AC)
                                             </span>
-                                            {(convertFormData.rooms || []).some(r => r.type === 'ac') && (
-                                                <span className="badge bg-primary bg-opacity-10 text-primary px-2.5 py-1 rounded-pill">
-                                                    Total AC Extra: +₹{(convertFormData.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
-                                                </span>
-                                            )}
+                                            <div className="d-flex align-items-center gap-1.5 flex-wrap">
+                                                {(convertFormData.rooms || []).some(r => r.type === 'ac' && Number(r.extra_charge) > 0) && (
+                                                    <span className="badge bg-primary bg-opacity-10 text-primary px-2.5 py-1 rounded-pill">
+                                                        Total AC Extra: +₹{(convertFormData.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
+                                                    </span>
+                                                )}
+                                                {(convertFormData.rooms || []).some(r => Number(r.bed_charge) > 0) && (
+                                                    <span className="badge bg-info bg-opacity-10 text-info px-2.5 py-1 rounded-pill">
+                                                        Total Bed Extra: +₹{(convertFormData.rooms || []).reduce((acc, r) => acc + (Number(r.bed_charge) || 0), 0)}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 
-                                    {/* 4. Bed Type & Extra Discount */}
+                                    {/* 4. Extra Discount */}
                                     <div className="card bg-white border rounded-3 p-3 mb-3">
-                                        <div className="row g-3">
-                                            {/* Bed Type */}
-                                            <div className="col-12 col-md-6">
-                                                <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
-                                                    <i className="ri ri-hotel-bed-line text-primary"></i>
-                                                    <span>Bed Type / Room Preference</span>
-                                                </label>
-                                                <select
-                                                    className="form-select rounded-3"
-                                                    value={convertFormData.bed_type}
-                                                    onChange={(e) => setConvertFormData({ ...convertFormData, bed_type: e.target.value })}
-                                                >
-                                                    <option value="Double Bed">Double Bed (1 Queen/King Bed)</option>
-                                                    <option value="Twin Beds">Twin Beds (2 Separate Single Beds)</option>
-                                                    <option value="Triple Bed">Triple Bed (1 Double + 1 Single)</option>
-                                                    <option value="Family Suite">Family Suite (2 Double Beds)</option>
-                                                    <option value="King Bed + Extra Mattress">King Bed + Extra Mattress</option>
-                                                    <option value="Custom Bedding">Custom Bedding Arrangement</option>
-                                                </select>
-                                            </div>
-
-                                            {/* Extra Discount */}
+                                        <div className="row g-3 align-items-center">
                                             <div className="col-12 col-md-6">
                                                 <label className="form-label small fw-bold text-dark d-flex align-items-center justify-content-between">
                                                     <span className="d-flex align-items-center gap-1">
                                                         <i className="ri ri-coupon-3-line text-danger"></i>
                                                         <span>Extra Discount (₹)</span>
                                                     </span>
-                                                    <small className="text-muted">Subtracted from total</small>
+                                                    <small className="text-muted">Subtracted from package price</small>
                                                 </label>
                                                 <div className="input-group">
                                                     <span className="input-group-text bg-light text-danger fw-bold">₹</span>
@@ -2131,6 +2575,12 @@ export default function LeadFollowupsPage() {
                                                         value={convertFormData.extra_discount}
                                                         onChange={(e) => handleConvertDiscountChange(e.target.value)}
                                                     />
+                                                </div>
+                                            </div>
+                                            <div className="col-12 col-md-6">
+                                                <div className="small text-muted pt-md-3">
+                                                    <i className="ri ri-information-line text-primary me-1"></i>
+                                                    Special negotiated discount. Bed types and charges are configured per room in Room Configuration above.
                                                 </div>
                                             </div>
                                         </div>
@@ -2161,18 +2611,19 @@ export default function LeadFollowupsPage() {
                                             <div className="col-12 col-md-6">
                                                 {(() => {
                                                     const effectivePkg = convertFormData.package_name === '__custom__' ? convertFormData.custom_package_name : convertFormData.package_name;
-                                                    const { unitPrice, billablePersons, acExtraTotal, discount } = calculateConvertAutoAmount(
+                                                    const { unitPrice, billablePersons, baseTotal, acExtraTotal, bedExtraTotal, discount, days } = calculateConvertAutoAmount(
                                                         effectivePkg,
                                                         convertFormData.adults,
                                                         convertFormData.children,
                                                         convertFormData.extra_discount,
-                                                        convertFormData.rooms
+                                                        convertFormData.rooms,
+                                                        convertFormData.booking_days
                                                     );
                                                     return (
                                                         <div className="small text-muted">
-                                                            {unitPrice > 0 || acExtraTotal > 0 ? (
+                                                            {unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0 ? (
                                                                 <>
-                                                                    <div><strong>Auto-Calculation:</strong> ₹{unitPrice.toLocaleString('en-IN')} × {billablePersons} billable pax {acExtraTotal > 0 ? `+ ₹${acExtraTotal.toLocaleString('en-IN')} AC ` : ''}{discount > 0 ? `- ₹${discount.toLocaleString('en-IN')} disc` : ''}</div>
+                                                                    <div><strong>Auto-Calculation ({days} {days === 1 ? 'Night' : 'Nights'}):</strong> ₹{baseTotal.toLocaleString('en-IN')} ({billablePersons} pax){acExtraTotal > 0 ? ` + ₹${acExtraTotal.toLocaleString('en-IN')} AC` : ''}{bedExtraTotal > 0 ? ` + ₹${bedExtraTotal.toLocaleString('en-IN')} Bed` : ''}{discount > 0 ? ` - ₹${discount.toLocaleString('en-IN')} disc` : ''}</div>
                                                                     <div className="text-success" style={{ fontSize: '11px' }}>Infants: {convertFormData.infants || 0} pax (₹0 free of charge)</div>
                                                                 </>
                                                             ) : (
@@ -2397,9 +2848,9 @@ export default function LeadFollowupsPage() {
                                         </div>
                                     </div>
 
-                                    {/* 3. Travel Date */}
+                                    {/* 3. Travel Date & Total Booking Nights */}
                                     <div className="row g-3 mb-3">
-                                        <div className="col-12">
+                                        <div className="col-12 col-md-7">
                                             <label className="form-label small fw-semibold">Estimated Travel Date</label>
                                             <input 
                                                 type="date" 
@@ -2407,6 +2858,46 @@ export default function LeadFollowupsPage() {
                                                 value={formData.travel_date}
                                                 onChange={(e) => setFormData({ ...formData, travel_date: e.target.value })}
                                             />
+                                        </div>
+                                        <div className="col-12 col-md-5">
+                                            <label className="form-label small fw-semibold d-flex align-items-center justify-content-between">
+                                                <span className="d-flex align-items-center gap-1">
+                                                    <i className="ri-moon-line text-primary"></i>
+                                                    <span>Total Booking Nights</span>
+                                                </span>
+                                                <small className="text-primary fw-bold">{formData.booking_days || 1} {Number(formData.booking_days) === 1 ? 'Night' : 'Nights'}</small>
+                                            </label>
+                                            <div className="input-group">
+                                                <button 
+                                                    type="button"
+                                                    className="btn btn-outline-secondary px-2.5 d-flex align-items-center justify-content-center"
+                                                    onClick={() => handleBookingDaysChange(Math.max(1, (parseInt(formData.booking_days, 10) || 1) - 1))}
+                                                    disabled={Number(formData.booking_days) <= 1}
+                                                    title="Decrease nights (minimum 1)"
+                                                >
+                                                    <i className="ri-subtract-line fw-bold"></i>
+                                                </button>
+                                                <input 
+                                                    type="number" 
+                                                    min="1"
+                                                    max="90"
+                                                    className="form-control text-center fw-bold"
+                                                    placeholder="1"
+                                                    value={formData.booking_days}
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        handleBookingDaysChange(val === '' ? 1 : Math.max(1, parseInt(val, 10) || 1));
+                                                    }}
+                                                />
+                                                <button 
+                                                    type="button"
+                                                    className="btn btn-outline-secondary px-2.5 d-flex align-items-center justify-content-center"
+                                                    onClick={() => handleBookingDaysChange((parseInt(formData.booking_days, 10) || 1) + 1)}
+                                                    title="Increase nights"
+                                                >
+                                                    <i className="ri-add-line fw-bold"></i>
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
 
@@ -2502,67 +2993,124 @@ export default function LeadFollowupsPage() {
                                             {(formData.rooms || []).map((room, rIdx) => (
                                                 <div 
                                                     key={room.id || rIdx} 
-                                                    className="p-2.5 rounded-3 border bg-light d-flex align-items-center justify-content-between flex-wrap gap-2"
+                                                    className="p-3 rounded-3 border bg-light d-flex flex-column gap-2"
                                                 >
-                                                    {/* Room Label */}
-                                                    <div className="d-flex align-items-center gap-2" style={{ minWidth: '95px' }}>
-                                                        <span className="badge bg-secondary bg-opacity-10 text-dark rounded-pill px-2.5 py-1 fw-bold" style={{ fontSize: '12px' }}>
-                                                            <i className="ri ri-door-open-line me-1 text-primary"></i> Room #{rIdx + 1}
-                                                        </span>
+                                                    {/* Room Header */}
+                                                    <div className="d-flex align-items-center justify-content-between">
+                                                        <div className="d-flex align-items-center gap-2">
+                                                            <span className="badge bg-secondary bg-opacity-10 text-dark rounded-pill px-2.5 py-1 fw-bold" style={{ fontSize: '12px' }}>
+                                                                <i className="ri ri-door-open-line me-1 text-primary"></i> Room #{rIdx + 1}
+                                                            </span>
+                                                            <span className="badge bg-white text-muted border px-2 py-0.5 rounded-pill" style={{ fontSize: '11px' }}>
+                                                                {room.type === 'ac' ? `AC (+₹${room.extra_charge || 0})` : 'Non-AC'} • {room.bed_type || 'Double Bed'}{Number(room.bed_charge) > 0 ? ` (+₹${room.bed_charge})` : ''}
+                                                            </span>
+                                                        </div>
+                                                        {(formData.rooms || []).length > 1 && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => handleRemoveRoom(rIdx)}
+                                                                className="btn btn-outline-danger btn-sm rounded-circle p-1 d-flex align-items-center justify-content-center"
+                                                                style={{ width: '26px', height: '26px' }}
+                                                                title="Remove room"
+                                                            >
+                                                                <i className="ri ri-delete-bin-line" style={{ fontSize: '13px' }}></i>
+                                                            </button>
+                                                        )}
                                                     </div>
 
-                                                    {/* AC / Non-AC Tab Toggles */}
-                                                    <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-white border" role="group">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
-                                                            className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'non_ac' ? 'btn-secondary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
-                                                            style={{ fontSize: '12px' }}
-                                                        >
-                                                            <i className="ri ri-temp-cold-line me-1"></i> Non-AC
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleRoomChange(rIdx, { type: 'ac', extra_charge: room.extra_charge !== undefined ? room.extra_charge : 0 })}
-                                                            className={`btn btn-sm rounded-pill px-3 py-1 ${room.type === 'ac' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
-                                                            style={{ fontSize: '12px' }}
-                                                        >
-                                                            <i className="ri ri-windy-fill me-1"></i> AC Room
-                                                        </button>
-                                                    </div>
-
-                                                    {/* Extra AC Charge Input (Opens when AC selected) */}
-                                                    {room.type === 'ac' && (
-                                                        <div className="d-flex align-items-center gap-1.5 ms-md-2">
-                                                            <label className="small fw-semibold text-primary mb-0 text-nowrap" style={{ fontSize: '11.5px' }}>
-                                                                Extra AC Charge:
-                                                            </label>
-                                                            <div className="input-group input-group-sm" style={{ width: '130px' }}>
-                                                                <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
-                                                                <input
-                                                                    type="number"
-                                                                    min="0"
-                                                                    className="form-control border-start-0"
-                                                                    placeholder="0"
-                                                                    value={room.extra_charge}
-                                                                    onChange={(e) => handleRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
-                                                                />
+                                                    {/* Row 1: AC / Non-AC & AC Extra Charges */}
+                                                    <div className="row g-2 align-items-center mb-2">
+                                                        <div className="col-12 col-md-5">
+                                                            <div className="btn-group btn-group-sm rounded-pill p-0.5 bg-white border w-100" role="group">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleRoomChange(rIdx, { type: 'non_ac', extra_charge: 0 })}
+                                                                    className={`btn btn-sm rounded-pill px-2.5 py-1 flex-fill ${room.type === 'non_ac' ? 'btn-secondary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                                    style={{ fontSize: '11.5px' }}
+                                                                >
+                                                                    <i className="ri ri-temp-cold-line me-1"></i> Non-AC
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => handleRoomChange(rIdx, { type: 'ac', extra_charge: room.extra_charge !== undefined ? room.extra_charge : 0 })}
+                                                                    className={`btn btn-sm rounded-pill px-2.5 py-1 flex-fill ${room.type === 'ac' ? 'btn-primary text-white shadow-xs fw-semibold' : 'btn-light text-muted border-0'}`}
+                                                                    style={{ fontSize: '11.5px' }}
+                                                                >
+                                                                    <i className="ri ri-windy-fill me-1"></i> AC Room
+                                                                </button>
                                                             </div>
                                                         </div>
-                                                    )}
 
-                                                    {/* Delete Room Button */}
-                                                    {(formData.rooms || []).length > 1 && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleRemoveRoom(rIdx)}
-                                                            className="btn btn-outline-danger btn-sm rounded-circle p-1 d-flex align-items-center justify-content-center"
-                                                            style={{ width: '28px', height: '28px' }}
-                                                            title="Remove room"
-                                                        >
-                                                            <i className="ri ri-delete-bin-line"></i>
-                                                        </button>
-                                                    )}
+                                                        <div className="col-12 col-md-7">
+                                                            {room.type === 'ac' ? (
+                                                                <div className="d-flex align-items-center gap-1.5">
+                                                                    <label className="small fw-semibold text-primary mb-0 text-nowrap" style={{ fontSize: '11px' }}>
+                                                                        AC Charge:
+                                                                    </label>
+                                                                    <div className="input-group input-group-sm">
+                                                                        <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
+                                                                        <input
+                                                                            type="number"
+                                                                            min="0"
+                                                                            className="form-control border-start-0"
+                                                                            placeholder="0"
+                                                                            value={room.extra_charge !== undefined ? room.extra_charge : 0}
+                                                                            onChange={(e) => handleRoomChange(rIdx, { extra_charge: Number(e.target.value) || 0 })}
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="small text-muted fst-italic ps-1" style={{ fontSize: '11px' }}>
+                                                                    Standard Non-AC (₹0 extra)
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Row 2: Bed Selection & Bed Charges */}
+                                                    <div className="row g-2 align-items-center pt-2 border-top">
+                                                        <div className="col-12 col-md-6">
+                                                            <div className="d-flex align-items-center gap-1.5">
+                                                                <label className="small fw-semibold text-dark mb-0 text-nowrap d-flex align-items-center gap-1" style={{ fontSize: '11px' }}>
+                                                                    <i className="ri ri-hotel-bed-line text-info"></i> Bed:
+                                                                </label>
+                                                                <select
+                                                                    className="form-select form-select-sm rounded-2 bg-white"
+                                                                    value={room.bed_type || 'Double Bed'}
+                                                                    onChange={(e) => handleRoomChange(rIdx, { bed_type: e.target.value })}
+                                                                    style={{ fontSize: '11.5px' }}
+                                                                >
+                                                                    <option value="Double Bed">Double Bed (1 Queen/King)</option>
+                                                                    <option value="Twin Beds">Twin Beds (2 Singles)</option>
+                                                                    <option value="Triple Bed">Triple Bed (1 Double + 1 Single)</option>
+                                                                    <option value="Family Suite">Family Suite (2 Double Beds)</option>
+                                                                    <option value="King Bed + Extra Mattress">King Bed + Extra Mattress</option>
+                                                                    <option value="Extra Bed / Mattress">Extra Bed / Mattress</option>
+                                                                    <option value="Single Bed">Single Bed</option>
+                                                                    <option value="Custom Bedding">Custom Bedding</option>
+                                                                </select>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="col-12 col-md-6">
+                                                            <div className="d-flex align-items-center gap-1.5">
+                                                                <label className="small fw-semibold text-info mb-0 text-nowrap" style={{ fontSize: '11px' }}>
+                                                                    Bed Charge:
+                                                                </label>
+                                                                <div className="input-group input-group-sm">
+                                                                    <span className="input-group-text bg-white border-end-0 text-muted fw-bold">₹</span>
+                                                                    <input
+                                                                        type="number"
+                                                                        min="0"
+                                                                        className="form-control border-start-0"
+                                                                        placeholder="0"
+                                                                        value={room.bed_charge !== undefined ? room.bed_charge : 0}
+                                                                        onChange={(e) => handleRoomChange(rIdx, { bed_charge: Number(e.target.value) || 0 })}
+                                                                    />
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
@@ -2572,11 +3120,18 @@ export default function LeadFollowupsPage() {
                                             <span className="text-muted">
                                                 Configured: <strong>{(formData.rooms || []).length} Rooms</strong> ({(formData.rooms || []).filter(r => r.type === 'ac').length} AC, {(formData.rooms || []).filter(r => r.type === 'non_ac').length} Non-AC)
                                             </span>
-                                            {(formData.rooms || []).some(r => r.type === 'ac') && (
-                                                <span className="badge bg-primary bg-opacity-10 text-primary px-2.5 py-1 rounded-pill">
-                                                    Total AC Extra: +₹{(formData.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
-                                                </span>
-                                            )}
+                                            <div className="d-flex align-items-center gap-1.5 flex-wrap">
+                                                {(formData.rooms || []).some(r => r.type === 'ac' && Number(r.extra_charge) > 0) && (
+                                                    <span className="badge bg-primary bg-opacity-10 text-primary px-2.5 py-1 rounded-pill">
+                                                        Total AC Extra: +₹{(formData.rooms || []).reduce((acc, r) => acc + (r.type === 'ac' ? (Number(r.extra_charge) || 0) : 0), 0)}
+                                                    </span>
+                                                )}
+                                                {(formData.rooms || []).some(r => Number(r.bed_charge) > 0) && (
+                                                    <span className="badge bg-info bg-opacity-10 text-info px-2.5 py-1 rounded-pill">
+                                                        Total Bed Extra: +₹{(formData.rooms || []).reduce((acc, r) => acc + (Number(r.bed_charge) || 0), 0)}
+                                                    </span>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
 
@@ -2589,7 +3144,8 @@ export default function LeadFollowupsPage() {
                                                     <span>Select Tour Package</span>
                                                 </span>
                                                 {(() => {
-                                                    const matched = packageSuggestions.find(p => (p.name === formData.package_name || p.title === formData.package_name));
+                                                    const pkgVal = formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name;
+                                                    const matched = findMatchedPackage(packageSuggestions, pkgVal);
                                                     if (matched) {
                                                         const pPrice = Number(matched.actual_price || matched.base_price || matched.price || 0);
                                                         return pPrice > 0 ? (
@@ -2608,7 +3164,7 @@ export default function LeadFollowupsPage() {
                                             >
                                                 <option value="">-- Choose from available packages --</option>
                                                 {packageSuggestions.map((pkg) => {
-                                                    const pkgName = pkg.name || pkg.title;
+                                                    const pkgName = pkg.title || pkg.name;
                                                     const priceVal = Number(pkg.actual_price || pkg.base_price || pkg.price || 0);
                                                     return (
                                                         <option key={pkg.id || pkgName} value={pkgName}>
@@ -2616,6 +3172,9 @@ export default function LeadFollowupsPage() {
                                                         </option>
                                                     );
                                                 })}
+                                                {formData.package_name && formData.package_name !== '__custom__' && !packageSuggestions.some(p => (p.title || p.name) === formData.package_name) && (
+                                                    <option value={formData.package_name}>{formData.package_name}</option>
+                                                )}
                                                 <option value="__custom__">➕ Custom / Other Package...</option>
                                             </select>
 
@@ -2640,16 +3199,17 @@ export default function LeadFollowupsPage() {
                                                     <span>Calculated Package Rate (Total)</span>
                                                 </span>
                                                 {(() => {
-                                                    const { unitPrice, billablePersons, acExtraTotal } = calculateAutoRate(
+                                                    const { unitPrice, billablePersons, baseTotal, acExtraTotal, bedExtraTotal, days } = calculateAutoRate(
                                                         formData.package_name === '__custom__' ? formData.custom_package_name : formData.package_name,
                                                         formData.adults,
                                                         formData.children,
-                                                        formData.rooms
+                                                        formData.rooms,
+                                                        formData.booking_days
                                                     );
-                                                    if (unitPrice > 0 || acExtraTotal > 0) {
+                                                    if (unitPrice > 0 || acExtraTotal > 0 || bedExtraTotal > 0) {
                                                         return (
                                                             <small className="text-muted" style={{ fontSize: '11px' }}>
-                                                                (₹{unitPrice} × {billablePersons} billable pax{acExtraTotal > 0 ? ` + ₹${acExtraTotal} AC` : ''})
+                                                                ({days}N: ₹{baseTotal} [{billablePersons} pax]{acExtraTotal > 0 ? ` + ₹${acExtraTotal} AC` : ''}{bedExtraTotal > 0 ? ` + ₹${bedExtraTotal} Bed` : ''})
                                                             </small>
                                                         );
                                                     }
@@ -2835,7 +3395,7 @@ export default function LeadFollowupsPage() {
                                                             {log.travel_date && (
                                                                 <span>
                                                                     <i className="ri ri-flight-takeoff-line text-info me-1"></i>
-                                                                    Travel Date: <strong>{formatDate(log.travel_date)}</strong>
+                                                                    Travel Date: <strong>{formatDate(log.travel_date)}</strong>{log.booking_days ? ` (${log.booking_days} ${log.booking_days == 1 ? 'Night' : 'Nights'})` : ''}
                                                                 </span>
                                                             )}
                                                             {log.package_name && (
@@ -2873,6 +3433,100 @@ export default function LeadFollowupsPage() {
                                     onClick={() => setLogsModalOpen(false)}
                                 >
                                     Close
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* 4. Delete Lead Confirmation Modal (Admin Only) */}
+            {deleteModalOpen && isSuperAdmin && leadToDelete && (
+                <div 
+                    className="modal fade show d-block" 
+                    tabIndex="-1" 
+                    style={{ backgroundColor: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', zIndex: 1070 }}
+                >
+                    <div className="modal-dialog modal-dialog-centered" style={{ maxWidth: '480px' }}>
+                        <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                            <div className="modal-header bg-danger text-white py-3 px-4 d-flex align-items-center justify-content-between">
+                                <h5 className="modal-title fw-bold text-white mb-0 d-flex align-items-center gap-2">
+                                    <i className="ri ri-delete-bin-fill fs-5"></i>
+                                    <span>Delete CRM Lead</span>
+                                </h5>
+                                <button 
+                                    type="button" 
+                                    className="btn-close btn-close-white" 
+                                    onClick={() => { setDeleteModalOpen(false); setLeadToDelete(null); }}
+                                    disabled={deletingLead}
+                                    aria-label="Close"
+                                ></button>
+                            </div>
+                            <div className="modal-body p-4 text-center">
+                                <div 
+                                    className="rounded-circle bg-danger bg-opacity-10 text-danger d-inline-flex align-items-center justify-content-center mb-3"
+                                    style={{ width: '64px', height: '64px', fontSize: '30px' }}
+                                >
+                                    <i className="ri ri-alert-fill"></i>
+                                </div>
+                                <h6 className="fw-bold text-dark mb-2">
+                                    Are you sure you want to permanently delete this lead?
+                                </h6>
+                                <div className="card bg-light border-0 rounded-3 p-3 text-start my-3" style={{ fontSize: '13px' }}>
+                                    <div className="d-flex justify-content-between mb-1">
+                                        <span className="text-muted">Lead Name:</span>
+                                        <strong className="text-dark">{leadToDelete.lead_name || leadToDelete.name || `Lead #${leadToDelete.id}`}</strong>
+                                    </div>
+                                    <div className="d-flex justify-content-between mb-1">
+                                        <span className="text-muted">WhatsApp Phone:</span>
+                                        <strong className="text-success font-monospace">+{leadToDelete.phone || leadToDelete.wa_id}</strong>
+                                    </div>
+                                    {leadToDelete.package_name && (
+                                        <div className="d-flex justify-content-between mb-1">
+                                            <span className="text-muted">Package:</span>
+                                            <span className="text-dark fw-semibold">{leadToDelete.package_name}</span>
+                                        </div>
+                                    )}
+                                    {leadToDelete.assigned_user_name && (
+                                        <div className="d-flex justify-content-between">
+                                            <span className="text-muted">Assigned Admin:</span>
+                                            <span className="text-primary fw-semibold">{leadToDelete.assigned_user_name}</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="alert alert-warning border-0 rounded-3 text-start p-2.5 d-flex gap-2 align-items-start mb-0" style={{ fontSize: '12px' }}>
+                                    <i className="ri ri-information-fill text-warning fs-6 mt-0.5 flex-shrink-0"></i>
+                                    <span>
+                                        This action will permanently delete this lead from the CRM, including follow-up history, conversation logs, and associated tasks. <strong>This action cannot be undone.</strong>
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="modal-footer bg-light border-top py-2.5 px-4 d-flex justify-content-end gap-2">
+                                <button
+                                    type="button"
+                                    className="btn btn-light rounded-pill px-4"
+                                    onClick={() => { setDeleteModalOpen(false); setLeadToDelete(null); }}
+                                    disabled={deletingLead}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-danger rounded-pill px-4 d-inline-flex align-items-center gap-1.5 shadow-sm fw-semibold"
+                                    onClick={handleConfirmDelete}
+                                    disabled={deletingLead}
+                                >
+                                    {deletingLead ? (
+                                        <>
+                                            <span className="spinner-border spinner-border-sm me-1" role="status" aria-hidden="true"></span>
+                                            <span>Deleting...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i className="ri ri-delete-bin-line"></i>
+                                            <span>Yes, Delete Lead</span>
+                                        </>
+                                    )}
                                 </button>
                             </div>
                         </div>

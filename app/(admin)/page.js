@@ -1,16 +1,22 @@
 'use client'
-import { Fragment, useEffect } from "react";
-import Link from 'next/link';
+
+import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { useSelector } from "react-redux";
-import Dashboard from "@/components/admin/home/Dashboard";
 
 const Home = () => {
+    const router = useRouter();
+
+    useEffect(() => {
+        router.replace("/crm/calendar");
+    }, [router]);
 
     return (
-        <>
-            <Dashboard />
-        </>
-    )
-}
+        <div className="d-flex align-items-center justify-content-center min-vh-50 py-5">
+            <div className="spinner-border text-primary" role="status">
+                <span className="visually-hidden">Loading Booking Calendar...</span>
+            </div>
+        </div>
+    );
+};
+
 export default Home;

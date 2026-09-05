@@ -181,14 +181,14 @@ function HeaderAdmin() {
     const showUsersRolesSection = hasUsers || hasPermisions || hasAdminUsers || hasReferrals;
 
     // Dashboard item
-    const showDashboard = hasRouteAccess('/dashboard') || hasRouteAccess('/');
+    const showDashboard = hasRouteAccess('/dashboard');
 
     return (
         <>
             <div className={sidebar ? "layout-menu-expanded" : ''}>
                 <aside id="layout-menu" className="layout-menu menu-vertical menu">
                     <div className="app-brand demo">
-                        <Link href="/" className="app-brand-link">
+                        <Link href="/crm/calendar" className="app-brand-link">
                             <img src="/images/logo_DS.png" alt="Logo" style={{ width: "150px" }} />
                         </Link>
 
@@ -205,8 +205,8 @@ function HeaderAdmin() {
                     <ul className="menu-inner py-1" style={{ height: '90vh', overflow: 'hidden', overflowY: 'auto' }}>
                         {/* Dashboards */}
                         {showDashboard && (
-                            <li className={`menu-item menu-item-parent ${pathname == "/dashboard" || pathname == "/" ? 'active' : ''}`} onClick={openParentmenu}>
-                                <Link href={'/'} className="menu-link">
+                            <li className={`menu-item menu-item-parent ${pathname === "/dashboard" ? 'active' : ''}`} onClick={openParentmenu}>
+                                <Link href="/dashboard" className="menu-link">
                                     <i className="menu-icon icon-base ri ri-home-smile-line"></i>
                                     <div data-i18n="Dashboards">Dashboards</div>
                                 </Link>
@@ -323,7 +323,7 @@ function HeaderAdmin() {
                                 <div data-i18n="WhatsApp Leads">WhatsApp Leads</div>
                             </Link>
                         </li>
-                        {user?.admin === 1 && (
+                        {Number(user?.admin) === 1 && (
                             <li className={`menu-item menu-item-parent ${pathname == "/crm/assign-leads" ? 'active' : ''}`} onClick={openParentmenu}>
                                 <Link href="/crm/assign-leads" className="menu-link">
                                     <i className="menu-icon icon-base ri ri-user-shared-line text-primary"></i>

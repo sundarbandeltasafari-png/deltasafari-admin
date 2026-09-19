@@ -32,6 +32,36 @@ import InvoicePrintTemplate from '@/components/admin/invoice/InvoicePrintTemplat
 import LeadInvoicesModal from '@/components/admin/invoice/LeadInvoicesModal';
 import { printInvoiceDocument } from '@/libs/printHelper';
 
+const defaultBankDetails = 'STATE BANK OF INDIA ; A/C Holder : SANDIP HALDER\nA/C NO : 34193984830 ; IFSC : SBIN0011367';
+const defaultTermsDetails = `1/ The itinerary is subject to change, modification, or rescheduling due to any disasters, emergencies, restrictions or any other unforeseen circumstances beyond our control.
+2/ Rest of the due amount should be paid to the assigned tour manager on day one.
+3/ Cancellations made within 30 days of the travel date are non-refundable.
+4/ Any action taken by the Forest Department for rule violations will be your responsibility.
+5/ Please carry a valid ID card for jungle permit verification and security checks.`;
+
+function getBankDetailsFromConfig(cfg) {
+    if (!cfg) return defaultBankDetails;
+    if (cfg.bank_details_text && cfg.bank_details_text.trim()) return cfg.bank_details_text.trim();
+    const parts = [];
+    const line1 = [];
+    if (cfg.bank_name) line1.push(cfg.bank_name);
+    if (cfg.account_holder) line1.push(`A/C Holder : ${cfg.account_holder}`);
+    if (line1.length > 0) parts.push(line1.join(' ; '));
+
+    const line2 = [];
+    if (cfg.account_number) line2.push(`A/C NO : ${cfg.account_number}`);
+    if (cfg.ifsc_code) line2.push(`IFSC : ${cfg.ifsc_code}`);
+    if (cfg.upi_id) line2.push(`UPI : ${cfg.upi_id}`);
+    if (line2.length > 0) parts.push(line2.join(' ; '));
+
+    return parts.length > 0 ? parts.join('\n') : defaultBankDetails;
+}
+
+function getTermsFromConfig(cfg) {
+    if (cfg?.terms_conditions && cfg.terms_conditions.trim()) return cfg.terms_conditions.trim();
+    return defaultTermsDetails;
+}
+
 export default function InvoicesPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
@@ -157,8 +187,8 @@ export default function InvoicesPage() {
         advance_received: 2000,
         total_due_amount: 3400,
         payment_status: 'pending',
-        bank_details_text: '',
-        terms_text: '',
+        bank_details_text: defaultBankDetails,
+        terms_text: defaultTermsDetails,
         send_whatsapp: true,
         template_id: ''
     });
@@ -227,11 +257,27 @@ export default function InvoicesPage() {
             }
             if (configRes?.status && configRes?.data) {
                 setInvoiceConfig(configRes.data);
+                setInvoiceForm(prev => ({
+                    ...prev,
+                    bank_details_text: getBankDetailsFromConfig(configRes.data),
+                    terms_text: getTermsFromConfig(configRes.data)
+                }));
             }
         } catch (err) {
             console.error('Error fetching stats & config:', err);
         }
     };
+
+    // Keep invoiceForm bank and terms updated with config
+    useEffect(() => {
+        if (invoiceConfig) {
+            setInvoiceForm(prev => ({
+                ...prev,
+                bank_details_text: prev.bank_details_text && prev.bank_details_text !== defaultBankDetails ? prev.bank_details_text : getBankDetailsFromConfig(invoiceConfig),
+                terms_text: prev.terms_text && prev.terms_text !== defaultTermsDetails ? prev.terms_text : getTermsFromConfig(invoiceConfig)
+            }));
+        }
+    }, [invoiceConfig]);
 
     // Fetch Package Suggestions
     const fetchPackageSuggestions = async () => {
@@ -329,6 +375,8 @@ export default function InvoicesPage() {
             '{{due_amount}}': Number(inv.total_due_amount || 0).toLocaleString('en-IN'),
             '{{advance_note}}': inv.advance_note || '',
             '{{payment_link}}': pLink,
+            '{{food_plan}}': inv.food_plan || inv.food_preference || 'Standard Veg & Non-Veg Menu',
+            '{{food}}': inv.food_plan || inv.food_preference || 'Standard Veg & Non-Veg Menu',
             '{{company_name}}': invoiceConfig?.company_name || 'DELTA SAFARI',
             '{{tagline}}': invoiceConfig?.tagline || 'WHERE EXPECTATIONS MEET REALITY',
             '{{website}}': invoiceConfig?.website || 'sundarbandeltasafari.com',
@@ -337,6 +385,45 @@ export default function InvoicesPage() {
 
         for (const [k, v] of Object.entries(map)) {
             t = t.split(k).join(v);
+        }
+
+        // Positional placeholders for Meta Approved templates (e.g. {{1}}, {{2}}, etc.)
+        const custName = inv.customer_name || 'Valued Guest';
+        const invNo = inv.invoice_no || '';
+        const pkgName = inv.package_name || (inv.items && inv.items[0]?.description) || 'Sundarban Safari Package';
+        const trvDate = inv.departure_date_text || inv.invoice_date || 'As scheduled';
+        const effectiveAmt = dueVal > 0 ? Number(dueVal).toLocaleString('en-IN') : Number(subVal).toLocaleString('en-IN');
+
+        if (t.includes('{{1}}')) {
+            if (t.includes('{{7}}')) {
+                // 7-parameter template (confirm_booking)
+                t = t.split('{{1}}').join(custName)
+                    .split('{{2}}').join(invNo)
+                    .split('{{3}}').join(pkgName)
+                    .split('{{4}}').join(trvDate)
+                    .split('{{5}}').join(`${inv.number_of_pax || 1}`)
+                    .split('{{6}}').join(Number(advVal).toLocaleString('en-IN'))
+                    .split('{{7}}').join(Number(dueVal).toLocaleString('en-IN'));
+            } else if (t.includes('{{6}}')) {
+                // 6-parameter template (safari_invoice_payment)
+                t = t.split('{{1}}').join(custName)
+                    .split('{{2}}').join(invNo)
+                    .split('{{3}}').join(pkgName)
+                    .split('{{4}}').join(trvDate)
+                    .split('{{5}}').join(effectiveAmt)
+                    .split('{{6}}').join(pLink);
+            } else if (t.includes('{{4}}')) {
+                // 4-parameter template (safari_payment_link)
+                t = t.split('{{1}}').join(custName)
+                    .split('{{2}}').join(invNo)
+                    .split('{{3}}').join(effectiveAmt)
+                    .split('{{4}}').join(pLink);
+            } else {
+                t = t.split('{{1}}').join(custName)
+                    .split('{{2}}').join(invNo)
+                    .split('{{3}}').join(effectiveAmt)
+                    .split('{{4}}').join(pLink);
+            }
         }
         return t;
     };
@@ -380,6 +467,35 @@ export default function InvoicesPage() {
             showMessage('error', err.response?.data?.msg || err.message || 'Error sending WhatsApp message.');
         } finally {
             setSendingWhatsApp(false);
+        }
+    };
+
+    const [sendingDueReminderId, setSendingDueReminderId] = useState(null);
+
+    const handleSendDuePaymentReminder = async (inv) => {
+        if (!inv?.id) return;
+        const dueVal = Number(inv.total_due_amount || 0);
+        const confirmMsg = `Send Due Payment Reminder via WhatsApp to ${inv.customer_name} (+${inv.customer_phone}) for due balance of ₹${dueVal.toLocaleString('en-IN')}?`;
+        if (!window.confirm(confirmMsg)) {
+            return;
+        }
+
+        setSendingDueReminderId(inv.id);
+        try {
+            const res = await axiosPost(`${sendInvoiceWhatsAppUrl}${inv.id}/send-whatsapp`, {
+                is_due_reminder: true
+            }, token);
+
+            if (res?.status) {
+                showMessage('success', res?.msg || '🔔 Due Payment Reminder with Razorpay link sent successfully to customer!');
+                fetchInvoices(currentPage);
+            } else {
+                showMessage('error', res?.msg || 'Failed to send Due Payment Reminder.');
+            }
+        } catch (err) {
+            showMessage('error', err.response?.data?.msg || err.message || 'Error sending Due Payment Reminder.');
+        } finally {
+            setSendingDueReminderId(null);
         }
     };
 
@@ -949,10 +1065,8 @@ export default function InvoicesPage() {
             packagesList: packagesList
         });
 
-        const bankText = config?.account_number 
-            ? `${config.bank_name || 'STATE BANK OF INDIA'} ; A/C Holder : ${config.account_holder || 'SANDIP HALDER'}\nA/C NO : ${config.account_number} ; IFSC : ${config.ifsc_code}`
-            : '';
-        const termsText = config?.terms_conditions || '';
+        const bankText = getBankDetailsFromConfig(config || invoiceConfig);
+        const termsText = getTermsFromConfig(config || invoiceConfig);
 
         return {
             formData: {
@@ -1007,6 +1121,19 @@ export default function InvoicesPage() {
                 currentConv = await fetchConvertedLeads();
             }
 
+            let currentConfig = invoiceConfig;
+            if (!currentConfig) {
+                try {
+                    const cfgRes = await axiosGet(getInvoiceConfigUrl, token);
+                    if (cfgRes?.status && cfgRes?.data) {
+                        currentConfig = cfgRes.data;
+                        setInvoiceConfig(cfgRes.data);
+                    }
+                } catch (e) {
+                    console.error('Error fetching invoice config in modal:', e);
+                }
+            }
+
             const numRes = await axiosGet(getNextInvoiceNumberUrl, token);
             const now = new Date();
             const yr = now.getFullYear();
@@ -1043,7 +1170,7 @@ export default function InvoicesPage() {
             }
 
             if (leadToUse) {
-                const { formData, selectedLeadId } = createInvoiceFormFromLead(leadToUse, currentPkgs, nextNo, invoiceConfig);
+                const { formData, selectedLeadId } = createInvoiceFormFromLead(leadToUse, currentPkgs, nextNo, currentConfig);
                 setInvoiceForm(formData);
                 setSelectedConvertedLeadId(selectedLeadId);
                 setCreateMode('converted');
@@ -1136,10 +1263,8 @@ export default function InvoicesPage() {
                     advance_received: 2000,
                     total_due_amount: sync.total_due_amount,
                     payment_status: sync.payment_status,
-                    bank_details_text: invoiceConfig?.account_number 
-                        ? `${invoiceConfig.bank_name || 'STATE BANK OF INDIA'} ; A/C Holder : ${invoiceConfig.account_holder || 'SANDIP HALDER'}\nA/C NO : ${invoiceConfig.account_number} ; IFSC : ${invoiceConfig.ifsc_code}`
-                        : '',
-                    terms_text: invoiceConfig?.terms_conditions || '',
+                    bank_details_text: getBankDetailsFromConfig(currentConfig),
+                    terms_text: getTermsFromConfig(currentConfig),
                     send_whatsapp: true,
                     template_id: ''
                 });
@@ -2103,37 +2228,82 @@ _Thank you for choosing Delta Safari!_`;
                                             </div>
                                         </td>
 
-                                        {/* Actions Dropdown (3 dots) */}
+                                        {/* Actions Dropdown (3 dots) & Quick Due Reminder Button */}
                                         <td className="text-center pe-4" style={{ position: 'relative' }}>
-                                            <div className="dropdown invoice-actions-dropdown d-inline-block position-relative">
-                                                <button
-                                                    type="button"
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setActiveDropdownId(activeDropdownId === inv.id ? null : inv.id);
-                                                    }}
-                                                    className={`btn btn-sm ${activeDropdownId === inv.id ? 'btn-primary text-white shadow-sm' : 'btn-light border'} rounded-circle p-0 d-inline-flex align-items-center justify-content-center`}
-                                                    style={{ width: '34px', height: '34px', transition: 'all 0.2s ease' }}
-                                                    title="More Actions"
-                                                    aria-expanded={activeDropdownId === inv.id}
-                                                >
-                                                    <i className="ri ri-more-2-fill fs-5"></i>
-                                                </button>
-
-                                                {activeDropdownId === inv.id && (
-                                                    <ul
-                                                        className="dropdown-menu dropdown-menu-end show border-0 shadow-lg rounded-3 py-2 position-absolute"
-                                                        style={{
-                                                            right: 0,
-                                                            top: '100%',
-                                                            marginTop: '6px',
-                                                            zIndex: 1050,
-                                                            minWidth: '245px',
-                                                            boxShadow: '0 12px 32px rgba(15, 23, 42, 0.15)',
-                                                            border: '1px solid rgba(0,0,0,0.08)'
+                                            <div className="d-flex align-items-center justify-content-center gap-1.5">
+                                                {/* Quick Due Reminder Button if payment pending */}
+                                                {inv.payment_status !== 'paid' && Number(inv.total_due_amount || 0) > 0 && (
+                                                    <button
+                                                        type="button"
+                                                        className="btn btn-sm btn-outline-warning text-dark border-warning-subtle rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1 shadow-2xs"
+                                                        style={{ fontSize: '11px', whiteSpace: 'nowrap' }}
+                                                        title="Send Due Payment Reminder via WhatsApp"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            handleSendDuePaymentReminder(inv);
                                                         }}
-                                                        onClick={(e) => e.stopPropagation()}
+                                                        disabled={sendingDueReminderId === inv.id}
                                                     >
+                                                        {sendingDueReminderId === inv.id ? (
+                                                            <span className="spinner-border spinner-border-sm" role="status"></span>
+                                                        ) : (
+                                                            <i className="ri ri-notification-3-fill text-warning"></i>
+                                                        )}
+                                                        <span>Due Reminder</span>
+                                                    </button>
+                                                )}
+
+                                                <div className="dropdown invoice-actions-dropdown d-inline-block position-relative">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setActiveDropdownId(activeDropdownId === inv.id ? null : inv.id);
+                                                        }}
+                                                        className={`btn btn-sm ${activeDropdownId === inv.id ? 'btn-primary text-white shadow-sm' : 'btn-light border'} rounded-circle p-0 d-inline-flex align-items-center justify-content-center`}
+                                                        style={{ width: '34px', height: '34px', transition: 'all 0.2s ease' }}
+                                                        title="More Actions"
+                                                        aria-expanded={activeDropdownId === inv.id}
+                                                    >
+                                                        <i className="ri ri-more-2-fill fs-5"></i>
+                                                    </button>
+
+                                                    {activeDropdownId === inv.id && (
+                                                        <ul
+                                                            className="dropdown-menu dropdown-menu-end show border-0 shadow-lg rounded-3 py-2 position-absolute"
+                                                            style={{
+                                                                right: 0,
+                                                                top: '100%',
+                                                                marginTop: '6px',
+                                                                zIndex: 1050,
+                                                                minWidth: '245px',
+                                                                boxShadow: '0 12px 32px rgba(15, 23, 42, 0.15)',
+                                                                border: '1px solid rgba(0,0,0,0.08)'
+                                                            }}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            {/* Send Due Reminder in dropdown */}
+                                                            {inv.payment_status !== 'paid' && Number(inv.total_due_amount || 0) > 0 && (
+                                                                <li>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                        onClick={() => {
+                                                                            setActiveDropdownId(null);
+                                                                            handleSendDuePaymentReminder(inv);
+                                                                        }}
+                                                                        disabled={sendingDueReminderId === inv.id}
+                                                                    >
+                                                                        <span className="badge bg-warning bg-opacity-15 text-dark p-1.5 rounded-2">
+                                                                            <i className="ri ri-notification-3-line fs-6 text-warning"></i>
+                                                                        </span>
+                                                                        <div>
+                                                                            <div className="fw-semibold small text-dark">Send Due Reminder</div>
+                                                                            <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Dispatch Due Payment Reminder WhatsApp template</small>
+                                                                        </div>
+                                                                    </button>
+                                                                </li>
+                                                            )}
                                                         {/* 1. View & Print */}
                                                         <li>
                                                             <button
@@ -2306,8 +2476,9 @@ _Thank you for choosing Delta Safari!_`;
                                                     </ul>
                                                 )}
                                             </div>
-                                        </td>
-                                    </tr>
+                                        </div>
+                                    </td>
+                                </tr>
                                 ))}
                             </tbody>
                         </table>
@@ -3194,12 +3365,6 @@ _Thank you for choosing Delta Safari!_`;
                                                         ))}
                                                     </select>
                                                 </div>
-                                                <div className="col-12 col-md-6 d-flex align-items-end">
-                                                    <small className="text-muted" style={{ fontSize: '11px' }}>
-                                                        <i className="ri ri-information-line me-1 text-primary"></i>
-                                                        Replaces <code>&#123;&#123;package_name&#125;&#125;</code>, <code>&#123;&#123;departure_date&#125;&#125;</code>, <code>&#123;&#123;total_amount&#125;&#125;</code>, and generates an encrypted <code>&#123;&#123;payment_link&#125;&#125;</code>.
-                                                    </small>
-                                                </div>
                                             </div>
                                         )}
                                     </div>
@@ -3207,21 +3372,45 @@ _Thank you for choosing Delta Safari!_`;
                                     {/* Bank Details & Terms & Conditions Preview */}
                                     <div className="row g-3">
                                         <div className="col-12 col-md-6">
-                                            <label className="form-label small fw-semibold">Bank Account Details (Printed on Invoice)</label>
+                                            <div className="d-flex justify-content-between align-items-center mb-1">
+                                                <label className="form-label small fw-semibold mb-0">Bank Account Details (Printed on Invoice)</label>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-link btn-sm text-decoration-none p-0 text-muted"
+                                                    style={{ fontSize: '11px' }}
+                                                    onClick={() => setInvoiceForm(prev => ({ ...prev, bank_details_text: getBankDetailsFromConfig(invoiceConfig) }))}
+                                                    title="Reset to details from Invoice Configuration"
+                                                >
+                                                    <i className="ri-refresh-line me-1"></i>Reset to Config
+                                                </button>
+                                            </div>
                                             <textarea
                                                 className="form-control rounded-3 font-monospace small"
                                                 rows="3"
                                                 value={invoiceForm.bank_details_text}
                                                 onChange={(e) => setInvoiceForm({ ...invoiceForm, bank_details_text: e.target.value })}
+                                                placeholder="Configured Bank Account Details"
                                             ></textarea>
                                         </div>
                                         <div className="col-12 col-md-6">
-                                            <label className="form-label small fw-semibold">Terms &amp; Conditions (Printed on Invoice)</label>
+                                            <div className="d-flex justify-content-between align-items-center mb-1">
+                                                <label className="form-label small fw-semibold mb-0">Terms &amp; Conditions (Printed on Invoice)</label>
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-link btn-sm text-decoration-none p-0 text-muted"
+                                                    style={{ fontSize: '11px' }}
+                                                    onClick={() => setInvoiceForm(prev => ({ ...prev, terms_text: getTermsFromConfig(invoiceConfig) }))}
+                                                    title="Reset to terms from Invoice Configuration"
+                                                >
+                                                    <i className="ri-refresh-line me-1"></i>Reset to Config
+                                                </button>
+                                            </div>
                                             <textarea
                                                 className="form-control rounded-3 fst-italic small"
                                                 rows="3"
                                                 value={invoiceForm.terms_text}
                                                 onChange={(e) => setInvoiceForm({ ...invoiceForm, terms_text: e.target.value })}
+                                                placeholder="Configured Terms & Conditions"
                                             ></textarea>
                                         </div>
                                     </div>

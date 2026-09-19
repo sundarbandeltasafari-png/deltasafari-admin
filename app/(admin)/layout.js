@@ -56,8 +56,8 @@ export default function DashboardLayout({ children }) {
 		// Admin user (non super-admin)
 		if (user.admin !== 1) {
 			// All CRM routes are common and always allowed for all users
-			const alwaysAllowed = ['/crm', '/logout', '/adminusers/view'];
-			const isAlwaysAllowed = alwaysAllowed.some(r => pathname === r || pathname.startsWith('/crm'));
+			const alwaysAllowed = ['/crm', '/logout', '/adminusers/view', '/whatsapp'];
+			const isAlwaysAllowed = alwaysAllowed.some(r => pathname === r || pathname.startsWith('/crm') || pathname.startsWith('/whatsapp'));
 
 			if (isAlwaysAllowed) return;
 

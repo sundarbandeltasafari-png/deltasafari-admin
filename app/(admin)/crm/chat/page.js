@@ -17,6 +17,178 @@ import { axiosGet, axiosPost } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
 import LoadingComponent from '@/components/common/LoadingComponent';
 
+const ALL_EMOJIS = [
+    // Safari & Delta Safari Animals & Nature
+    { char: '🐅', name: 'tiger royal bengal safari sundarban predator' },
+    { char: '🐆', name: 'leopard cheetah spotted cat' },
+    { char: '🐘', name: 'elephant trunk giant safari' },
+    { char: '🐊', name: 'crocodile alligator sundarban river estuarine' },
+    { char: '🦌', name: 'deer chital spotted deer' },
+    { char: '🐒', name: 'monkey langur wildlife' },
+    { char: '🦅', name: 'eagle raptor bird sky prey' },
+    { char: '🦚', name: 'peacock national bird plumage' },
+    { char: '🦜', name: 'parrot bird colorful' },
+    { char: '🐬', name: 'dolphin gangetic river sundarban' },
+    { char: '🐗', name: 'wild boar pig tusk' },
+    { char: '🦦', name: 'otter river water mammal' },
+    { char: '🌴', name: 'palm tree mangrove sundarban flora' },
+    { char: '🌳', name: 'tree deciduous forest canopy' },
+    { char: '🌲', name: 'pine evergreen tree nature' },
+    { char: '🌿', name: 'herb leaf greenery botanic' },
+    { char: '🌊', name: 'ocean wave river water flow delta' },
+    { char: '🚤', name: 'speedboat delta safari boat launch cruise' },
+    { char: '🛳️', name: 'passenger ship vessel voyage' },
+    { char: '🚢', name: 'ship boat ferry carrier' },
+    { char: '⚓', name: 'anchor nautical marine harbor' },
+    { char: '⛺', name: 'tent camping stay eco resort' },
+    { char: '🏕️', name: 'campsite wilderness outdoor safari' },
+    { char: '🌅', name: 'sunrise golden hour morning delta' },
+    { char: '🌄', name: 'dawn sunrise mountains' },
+    { char: '☀️', name: 'sun sunny day bright weather' },
+    { char: '🌙', name: 'crescent moon night safari star' },
+    { char: '⭐', name: 'star golden review rating' },
+
+    // Smileys & Expressions
+    { char: '😀', name: 'grinning face happy smile' },
+    { char: '😃', name: 'smiling face big open mouth' },
+    { char: '😄', name: 'smiling eyes joyful grin' },
+    { char: '😁', name: 'beaming smiling grin happy' },
+    { char: '😆', name: 'laughing closed eyes haha lol' },
+    { char: '😅', name: 'sweat smile relief phew' },
+    { char: '🤣', name: 'rofl rolling on floor laughing' },
+    { char: '😂', name: 'joy tears laughter funny' },
+    { char: '🙂', name: 'slightly smiling calm ok' },
+    { char: '🙃', name: 'upside down playful silly sarcasm' },
+    { char: '😉', name: 'wink flirt playful' },
+    { char: '😊', name: 'blushing smile warm content' },
+    { char: '😇', name: 'halo angel innocent pure' },
+    { char: '🥰', name: 'smiling face hearts love adore' },
+    { char: '😍', name: 'heart eyes love enamored' },
+    { char: '🤩', name: 'star struck amazed wow excited' },
+    { char: '😘', name: 'kiss blowing heart love' },
+    { char: '😋', name: 'yummy delicious tongue tasty' },
+    { char: '😛', name: 'tongue out playful cheeky' },
+    { char: '😜', name: 'winking eye tongue out goofy' },
+    { char: '🤪', name: 'zany wacky goofy party' },
+    { char: '😝', name: 'squinting tongue out playful' },
+    { char: '🤑', name: 'money mouth rich cash wealth' },
+    { char: '🤗', name: 'hugging warm open hands' },
+    { char: '🤭', name: 'hand over mouth oops giggle' },
+    { char: '🤫', name: 'shushing secret quiet hush' },
+    { char: '🤔', name: 'thinking wondering hmm consider' },
+    { char: '🤐', name: 'zipper mouth silent secret' },
+    { char: '🤨', name: 'raised eyebrow skeptical doubt' },
+    { char: '😐', name: 'neutral face expressionless ok' },
+    { char: '😑', name: 'expressionless blank annoyed' },
+    { char: '😶', name: 'no mouth speechless silence' },
+    { char: '😏', name: 'smirking sly confident flirty' },
+    { char: '😒', name: 'unamused bored skeptical roll' },
+    { char: '🙄', name: 'eye roll whatever bored' },
+    { char: '😬', name: 'grimacing awkward yikes' },
+    { char: '😌', name: 'relieved calm serene peaceful' },
+    { char: '😔', name: 'pensive sad sorrow thoughtful' },
+    { char: '😴', name: 'sleeping zzz tired rest' },
+    { char: '😷', name: 'medical mask sick health' },
+    { char: '🤯', name: 'exploding head mind blown shock' },
+    { char: '🥳', name: 'party horn celebrate birthday' },
+    { char: '😎', name: 'sunglasses cool stylish boss' },
+    { char: '🤓', name: 'nerd glasses smart intellect' },
+    { char: '🧐', name: 'monocle examine scrutinize' },
+
+    // Gestures & People
+    { char: '👍', name: 'thumbs up like approve confirm agree ok yes' },
+    { char: '👎', name: 'thumbs down dislike bad reject no' },
+    { char: '👏', name: 'clapping hands applause bravo congrats great' },
+    { char: '🙌', name: 'raising hands celebration praise hooray' },
+    { char: '👐', name: 'open hands welcome offer' },
+    { char: '🤲', name: 'palms up pray receiving' },
+    { char: '🤝', name: 'handshake deal agreement partnership business' },
+    { char: '🙏', name: 'folded hands pray thank you please namaste gratitude' },
+    { char: '✍️', name: 'writing hand pen sign document agreement' },
+    { char: '💪', name: 'flexed biceps muscle strong power effort' },
+    { char: '👈', name: 'pointing left direction hand' },
+    { char: '👉', name: 'pointing right direction hand here' },
+    { char: '👆', name: 'pointing up direction hand above' },
+    { char: '👇', name: 'pointing down direction hand below' },
+    { char: '☝️', name: 'index pointing up notice attention one' },
+    { char: '✋', name: 'raised hand stop high five palm' },
+    { char: '👋', name: 'waving hand hello hi goodbye wave' },
+    { char: '🤙', name: 'call me shaka phone contact' },
+    { char: '👌', name: 'ok hand perfect correct agreed done' },
+    { char: '🤌', name: 'pinched fingers italian what why' },
+    { char: '✌️', name: 'victory hand peace sign two' },
+    { char: '🤞', name: 'crossed fingers good luck hope wish' },
+    { char: '🤟', name: 'love you hand rock sign' },
+    { char: '🤘', name: 'sign of horns rock metal energetic' },
+    { char: '👊', name: 'fist bump punch solid power' },
+    { char: '🤛', name: 'left fist bump' },
+    { char: '🤜', name: 'right fist bump' },
+
+    // Travel & Transport
+    { char: '✈️', name: 'airplane flight booking air ticket' },
+    { char: '🛫', name: 'flight departure take off travel' },
+    { char: '🛬', name: 'flight arrival landing trip' },
+    { char: '🚁', name: 'helicopter air transit' },
+    { char: '🚗', name: 'car transport pickup auto' },
+    { char: '🚕', name: 'taxi cab transfer pickup' },
+    { char: '🚙', name: 'suv car safari jeep 4x4' },
+    { char: '🚌', name: 'bus tourist coach transit' },
+    { char: '🚐', name: 'minibus van tour transit pickup' },
+    { char: '🚆', name: 'train transit rail railway howrah sealdah' },
+    { char: '🚉', name: 'train station platform travel' },
+    { char: '🏨', name: 'hotel stay resort lodging booking room' },
+    { char: '🛖', name: 'hut bamboo cottage eco stay resort' },
+    { char: '🏖️', name: 'beach coast resort holiday' },
+    { char: '🏝️', name: 'island delta isolated tropic' },
+    { char: '🗺️', name: 'world map geography tour route itinerary' },
+    { char: '🧭', name: 'compass navigation explorer guide' },
+    { char: '📍', name: 'map pin location point spot venue' },
+    { char: '🚩', name: 'flag marker destination spot' },
+    { char: '🧳', name: 'luggage baggage packing suitcase' },
+    { char: '🎫', name: 'ticket boarding pass voucher permit' },
+    { char: '🎟️', name: 'admission ticket entry event' },
+
+    // Business, Bookings & Celebration
+    { char: '✅', name: 'check mark confirmed verified approved done ok' },
+    { char: '✔️', name: 'check heavy done verified' },
+    { char: '❌', name: 'cross mark cancel error rejected failed' },
+    { char: '⏳', name: 'hourglass pending processing waiting time' },
+    { char: '⌛', name: 'hourglass done time up expire' },
+    { char: '⏰', name: 'alarm clock schedule pickup time alert' },
+    { char: '⏱️', name: 'stopwatch timer duration tracking' },
+    { char: '📅', name: 'calendar date booking schedule itinerary' },
+    { char: '📆', name: 'tear off calendar schedule day' },
+    { char: '📞', name: 'phone telephone customer support call' },
+    { char: '📱', name: 'mobile phone whatsapp sms cellular' },
+    { char: '📧', name: 'email envelope email confirmation letter' },
+    { char: '💬', name: 'speech bubble chat message reply talk' },
+    { char: '📢', name: 'loudspeaker announcement broadcast update' },
+    { char: '🔔', name: 'bell notification alert reminder notice' },
+    { char: '💰', name: 'money bag payment cash rupees amount' },
+    { char: '💵', name: 'currency dollar money note cash' },
+    { char: '💳', name: 'credit card online payment transaction gateway' },
+    { char: '🧾', name: 'receipt bill voucher invoice gst' },
+    { char: '📄', name: 'page document booking voucher pdf contract' },
+    { char: '📝', name: 'memo notes instructions edit compose' },
+    { char: '📋', name: 'clipboard checklist passenger roster guide' },
+    { char: '📁', name: 'folder archive package files leads' },
+    { char: '💼', name: 'briefcase work admin office corporate' },
+    { char: '🔒', name: 'lock secure encrypted privacy' },
+    { char: '🔑', name: 'key room key access unlock' },
+    { char: '🛡️', name: 'shield security safety protection guarantee' },
+    { char: '⚠️', name: 'warning alert caution attention important' },
+    { char: '💡', name: 'light bulb idea suggestion insight' },
+    { char: '📌', name: 'pushpin pinned notice important announcement' },
+    { char: '🔥', name: 'fire hot trending urgent priority deal' },
+    { char: '🚀', name: 'rocket launch fast speed instant boost' },
+    { char: '🎉', name: 'party popper celebrate booked success bonus' },
+    { char: '🎊', name: 'confetti ball celebration congrats achievement' },
+    { char: '🏆', name: 'trophy winner best package award top' },
+    { char: '🌟', name: 'glowing star special premium feature' },
+    { char: '❤️', name: 'red heart love thank you appreciate support' },
+    { char: '💯', name: 'hundred points perfect 100 complete success' }
+];
+
 export default function AdminTeamChatPage() {
     const token = useSelector((state) => state.adminAuth?.token);
     const currentUser = useSelector((state) => state.adminAuth?.user);
@@ -37,11 +209,12 @@ export default function AdminTeamChatPage() {
     const [uploadingFile, setUploadingFile] = useState(false);
     const [selectedFilePreview, setSelectedFilePreview] = useState(null);
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    const [showEmojiModal, setShowEmojiModal] = useState(false);
+    const [emojiSearchTerm, setEmojiSearchTerm] = useState('');
     const [typingUsers, setTypingUsers] = useState({}); // { [convId]: Set of user names }
 
     // Search & Modals
     const [searchTerm, setSearchTerm] = useState('');
-    const [newChatModalOpen, setNewChatModalOpen] = useState(false);
     const [showMembersModal, setShowMembersModal] = useState(false);
     const [membersSearchTerm, setMembersSearchTerm] = useState('');
     const [mobileView, setMobileView] = useState('list'); // 'list' (shows members/sidebar) or 'chat' (shows active message pane)
@@ -58,9 +231,6 @@ export default function AdminTeamChatPage() {
     useEffect(() => {
         activeConversationRef.current = activeConversation;
     }, [activeConversation]);
-
-    // Common Emojis Bar
-    const quickEmojis = ['👍', '👋', '🐅', '🔥', '❤️', '👏', '🎉', '🚀', '✅', '⏳', '📞', '🏨', '📍', '📄', '😊', '🙏'];
 
     // 1. Initialize Socket.io Connection
     useEffect(() => {
@@ -116,24 +286,33 @@ export default function AdminTeamChatPage() {
         newSocket.on('conversation_updated', (data) => {
             const currentActive = activeConversationRef.current;
             setConversations((prev) => {
-                const existingIdx = prev.findIndex((c) => Number(c.id) === Number(data.conversation_id));
+                const existingIdx = prev.findIndex((c) =>
+                    (c.id && Number(c.id) === Number(data.conversation_id)) ||
+                    (!c.is_team_hub && c.type !== 'group' && Number(c.other_user_id) === Number(data.last_sender_id))
+                );
                 if (existingIdx !== -1) {
                     const updated = [...prev];
                     const target = { ...updated[existingIdx] };
+                    target.id = data.conversation_id;
                     target.last_message = data.last_message;
                     target.last_message_at = data.last_message_at;
                     target.last_sender_first_name = data.sender_first_name;
 
                     // Increment unread count if we are not actively viewing this conversation
                     if (!currentActive || Number(currentActive.id) !== Number(data.conversation_id)) {
-                        if (Number(data.last_sender_id) !== Number(currentUser.id)) {
+                        if (Number(data.last_sender_id) !== Number(currentUser?.id)) {
                             target.unread_count = (parseInt(target.unread_count || 0) + 1);
                         }
                     }
 
-                    // Move to top of conversations list
+                    // Move to top (keep Team Hub pinned at top)
                     updated.splice(existingIdx, 1);
-                    return [target, ...updated];
+                    const hub = updated.find((c) => c.is_team_hub === 1 || c.type === 'group');
+                    if (target.is_team_hub === 1 || target.type === 'group') {
+                        return [target, ...updated];
+                    }
+                    const rest = updated.filter((c) => c !== hub);
+                    return hub ? [hub, target, ...rest] : [target, ...rest];
                 }
                 return prev;
             });
@@ -287,7 +466,6 @@ export default function AdminTeamChatPage() {
         try {
             const res = await axiosPost(createDirectChatUrl, { target_user_id: targetUserId }, token);
             if (res?.status && res.conversation_id) {
-                setNewChatModalOpen(false);
                 // Reload conversations list and select this conversation
                 const convRes = await axiosGet(getChatConversationsUrl, token);
                 if (convRes?.status && Array.isArray(convRes.conversations)) {
@@ -308,28 +486,38 @@ export default function AdminTeamChatPage() {
     const updateSidebarLastMessage = (msg) => {
         if (!activeConversation) return;
         setConversations((prev) => {
-            const existingIdx = prev.findIndex((c) => Number(c.id) === Number(activeConversation.id));
+            const existingIdx = prev.findIndex((c) =>
+                (c.id && Number(c.id) === Number(activeConversation.id)) ||
+                (!c.is_team_hub && c.type !== 'group' && c.other_user_id && c.other_user_id === activeConversation.other_user_id)
+            );
             if (existingIdx !== -1) {
                 const updated = [...prev];
                 const target = { ...updated[existingIdx] };
+                if (activeConversation.id) target.id = activeConversation.id;
                 target.last_message = msg.message_type === 'image' ? '📷 Image attachment' : (msg.message_type === 'file' ? `📎 ${msg.file_name}` : (msg.message || ''));
                 target.last_message_at = msg.created_at || new Date().toISOString();
                 target.last_sender_first_name = currentUser?.first_name || 'Me';
                 updated.splice(existingIdx, 1);
-                return [target, ...updated];
+                const hub = updated.find((c) => c.is_team_hub === 1 || c.type === 'group');
+                if (target.is_team_hub === 1 || target.type === 'group') {
+                    return [target, ...updated];
+                }
+                const rest = updated.filter((c) => c !== hub);
+                return hub ? [hub, target, ...rest] : [target, ...rest];
             }
             return prev;
         });
     };
 
-    const handleSendMessage = async (e) => {
+    const handleSendMessage = async (e, textOverride = null) => {
         if (e) e.preventDefault();
-        if (!activeConversation || (!messageText.trim() && !selectedFilePreview)) return;
+        const finalMessage = textOverride !== null ? textOverride : messageText;
+        if (!activeConversation || (!finalMessage.trim() && !selectedFilePreview)) return;
 
         const payload = {
             conversation_id: activeConversation.id,
             sender_id: currentUser?.id,
-            message: messageText.trim() || null,
+            message: finalMessage.trim() || null,
             message_type: selectedFilePreview ? (selectedFilePreview.file_type?.startsWith('image/') ? 'image' : 'file') : 'text',
             file_url: selectedFilePreview?.file_url || null,
             file_name: selectedFilePreview?.file_name || null,
@@ -338,9 +526,12 @@ export default function AdminTeamChatPage() {
         };
 
         // Clear local input & file preview immediately for responsive feel
-        setMessageText('');
+        if (textOverride === null) {
+            setMessageText('');
+        }
         setSelectedFilePreview(null);
         setShowEmojiPicker(false);
+        setShowEmojiModal(false);
 
         // Stop typing indicator
         if (socketRef.current) {
@@ -457,22 +648,43 @@ export default function AdminTeamChatPage() {
         }
     };
 
-    // 8. Add Quick Emoji to Message
-    const handleAddEmoji = (emoji) => {
-        setMessageText((prev) => prev + emoji);
+    // 8. Handle Emoji Selection from Modal
+    const handleSelectEmoji = (emojiChar) => {
+        setMessageText((prev) => prev + emojiChar);
     };
+
+    // Filtered Emojis for Modal
+    const filteredEmojisList = useMemo(() => {
+        if (!emojiSearchTerm.trim()) {
+            return ALL_EMOJIS;
+        }
+        const term = emojiSearchTerm.toLowerCase().trim();
+        return ALL_EMOJIS.filter((e) => e.name.toLowerCase().includes(term) || e.char === term);
+    }, [emojiSearchTerm]);
 
     // 9. Filtered Conversations List (Delta Safari Team Hub + All Admin Users)
     const displayedConversations = useMemo(() => {
-        if (!searchTerm.trim()) return conversations;
-        const searchLower = searchTerm.toLowerCase();
-        return conversations.filter((c) => {
-            const titleMatch = (c.title || '').toLowerCase().includes(searchLower);
-            const userNameMatch = `${c.other_user_first_name || ''} ${c.other_user_last_name || ''}`.toLowerCase().includes(searchLower);
-            const messageMatch = (c.last_message || '').toLowerCase().includes(searchLower);
-            const emailMatch = (c.other_user_email || '').toLowerCase().includes(searchLower);
-            const phoneMatch = (c.other_user_phone || '').toLowerCase().includes(searchLower);
-            return titleMatch || userNameMatch || messageMatch || emailMatch || phoneMatch;
+        let list = conversations;
+        if (searchTerm.trim()) {
+            const searchLower = searchTerm.toLowerCase();
+            list = conversations.filter((c) => {
+                const titleMatch = (c.title || '').toLowerCase().includes(searchLower);
+                const userNameMatch = `${c.other_user_first_name || ''} ${c.other_user_last_name || ''}`.toLowerCase().includes(searchLower);
+                const messageMatch = (c.last_message || '').toLowerCase().includes(searchLower);
+                const emailMatch = (c.other_user_email || '').toLowerCase().includes(searchLower);
+                const phoneMatch = (c.other_user_phone || '').toLowerCase().includes(searchLower);
+                return titleMatch || userNameMatch || messageMatch || emailMatch || phoneMatch;
+            });
+        }
+
+        // Deduplicate entries to guarantee no duplicate users or groups appear in the sidebar
+        const seen = new Set();
+        return list.filter((c) => {
+            const isGroup = c.type === 'group' || c.is_team_hub === 1;
+            const key = isGroup ? `group_${c.id || c.title}` : `user_${c.other_user_id}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
         });
     }, [conversations, searchTerm]);
 
@@ -577,7 +789,7 @@ export default function AdminTeamChatPage() {
                                 </div>
                             </div>
 
-                            <div className="d-flex align-items-center gap-1.5">
+                            <div className="d-flex align-items-center">
                                 <button
                                     type="button"
                                     onClick={() => setShowMembersModal(true)}
@@ -586,15 +798,6 @@ export default function AdminTeamChatPage() {
                                     title="View All Team Members Directory"
                                 >
                                     <i className="ri ri-team-line fs-5"></i>
-                                </button>
-                                <button
-                                    type="button"
-                                    onClick={() => setNewChatModalOpen(true)}
-                                    className="btn btn-primary btn-sm rounded-circle d-flex align-items-center justify-content-center shadow-sm"
-                                    style={{ width: '34px', height: '34px', backgroundColor: '#0066cc', borderColor: '#0066cc' }}
-                                    title="Start New Direct Chat"
-                                >
-                                    <i className="ri ri-chat-new-line fs-5"></i>
                                 </button>
                             </div>
                         </div>
@@ -629,13 +832,15 @@ export default function AdminTeamChatPage() {
                                 <div className="text-center py-5 text-muted">
                                     <i className="ri ri-chat-smile-2-line fs-1 d-block mb-1 opacity-50"></i>
                                     <small className="d-block">No conversations found</small>
-                                    <button
-                                        type="button"
-                                        onClick={() => setNewChatModalOpen(true)}
-                                        className="btn btn-outline-primary btn-xs rounded-pill mt-2"
-                                    >
-                                        + Start Chatting
-                                    </button>
+                                    {searchTerm && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setSearchTerm('')}
+                                            className="btn btn-outline-secondary btn-xs rounded-pill mt-2"
+                                        >
+                                            Clear Search
+                                        </button>
+                                    )}
                                 </div>
                             ) : (
                                 displayedConversations.map((conv, idx) => {
@@ -649,7 +854,7 @@ export default function AdminTeamChatPage() {
                                     const isFirstDirect = !isGroup && (idx === 0 || displayedConversations[idx - 1]?.type === 'group' || displayedConversations[idx - 1]?.is_team_hub === 1);
 
                                     return (
-                                        <React.Fragment key={conv.id || `user_${conv.other_user_id}`}>
+                                        <React.Fragment key={conv.is_team_hub === 1 || conv.type === 'group' ? `group_${conv.id || 1}` : `user_${conv.other_user_id}`}>
                                             {isFirstDirect && (
                                                 <div className="pt-3 pb-1.5 px-2 mt-1 mb-0.5">
                                                     <span className="text-xs fw-bold text-uppercase text-muted" style={{ fontSize: '11px', letterSpacing: '0.6px' }}>
@@ -757,7 +962,7 @@ export default function AdminTeamChatPage() {
                                                             style={{ fontSize: '12px', maxWidth: '170px', lineHeight: 1.3 }}
                                                         >
                                                             {conv.last_sender_first_name ? `${conv.last_sender_first_name}: ` : ''}
-                                                            {conv.last_message || (isGroup ? 'Official group channel' : 'Click to send message')}
+                                                            {conv.last_message || (isGroup ? 'Official group channel' : (conv.other_user_email || 'Click to send message'))}
                                                         </p>
 
                                                         {/* Unread Badge */}
@@ -1099,23 +1304,7 @@ export default function AdminTeamChatPage() {
                                     </div>
                                 )}
 
-                                {/* 4. Quick Emojis Bar (expandable) */}
-                                <div className="px-3 py-1.5 bg-white border-top d-flex align-items-center gap-1.5 overflow-x-auto">
-                                    <span className="text-xs text-muted me-1">Quick:</span>
-                                    {quickEmojis.map((em) => (
-                                        <button
-                                            key={em}
-                                            type="button"
-                                            onClick={() => handleAddEmoji(em)}
-                                            className="btn btn-sm btn-light rounded-circle p-0 d-flex align-items-center justify-content-center"
-                                            style={{ width: '28px', height: '28px', fontSize: '14px' }}
-                                        >
-                                            {em}
-                                        </button>
-                                    ))}
-                                </div>
-
-                                {/* 5. Bottom Message Composer */}
+                                {/* 4. Bottom Message Composer */}
                                 <div className="p-3 bg-white border-top">
                                     <form onSubmit={handleSendMessage} className="d-flex align-items-center gap-2">
                                         {/* File Attachment Button */}
@@ -1139,6 +1328,17 @@ export default function AdminTeamChatPage() {
                                             ) : (
                                                 <i className="ri ri-attachment-2 fs-5"></i>
                                             )}
+                                        </button>
+
+                                        {/* Emoji Modal Button near Add Attachment */}
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowEmojiModal(true)}
+                                            className="btn btn-light btn-sm rounded-circle d-flex align-items-center justify-content-center text-muted hover-bg-warning-subtle"
+                                            style={{ width: '40px', height: '40px' }}
+                                            title="Open Emoji Modal (Select & Send Emoji)"
+                                        >
+                                            <span style={{ fontSize: '18px', lineHeight: 1 }} role="img" aria-label="Emoji">😊</span>
                                         </button>
 
                                         {/* Text Input */}
@@ -1182,98 +1382,14 @@ export default function AdminTeamChatPage() {
                                     <i className="ri ri-chat-smile-2-fill fs-1"></i>
                                 </div>
                                 <h5 className="fw-bold text-dark mb-1">Delta Safari Real-Time Team Chat</h5>
-                                <p className="text-muted small mb-4" style={{ maxWidth: '380px' }}>
+                                <p className="text-muted small mb-0" style={{ maxWidth: '380px' }}>
                                     Select a direct chat or the official Delta Safari Team Hub from the sidebar to start collaborating.
                                 </p>
-                                <button
-                                    type="button"
-                                    onClick={() => setNewChatModalOpen(true)}
-                                    className="btn btn-primary rounded-pill px-4"
-                                    style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
-                                >
-                                    <i className="ri ri-chat-new-line me-1"></i> Start New Conversation
-                                </button>
                             </div>
                         )}
                     </div>
                 </div>
             </div>
-
-            {/* ========================================================================= */}
-            {/* NEW DIRECT CHAT USER PICKER MODAL                                         */}
-            {/* ========================================================================= */}
-            {newChatModalOpen && (
-                <div className="modal fade show d-block" tabIndex="-1" style={{ backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(5px)', zIndex: 1050 }}>
-                    <div className="modal-dialog modal-dialog-centered modal-md">
-                        <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
-                            <div className="modal-header bg-white border-bottom py-3 px-4 d-flex justify-content-between align-items-center">
-                                <h5 className="modal-title fw-bold text-dark mb-0 d-flex align-items-center gap-2">
-                                    <i className="ri ri-chat-new-line text-primary"></i>
-                                    <span>Start Direct Chat with Team Member</span>
-                                </h5>
-                                <button type="button" className="btn-close" onClick={() => setNewChatModalOpen(false)} aria-label="Close"></button>
-                            </div>
-
-                            <div className="modal-body p-3" style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-                                <div className="d-flex flex-column gap-2">
-                                    {adminUsersDirectory.length === 0 ? (
-                                        <div className="text-center py-4 text-muted">
-                                            No other active admin users found.
-                                        </div>
-                                    ) : (
-                                        adminUsersDirectory.map((u) => {
-                                            const isOnline = onlineUserIds.includes(u.id);
-                                            return (
-                                                <div
-                                                    key={u.id}
-                                                    onClick={() => handleStartDirectChat(u.id)}
-                                                    className="p-3 bg-light rounded-3 d-flex justify-content-between align-items-center cursor-pointer hover-bg-white border transition-all"
-                                                    style={{ cursor: 'pointer' }}
-                                                >
-                                                    <div className="d-flex align-items-center gap-3">
-                                                        <div className="position-relative">
-                                                            <div
-                                                                className="rounded-circle bg-primary text-white d-flex align-items-center justify-content-center fw-bold"
-                                                                style={{ width: '38px', height: '38px', backgroundColor: '#0066cc' }}
-                                                            >
-                                                                {u.first_name ? u.first_name.charAt(0).toUpperCase() : 'U'}
-                                                            </div>
-                                                            <span
-                                                                className={`position-absolute bottom-0 end-0 rounded-circle border border-2 border-white ${
-                                                                    isOnline ? 'bg-success' : 'bg-secondary'
-                                                                }`}
-                                                                style={{ width: '10px', height: '10px' }}
-                                                            ></span>
-                                                        </div>
-
-                                                        <div>
-                                                            <h6 className="fw-bold text-dark mb-0 small">
-                                                                {u.first_name} {u.last_name}
-                                                            </h6>
-                                                            <small className="text-muted text-xs d-block">
-                                                                {u.email || u.phone}
-                                                            </small>
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="d-flex align-items-center gap-2">
-                                                        <span className="badge bg-light text-secondary border">
-                                                            {u.admin === 1 ? 'Super Admin' : 'Staff'}
-                                                        </span>
-                                                        <span className="btn btn-outline-primary btn-xs rounded-pill px-2.5">
-                                                            Chat
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* ========================================================================= */}
             {/* TEAM MEMBERS DIRECTORY MODAL (MOBILE & DESKTOP)                           */}
@@ -1445,6 +1561,175 @@ export default function AdminTeamChatPage() {
                                             );
                                         })
                                     )}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ========================================================================= */}
+            {/* EMOJI PICKER & SEND MODAL                                                 */}
+            {/* ========================================================================= */}
+            {showEmojiModal && (
+                <div
+                    className="modal fade show d-block"
+                    tabIndex="-1"
+                    style={{ backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(5px)', zIndex: 1055 }}
+                    onClick={() => setShowEmojiModal(false)}
+                >
+                    <div
+                        className="modal-dialog modal-dialog-centered modal-lg"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ maxWidth: '680px' }}
+                    >
+                        <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                            {/* Header */}
+                            <div className="modal-header bg-white border-bottom py-3 px-4 d-flex justify-content-between align-items-center">
+                                <div className="d-flex align-items-center gap-2.5">
+                                    <div
+                                        className="rounded-circle bg-warning bg-opacity-15 text-warning-emphasis d-flex align-items-center justify-content-center"
+                                        style={{ width: '38px', height: '38px', fontSize: '20px' }}
+                                    >
+                                        😊
+                                    </div>
+                                    <div>
+                                        <h5 className="modal-title fw-bold text-dark mb-0 d-flex align-items-center gap-2">
+                                            <span>Select Emoji to Send</span>
+                                        </h5>
+                                        <small className="text-muted text-xs">
+                                            {activeConversation ? (
+                                                <>
+                                                    Active chat:{' '}
+                                                    <span className="fw-semibold text-primary">
+                                                        {activeConversation.type === 'group'
+                                                            ? 'Delta Safari Team Hub'
+                                                            : `${activeConversation.other_user_first_name || ''} ${activeConversation.other_user_last_name || ''}`.trim() || 'Team Member'}
+                                                    </span>
+                                                </>
+                                            ) : (
+                                                'Select an emoji to send or add to your message'
+                                            )}
+                                        </small>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    className="btn-close"
+                                    onClick={() => setShowEmojiModal(false)}
+                                    aria-label="Close"
+                                ></button>
+                            </div>
+
+                            {/* Search Bar */}
+                            <div className="p-3 bg-light border-bottom">
+                                <div className="input-group input-group-sm w-100">
+                                    <span className="input-group-text bg-white border-end-0 text-muted">
+                                        <i className="ri ri-search-line"></i>
+                                    </span>
+                                    <input
+                                        type="text"
+                                        className="form-control form-control-sm border-start-0 ps-0"
+                                        placeholder="Search emojis (e.g. tiger, boat, ok, heart)..."
+                                        value={emojiSearchTerm}
+                                        onChange={(e) => setEmojiSearchTerm(e.target.value)}
+                                        autoFocus
+                                    />
+                                    {emojiSearchTerm && (
+                                        <button
+                                            className="btn btn-outline-secondary"
+                                            type="button"
+                                            onClick={() => setEmojiSearchTerm('')}
+                                        >
+                                            <i className="ri ri-close-line"></i>
+                                        </button>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* Emojis Grid Area */}
+                            <div className="modal-body p-3 p-md-4 bg-light bg-opacity-25" style={{ maxHeight: '45vh', overflowY: 'auto' }}>
+                                {filteredEmojisList.length === 0 ? (
+                                    <div className="text-center py-5 text-muted">
+                                        <span className="fs-1 d-block mb-2">🔍</span>
+                                        <p className="mb-0 fw-semibold">No emojis found for &quot;{emojiSearchTerm}&quot;</p>
+                                        <small className="text-muted">Try searching &quot;tiger&quot;, &quot;boat&quot;, &quot;yes&quot;, &quot;smile&quot;, or &quot;car&quot;</small>
+                                    </div>
+                                ) : (
+                                    <div
+                                        style={{
+                                            display: 'grid',
+                                            gridTemplateColumns: 'repeat(auto-fill, minmax(50px, 1fr))',
+                                            gap: '8px'
+                                        }}
+                                    >
+                                        {filteredEmojisList.map((item, idx) => (
+                                            <button
+                                                key={`${item.char}_${idx}`}
+                                                type="button"
+                                                onClick={() => handleSelectEmoji(item.char)}
+                                                className="btn btn-white bg-white border rounded-3 p-1.5 d-flex align-items-center justify-content-center shadow-2xs hover-shadow transition-all"
+                                                style={{ height: '50px', fontSize: '24px' }}
+                                                title={item.name}
+                                            >
+                                                <span>{item.char}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Footer / Composer Preview & Send Actions */}
+                            <div className="modal-footer bg-white border-top p-3 d-flex flex-column flex-sm-row justify-content-between align-items-stretch align-items-sm-center gap-2">
+                                <div className="d-flex align-items-center gap-2 flex-grow-1 overflow-hidden">
+                                    <span className="text-xs text-muted fw-semibold text-nowrap">Message:</span>
+                                    <div
+                                        className="bg-light rounded-pill px-3 py-1.5 flex-grow-1 border text-truncate text-dark small"
+                                        style={{ minHeight: '36px', lineHeight: '22px' }}
+                                    >
+                                        {messageText ? (
+                                            <span className="fw-semibold">{messageText}</span>
+                                        ) : (
+                                            <span className="text-muted text-xs fst-italic">
+                                                Click emojis to add them here, or click &quot;Send in Chat&quot;
+                                            </span>
+                                        )}
+                                    </div>
+                                    {messageText && (
+                                        <button
+                                            type="button"
+                                            onClick={() => setMessageText('')}
+                                            className="btn btn-outline-danger btn-sm rounded-circle d-flex align-items-center justify-content-center p-0"
+                                            style={{ width: '32px', height: '32px' }}
+                                            title="Clear text"
+                                        >
+                                            <i className="ri ri-delete-bin-line"></i>
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="d-flex align-items-center gap-2 justify-content-end">
+                                    <button
+                                        type="button"
+                                        className="btn btn-light btn-sm rounded-pill px-3"
+                                        onClick={() => setShowEmojiModal(false)}
+                                    >
+                                        Close
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        disabled={!messageText.trim() && !selectedFilePreview}
+                                        onClick={() => {
+                                            handleSendMessage();
+                                            setShowEmojiModal(false);
+                                        }}
+                                        className="btn btn-primary btn-sm rounded-pill px-4 d-inline-flex align-items-center gap-1.5 shadow-sm"
+                                        style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
+                                    >
+                                        <i className="ri ri-send-plane-2-fill"></i>
+                                        <span className="fw-semibold">Send in Chat</span>
+                                    </button>
                                 </div>
                             </div>
                         </div>

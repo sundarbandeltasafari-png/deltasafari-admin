@@ -110,7 +110,7 @@ export default function MediaUpload({ setImages, setVideos, images = [], videos 
               ref={imageInputRef}
               hidden
               multiple
-              accept="image/*"
+              accept="image/*,.ico,.svg"
               onChange={(e) => handleFiles(e.target.files, 'image')}
             />
           </div>

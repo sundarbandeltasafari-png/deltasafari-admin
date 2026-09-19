@@ -11,6 +11,7 @@
   "dependencies": {
     "@lottiefiles/react-lottie-player": "^3.6.0",
     "@reduxjs/toolkit": "^2.11.2",
+    "@tanstack/react-table": "^8.20.6",
     "@tinymce/tinymce-react": "^6.3.0",
     "axios": "^1.16.0",
     "base64url": "^3.0.1",

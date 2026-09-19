@@ -67,28 +67,35 @@ function ZoneCard({ zone, level, handleDeleteDetect }) {
               <p className="text-muted small mb-0 mt-1 line-clamp-1">
                 {zone.description || 'No description available for this zone.'}
               </p>
-              {permisions.includes('/zone/edit') && (
+              <div className="d-flex align-items-center mt-3 flex-wrap">
+                <div 
+                  onClick={(e) => { 
+                    e.stopPropagation(); 
+                    route.push('/zone/add?parent_id=' + urlEncode(zone?.id)); 
+                  }} 
+                  className='position-relative btn btn-success btn-sm rounded-pill px-3 me-2'
+                >
+                  <i className="bi bi-plus-lg me-1"></i> Add Sub-Destination
+                </div>
                 <div 
                   onClick={(e) => { 
                     e.stopPropagation(); 
                     route.push('/zone/edit/' + urlEncode(zone?.id)); 
                   }} 
-                  className='position-relative mt-3 btn btn-primary btn-sm rounded-pill px-3 me-2'
+                  className='position-relative btn btn-primary btn-sm rounded-pill px-3 me-2'
                 >
                   <i className="bi bi-pencil-square me-1"></i> Edit Destination
                 </div>
-              )}
-              {permisions.includes('/zone/edit') && (
                 <div 
                   onClick={(e) => { 
                     e.stopPropagation(); 
                     handleDeleteDetect(zone); 
                   }} 
-                  className='position-relative mt-3 btn btn-danger btn-sm rounded-pill px-3'
+                  className='position-relative btn btn-danger btn-sm rounded-pill px-3'
                 >
                   <i className="bi bi-trash me-1"></i> Delete Destination
                 </div>
-              )}
+              </div>
             </div>
 
             {/* Child Counter */}

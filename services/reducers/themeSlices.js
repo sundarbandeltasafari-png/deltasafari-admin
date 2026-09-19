@@ -12,9 +12,12 @@ const themeSlice = createSlice({
     },
     toggleSidebar(state){
       state.sidebar = !state.sidebar
+    },
+    closeSidebar(state){
+      state.sidebar = false
     }
   }
 })
 
-export const { themeChange, toggleSidebar } = themeSlice.actions
+export const { themeChange, toggleSidebar, closeSidebar } = themeSlice.actions
 export default themeSlice.reducer

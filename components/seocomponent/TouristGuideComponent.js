@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import CopyContentDropdown from "@/components/common/CopyContentDropdown";
 
 export const defaultGuideData = {
   enabled: true,
@@ -72,7 +73,7 @@ export const defaultGuideData = {
   ]
 };
 
-export default function TouristGuideComponent({ guideData, setGuideData, entityName = "Destination" }) {
+export default function TouristGuideComponent({ guideData, setGuideData, entityName = "Destination", onCopyContent }) {
   const [isOpen, setIsOpen] = useState(true);
 
   // Parse guideData if passed as string or initialize with default
@@ -197,6 +198,15 @@ export default function TouristGuideComponent({ guideData, setGuideData, entityN
 
       {isOpen && (
         <div className="card-body p-4 bg-light">
+          {/* Copy Content from Existing City or Destination */}
+          <div className="mb-4">
+            <CopyContentDropdown 
+              setGuideData={setGuideData} 
+              onCopy={onCopyContent} 
+              currentEntityName={entityName} 
+            />
+          </div>
+
           {/* Active Switch */}
           <div className="form-check form-switch mb-4 p-3 bg-white rounded-3 border">
             <input 

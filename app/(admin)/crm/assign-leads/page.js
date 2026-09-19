@@ -8,8 +8,10 @@ import {
     getLeadManagersUrl, 
     toggleLeadManagerUrl, 
     assignLeadUrl, 
-    getWhatsAppContactsUrl 
+    getWhatsAppContactsUrl,
+    deleteWhatsAppContactUrl
 } from '@/app/routes/whatsappRoutes';
+import { axiosDelete } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
 import { calculateTime } from '@/libs/timeHelper';
 import LoadingComponent from '@/components/common/LoadingComponent';
@@ -35,6 +37,49 @@ export default function AssignLeadsPage() {
     const [filterAssignee, setFilterAssignee] = useState('');
     const [updatingUserId, setUpdatingUserId] = useState(null);
     const [reassigningContactId, setReassigningContactId] = useState(null);
+
+    // Delete Lead Confirmation Modal State
+    const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+    const [leadToDelete, setLeadToDelete] = useState(null);
+    const [deletingLead, setDeletingLead] = useState(false);
+
+    const handleOpenDeleteModal = (contact) => {
+        if (!contact) return;
+        setLeadToDelete(contact);
+        setDeleteModalOpen(true);
+    };
+
+    const handleConfirmDelete = async () => {
+        if (!leadToDelete?.id) {
+            setDeleteModalOpen(false);
+            setLeadToDelete(null);
+            return;
+        }
+
+        setDeletingLead(true);
+        try {
+            const res = await axiosDelete(`${deleteWhatsAppContactUrl}${leadToDelete.id}`, token);
+            if (res?.status) {
+                showMessage('success', res.msg || 'Lead deleted successfully.');
+                setDeleteModalOpen(false);
+                setContacts(prev => prev.filter(c => c.id !== leadToDelete.id));
+                setStats(prev => ({
+                    ...prev,
+                    total_leads: Math.max(0, (prev.total_leads || 1) - 1),
+                    assigned_leads: leadToDelete.assigned_to ? Math.max(0, (prev.assigned_leads || 1) - 1) : prev.assigned_leads,
+                    unassigned_leads: !leadToDelete.assigned_to ? Math.max(0, (prev.unassigned_leads || 1) - 1) : prev.unassigned_leads
+                }));
+                setLeadToDelete(null);
+            } else {
+                showMessage('error', res?.msg || 'Failed to delete lead.');
+            }
+        } catch (err) {
+            console.error('Error deleting lead:', err);
+            showMessage('error', 'An error occurred while deleting the lead.');
+        } finally {
+            setDeletingLead(false);
+        }
+    };
 
     const fetchLeadManagers = async () => {
         if (!token || !isSuperAdmin) return;
@@ -531,6 +576,14 @@ export default function AssignLeadsPage() {
                                                     >
                                                         <i className="ri ri-chat-1-line fs-5"></i>
                                                     </button>
+                                                    <button 
+                                                        type="button" 
+                                                        onClick={() => handleOpenDeleteModal(contact)}
+                                                        className="btn btn-icon btn-sm btn-label-danger rounded-pill"
+                                                        title="Delete Lead"
+                                                    >
+                                                        <i className="ri ri-delete-bin-line fs-5"></i>
+                                                    </button>
                                                 </div>
                                             </td>
                                         </tr>
@@ -541,6 +594,94 @@ export default function AssignLeadsPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Delete Lead Confirmation Modal */}
+            {deleteModalOpen && leadToDelete && (
+                <div 
+                    className="modal fade show d-block" 
+                    tabIndex="-1" 
+                    style={{ backgroundColor: 'rgba(15, 23, 42, 0.65)', backdropFilter: 'blur(4px)', zIndex: 1070 }}
+                >
+                    <div className="modal-dialog modal-dialog-centered" style={{ maxWidth: '480px' }}>
+                        <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                            <div className="modal-header bg-danger text-white py-3 px-4 d-flex align-items-center justify-content-between">
+                                <h5 className="modal-title fw-bold text-white mb-0 d-flex align-items-center gap-2">
+                                    <i className="ri ri-delete-bin-fill fs-5"></i>
+                                    <span>Delete CRM Lead</span>
+                                </h5>
+                                <button 
+                                    type="button" 
+                                    className="btn-close btn-close-white" 
+                                    onClick={() => { setDeleteModalOpen(false); setLeadToDelete(null); }}
+                                    disabled={deletingLead}
+                                    aria-label="Close"
+                                ></button>
+                            </div>
+                            <div className="modal-body p-4 text-center">
+                                <div 
+                                    className="rounded-circle bg-danger bg-opacity-10 text-danger d-inline-flex align-items-center justify-content-center mb-3"
+                                    style={{ width: '64px', height: '64px', fontSize: '30px' }}
+                                >
+                                    <i className="ri ri-alert-fill"></i>
+                                </div>
+                                <h6 className="fw-bold text-dark mb-2">
+                                    Are you sure you want to permanently delete this lead?
+                                </h6>
+                                <div className="card bg-light border-0 rounded-3 p-3 text-start my-3" style={{ fontSize: '13px' }}>
+                                    <div className="d-flex justify-content-between mb-1">
+                                        <span className="text-muted">Lead Name:</span>
+                                        <strong className="text-dark">{leadToDelete.name || `Lead #${leadToDelete.id}`}</strong>
+                                    </div>
+                                    <div className="d-flex justify-content-between mb-1">
+                                        <span className="text-muted">WhatsApp Phone:</span>
+                                        <strong className="text-success font-monospace">+{leadToDelete.wa_id}</strong>
+                                    </div>
+                                    {leadToDelete.assigned_user_name && (
+                                        <div className="d-flex justify-content-between">
+                                            <span className="text-muted">Assigned Admin:</span>
+                                            <span className="text-primary fw-semibold">{leadToDelete.assigned_user_name}</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="alert alert-warning border-0 rounded-3 text-start p-2 d-flex gap-2 align-items-start mb-0" style={{ fontSize: '12px' }}>
+                                    <i className="ri ri-information-fill text-warning fs-6 mt-0.5 flex-shrink-0"></i>
+                                    <span>
+                                        This action will permanently delete this lead from the CRM, including conversation logs, follow-up history, and associated tasks. <strong>This action cannot be undone.</strong>
+                                    </span>
+                                </div>
+                            </div>
+                            <div className="modal-footer bg-light border-top py-2.5 px-4 d-flex justify-content-end gap-2">
+                                <button
+                                    type="button"
+                                    className="btn btn-light rounded-pill px-4"
+                                    onClick={() => { setDeleteModalOpen(false); setLeadToDelete(null); }}
+                                    disabled={deletingLead}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="btn btn-danger rounded-pill px-4 d-inline-flex align-items-center gap-1.5 shadow-sm fw-semibold"
+                                    onClick={handleConfirmDelete}
+                                    disabled={deletingLead}
+                                >
+                                    {deletingLead ? (
+                                        <>
+                                            <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                            <span>Deleting...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <i className="ri ri-delete-bin-line"></i>
+                                            <span>Yes, Delete Lead</span>
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

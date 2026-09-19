@@ -4,8 +4,8 @@ import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useSelector } from 'react-redux';
-import { getAllHolidayEnquiriesUrl, updateHolidayEnquiryUrl } from '@/app/routes/serviceRoutes';
-import { axiosGet, axiosPut } from '@/libs/axiosHelper';
+import { getAllHolidayEnquiriesUrl, updateHolidayEnquiryUrl, createHolidayEnquiryWhatsAppLeadUrl } from '@/app/routes/serviceRoutes';
+import { axiosGet, axiosPut, axiosPost } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
 import LoadingComponent from '@/components/common/LoadingComponent';
 import NotFound from '@/components/common/NotFound';
@@ -67,7 +67,9 @@ export default function CustomPackagePage() {
   const [enquiries, setEnquiries] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [platformFilter, setPlatformFilter] = useState('All');
   const [updatingId, setUpdatingId] = useState(null);
+  const [creatingLeadId, setCreatingLeadId] = useState(null);
 
   const fetchEnquiries = async () => {
     setLoading(true);
@@ -103,27 +105,87 @@ export default function CustomPackagePage() {
     fetchEnquiries();
   }, [token]);
 
-  const saveToStorage = (list) => {
-    setEnquiries(list);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem('holiday_enquiries_data', JSON.stringify(list));
-    }
-  };
-
-  const handleStatusChange = async (enquiryId, newStatus) => {
-    setUpdatingId(enquiryId);
+  const handleStatusChange = async (id, newStatus) => {
+    setUpdatingId(id);
     try {
-      const res = await axiosPut(updateHolidayEnquiryUrl, { id: enquiryId, status: newStatus }, token);
-      const updated = enquiries.map(item => item.id === enquiryId ? { ...item, status: newStatus, updated_at: new Date().toISOString() } : item);
-      saveToStorage(updated);
-      showMessage(res?.msg || 'Holiday enquiry status updated successfully.', 'success');
+      const res = await axiosPut(updateHolidayEnquiryUrl, { id, status: newStatus }, token);
+      if (res && res.status) {
+        showMessage('Status updated successfully.', 'success');
+        setEnquiries(prev => prev.map(item => item.id === id ? { ...item, status: newStatus } : item));
+      } else {
+        // Fallback update in state and localStorage
+        setEnquiries(prev => {
+          const updated = prev.map(item => item.id === id ? { ...item, status: newStatus } : item);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('holiday_enquiries_data', JSON.stringify(updated));
+          }
+          return updated;
+        });
+        showMessage('Status updated locally.', 'success');
+      }
     } catch (err) {
-      const updated = enquiries.map(item => item.id === enquiryId ? { ...item, status: newStatus, updated_at: new Date().toISOString() } : item);
-      saveToStorage(updated);
-      showMessage('Holiday enquiry status updated successfully.', 'success');
+      console.log('API update failed, updating local state:', err);
+      setEnquiries(prev => {
+        const updated = prev.map(item => item.id === id ? { ...item, status: newStatus } : item);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('holiday_enquiries_data', JSON.stringify(updated));
+        }
+        return updated;
+      });
+      showMessage('Status updated locally.', 'success');
     } finally {
       setUpdatingId(null);
     }
+  };
+
+  const handleCreateWhatsAppLead = async (item) => {
+    if (!item || !item.id) return;
+    setCreatingLeadId(item.id);
+    try {
+      const res = await axiosPost(createHolidayEnquiryWhatsAppLeadUrl, { enquiry_id: item.id }, token);
+      if (res && res.status) {
+        showMessage(res.msg || 'Custom WhatsApp lead created successfully!', 'success');
+        const contactId = res.contact_id || res.data?.contact_id;
+        const cleanPhone = res.phone || item.phone;
+
+        setEnquiries(prev => prev.map(e => e.id === item.id ? {
+          ...e,
+          whatsapp_lead_id: contactId,
+          whatsapp_phone: cleanPhone
+        } : e));
+
+        if (typeof window !== 'undefined') {
+          const saved = localStorage.getItem('holiday_enquiries_data');
+          if (saved) {
+            try {
+              const list = JSON.parse(saved);
+              const updated = list.map(e => e.id === item.id ? {
+                ...e,
+                whatsapp_lead_id: contactId,
+                whatsapp_phone: cleanPhone
+              } : e);
+              localStorage.setItem('holiday_enquiries_data', JSON.stringify(updated));
+            } catch (e) {}
+          }
+        }
+      } else {
+        showMessage(res?.msg || 'Failed to create WhatsApp lead.', 'error');
+      }
+    } catch (err) {
+      console.error('Error creating WhatsApp lead:', err);
+      const errMsg = err.response?.data?.msg || err.message || 'Error creating WhatsApp lead.';
+      showMessage(errMsg, 'error');
+    } finally {
+      setCreatingLeadId(null);
+    }
+  };
+
+  const handleViewWhatsAppLead = (item) => {
+    const rawPhone = item.whatsapp_phone || item.phone || '';
+    const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+    const searchVal = cleanPhone || encodeURIComponent(item.name || '');
+    const contactId = item.whatsapp_lead_id || '';
+    router.push(`/crm/whatsapp?search=${searchVal}&contactId=${contactId}&autoOpen=true`);
   };
 
   const getStatusBadgeClass = (status) => {
@@ -153,6 +215,11 @@ export default function CustomPackagePage() {
   const filteredEnquiries = useMemo(() => {
     return enquiries.filter(item => {
       const matchesStatus = statusFilter === 'All' || item.status?.toLowerCase() === statusFilter.toLowerCase();
+      const itemPlatform = item.platform || 'deltasafari';
+      const matchesPlatform = platformFilter === 'All' ||
+        (platformFilter === 'deltasafari' && itemPlatform === 'deltasafari') ||
+        (platformFilter === 'sundarban-deltasafari' && (itemPlatform === 'sundarban-deltasafari' || (item.destination || '').toLowerCase().includes('sundarban')));
+
       const term = searchTerm.toLowerCase();
       const matchesSearch = !searchTerm ||
         item.name?.toLowerCase().includes(term) ||
@@ -160,9 +227,9 @@ export default function CustomPackagePage() {
         item.phone?.toLowerCase().includes(term) ||
         item.destination?.toLowerCase().includes(term);
 
-      return matchesStatus && matchesSearch;
+      return matchesStatus && matchesPlatform && matchesSearch;
     });
-  }, [enquiries, statusFilter, searchTerm]);
+  }, [enquiries, statusFilter, platformFilter, searchTerm]);
 
   return (
     <div className="container-xxl flex-grow-1 container-p-y">
@@ -272,8 +339,19 @@ export default function CustomPackagePage() {
               </div>
             </div>
 
-            <div className="col-md-6 col-lg-4 ms-auto d-flex align-items-center justify-content-md-end gap-2">
-              <label className="fw-medium text-muted small mb-0 me-1">Filter Status:</label>
+            <div className="col-md-6 col-lg-5 ms-auto d-flex align-items-center justify-content-md-end gap-2 flex-wrap">
+              <label className="fw-medium text-muted small mb-0 me-1">Platform:</label>
+              <select
+                className="form-select form-select-sm w-auto"
+                value={platformFilter}
+                onChange={(e) => setPlatformFilter(e.target.value)}
+              >
+                <option value="All">All Platforms</option>
+                <option value="deltasafari">⛵ Delta Safari</option>
+                <option value="sundarban-deltasafari">🐅 Sundarban Safari</option>
+              </select>
+
+              <label className="fw-medium text-muted small mb-0 me-1 ms-2">Status:</label>
               <select
                 className="form-select form-select-sm w-auto"
                 value={statusFilter}
@@ -308,6 +386,7 @@ export default function CustomPackagePage() {
                   <th>Travel Date & Budget</th>
                   <th>Status</th>
                   <th>Created Date</th>
+                  <th className="text-center">WhatsApp Lead</th>
                   <th className="text-center">Actions</th>
                 </tr>
               </thead>
@@ -324,6 +403,17 @@ export default function CustomPackagePage() {
                           <span><i className="ri ri-mail-line me-1"></i>{item.email}</span>
                           <span>|</span>
                           <span><i className="ri ri-phone-line me-1"></i>{item.phone}</span>
+                        </div>
+                        <div className="mt-1">
+                          {(item.platform === 'sundarban-deltasafari' || (item.destination || '').toLowerCase().includes('sundarban')) ? (
+                            <span className="badge bg-success-subtle text-success border border-success border-opacity-25 rounded-pill px-2 py-0.5" style={{ fontSize: '10px', fontWeight: '700' }}>
+                              <i className="ri ri-compass-3-line me-1"></i>Sundarban Safari
+                            </span>
+                          ) : (
+                            <span className="badge bg-primary-subtle text-primary border border-primary border-opacity-25 rounded-pill px-2 py-0.5" style={{ fontSize: '10px', fontWeight: '700' }}>
+                              <i className="ri ri-global-line me-1"></i>Delta Safari
+                            </span>
+                          )}
                         </div>
                       </div>
                     </td>
@@ -373,7 +463,62 @@ export default function CustomPackagePage() {
                       </span>
                     </td>
                     <td className="text-center">
+                      {item.whatsapp_lead_id ? (
+                        <div className="d-inline-flex align-items-center gap-1.5">
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-outline-secondary d-inline-flex align-items-center gap-1"
+                            disabled
+                            title={`WhatsApp Lead #${item.whatsapp_lead_id} is already created`}
+                            style={{ cursor: 'not-allowed', opacity: 0.75 }}
+                          >
+                            <i className="ri ri-checkbox-circle-fill text-success"></i>
+                            <span>Create Lead</span>
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-success d-inline-flex align-items-center gap-1 shadow-sm fw-medium"
+                            onClick={() => handleViewWhatsAppLead(item)}
+                            title="View this Lead in WhatsApp CRM Section"
+                          >
+                            <i className="ri ri-whatsapp-fill"></i>
+                            <span>View</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-outline-success d-inline-flex align-items-center gap-1 shadow-sm fw-medium"
+                          disabled={creatingLeadId === item.id}
+                          onClick={() => handleCreateWhatsAppLead(item)}
+                          title="Create Custom WhatsApp Lead from this enquiry"
+                        >
+                          {creatingLeadId === item.id ? (
+                            <>
+                              <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: '12px', height: '12px' }}></span>
+                              <span>Creating...</span>
+                            </>
+                          ) : (
+                            <>
+                              <i className="ri ri-whatsapp-line"></i>
+                              <span>Create Lead</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </td>
+                    <td className="text-center">
                       <div className="d-flex align-items-center justify-content-center gap-2">
+                        {item.whatsapp_lead_id && (
+                          <button
+                            type="button"
+                            onClick={() => handleViewWhatsAppLead(item)}
+                            className="btn btn-icon btn-sm btn-label-success"
+                            title="View in WhatsApp CRM"
+                          >
+                            <i className="ri ri-whatsapp-fill icon-18px"></i>
+                          </button>
+                        )}
                         <Link
                           href={`/custom-package/view/${item.id}`}
                           className="btn btn-icon btn-sm btn-label-info"

@@ -22,7 +22,14 @@ async function getSiteSettings() {
   try {
     const response = await axios.get(getSitePageSettingsUrl);
     if (response.data?.status) {
-      return response.data?.siteSettings;
+      const s = response.data?.siteSettings;
+      if (s) {
+        delete s.google_client_secret;
+        delete s.google_auth_token;
+        delete s.whatsapp_access_token;
+        delete s.whatsapp_verify_token;
+      }
+      return s;
     }
   } catch (error) {
     console.error("Failed to fetch site settings:", error);
@@ -32,7 +39,7 @@ async function getSiteSettings() {
 
 export async function generateMetadata() {
   const data = await getSiteSettings();
-  const siteUrl = data?.canonical_url || "https://sundarbandeltasafari.com";
+  const siteUrl = data?.canonical_url || "https://deltasafari.in";
 
   return {
     title: data?.site_title || "Delta Safari",

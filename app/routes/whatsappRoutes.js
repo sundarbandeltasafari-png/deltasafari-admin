@@ -61,6 +61,7 @@ export const getInvoicesByContactUrl = `${SERVER_URL}admin/crm/invoices/by-conta
 
 // Booking Users & CRM Customer History
 export const getBookingUsersUrl = `${SERVER_URL}admin/crm/booking-users`;
+export const getBookingUserDetailsUrl = `${SERVER_URL}admin/crm/booking-users/details`;
 
 // Task Management & Kanban Board Endpoints
 export const getTasksListUrl = `${SERVER_URL}admin/crm/tasks`;
@@ -92,3 +93,15 @@ export const sendChatMessageUrl = `${SERVER_URL}admin/crm/chat/conversations/`; 
 export const markChatReadUrl = `${SERVER_URL}admin/crm/chat/conversations/`; // append :id/read
 export const uploadChatFileUrl = `${SERVER_URL}admin/crm/chat/upload`;
 export const getChatUnreadCountUrl = `${SERVER_URL}admin/crm/chat/unread-count`;
+
+// WhatsApp OTP & Meta Template Endpoints
+export const getWhatsAppOtpSettingsUrl = `${SERVER_URL}admin/whatsapp/otp-settings`;
+export const updateWhatsAppOtpSettingsUrl = `${SERVER_URL}admin/whatsapp/otp-settings`;
+export const testWhatsAppOtpUrl = `${SERVER_URL}admin/whatsapp/test-otp`;
+export const getWhatsAppTemplatesUrl = `${SERVER_URL}admin/whatsapp/templates`;
+export const createWhatsAppTemplateUrl = `${SERVER_URL}admin/whatsapp/templates`;
+export const updateWhatsAppTemplateItemUrl = `${SERVER_URL}admin/whatsapp/templates/`; // append :id
+export const publishWhatsAppTemplateUrl = `${SERVER_URL}admin/whatsapp/templates/`; // append :id/publish
+export const updateWhatsAppTemplateStatusUrl = `${SERVER_URL}admin/whatsapp/templates/`; // append :id/status
+export const syncMetaTemplatesStatusUrl = `${SERVER_URL}admin/whatsapp/templates/sync-meta`;
+export const deleteWhatsAppTemplateItemUrl = `${SERVER_URL}admin/whatsapp/templates/`;

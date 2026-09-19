@@ -67,7 +67,7 @@ export default function MediaUpload({ setImage, setVideo, image, video, previewI
               type="file"
               ref={imageInputRef}
               hidden
-              accept="image/*"
+              accept="image/*,.ico,.svg"
               onChange={(e) => handleFile(e.target.files[0], 'image')}
             />
           </div>

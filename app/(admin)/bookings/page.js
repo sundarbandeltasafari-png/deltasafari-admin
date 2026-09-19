@@ -19,6 +19,14 @@ import {
     normalizeDateStr, 
     formatDisplayDate 
 } from "@/libs/bookingHelper"
+import { 
+    useReactTable, 
+    getCoreRowModel, 
+    getPaginationRowModel, 
+    getSortedRowModel,
+    flexRender 
+} from "@tanstack/react-table"
+import TanstackTablePagination from "@/components/admin/common/TanstackTablePagination"
 
 function BookingsPageContent() {
     const router = useRouter();
@@ -48,6 +56,7 @@ function BookingsPageContent() {
     const [dateTypeFilter, setDateTypeFilter] = useState("travel"); // 'travel', 'booking', 'any'
     const [statusFilter, setStatusFilter] = useState("All");
     const [paymentFilter, setPaymentFilter] = useState("All");
+    const [platformFilter, setPlatformFilter] = useState("All");
 
     // Modals
     const [selectedBooking, setSelectedBooking] = useState(null); // Reservation details modal
@@ -55,6 +64,20 @@ function BookingsPageContent() {
     const [invoiceBooking, setInvoiceBooking] = useState(null);   // Printable Invoice modal
     const [confirmModalData, setConfirmModalData] = useState(null); // Confirm pending reservation modal
     const [processingBookingId, setProcessingBookingId] = useState(null);
+
+    // Actions dropdown state
+    const [activeDropdownId, setActiveDropdownId] = useState(null);
+
+    // Click outside to close actions dropdown
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (!e.target.closest('.booking-actions-dropdown')) {
+                setActiveDropdownId(null);
+            }
+        };
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, []);
 
     const token = useSelector((state) => state.adminAuth?.token);
 
@@ -190,14 +213,80 @@ function BookingsPageContent() {
                 if (paymentFilter === 'PENDING' && item.is_paid) return false;
             }
 
+            // 6. Platform Filter
+            if (platformFilter !== 'All') {
+                const itemPlatform = item.platform || item.raw?.platform || 'deltasafari';
+                if (platformFilter === 'deltasafari' && itemPlatform !== 'deltasafari') return false;
+                if (platformFilter === 'sundarban-deltasafari' && itemPlatform !== 'sundarban-deltasafari') return false;
+            }
+
             return true;
         });
-    }, [bookingsData, sourceFilter, dateFilter, dateTypeFilter, searchTerm, statusFilter, paymentFilter]);
+    }, [bookingsData, sourceFilter, dateFilter, dateTypeFilter, searchTerm, statusFilter, paymentFilter, platformFilter]);
 
     // Calculate dynamic totals for the current filtered list
     const filteredTotalRevenue = useMemo(() => {
         return filteredBookings.reduce((sum, b) => sum + (b.total_cost || 0), 0);
     }, [filteredBookings]);
+
+    // TanStack Table State
+    const [sorting, setSorting] = useState([]);
+    const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 25 });
+
+    // TanStack Table Columns
+    const columns = useMemo(() => [
+        {
+            accessorKey: 'display_id',
+            header: 'Booking / Lead Ref',
+        },
+        {
+            accessorKey: 'customer_name',
+            header: 'Client / Contact',
+        },
+        {
+            accessorKey: 'source_label',
+            header: 'Booking Channel & Source',
+        },
+        {
+            accessorKey: 'package_title',
+            header: 'Tour Package',
+        },
+        {
+            accessorKey: 'travel_date',
+            header: 'Safari Travel Date',
+        },
+        {
+            accessorKey: 'total_cost',
+            header: 'Total Cost',
+        },
+        {
+            accessorKey: 'is_paid',
+            header: 'Payment Status',
+        },
+        {
+            accessorKey: 'booking_status',
+            header: 'Booking Status',
+        },
+        {
+            id: 'actions',
+            header: 'Action',
+            enableSorting: false,
+        },
+    ], []);
+
+    const table = useReactTable({
+        data: filteredBookings,
+        columns,
+        state: {
+            sorting,
+            pagination,
+        },
+        onSortingChange: setSorting,
+        onPaginationChange: setPagination,
+        getCoreRowModel: getCoreRowModel(),
+        getSortedRowModel: getSortedRowModel(),
+        getPaginationRowModel: getPaginationRowModel(),
+    });
 
     // Render status badge
     const getBookingStatusBadge = (item) => {
@@ -583,11 +672,25 @@ function BookingsPageContent() {
                                 <option value="PENDING">Pending / Enquiry</option>
                             </select>
                         </div>
+
+                        {/* Platform Filter */}
+                        <div className="col-6 col-sm-6 col-md-1.5" style={{ flex: '1' }}>
+                            <label className="form-label text-muted small fw-bold text-uppercase">Platform</label>
+                            <select
+                                className="form-select bg-white fw-semibold"
+                                value={platformFilter}
+                                onChange={(e) => setPlatformFilter(e.target.value)}
+                            >
+                                <option value="All">🌐 All Platforms</option>
+                                <option value="deltasafari">⛵ Delta Safari</option>
+                                <option value="sundarban-deltasafari">🐅 Sundarban Safari</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
                 {/* Table Content */}
-                <div className="table-responsive text-nowrap">
+                <div className="table-responsive text-nowrap" style={{ minHeight: '380px' }}>
                     {loading ? (
                         <div className="p-5 text-center">
                             <LoadingComponent />
@@ -610,20 +713,42 @@ function BookingsPageContent() {
                     ) : (
                         <table className="table table-hover align-middle mb-0">
                             <thead className="table-light">
-                                <tr>
-                                    <th className="ps-4">Booking / Lead Ref</th>
-                                    <th>Client / Contact</th>
-                                    <th>Booking Channel &amp; Source</th>
-                                    <th>Tour Package</th>
-                                    <th>Safari Travel Date</th>
-                                    <th>Total Cost</th>
-                                    <th>Payment Status</th>
-                                    <th>Booking Status</th>
-                                    <th className="pe-4 text-end">Actions</th>
-                                </tr>
+                                {table.getHeaderGroups().map((headerGroup) => (
+                                    <tr key={headerGroup.id}>
+                                        {headerGroup.headers.map((header) => {
+                                            const canSort = header.column.getCanSort();
+                                            const isSorted = header.column.getIsSorted();
+                                            const isAction = header.id === 'actions';
+                                            return (
+                                                <th
+                                                    key={header.id}
+                                                    className={`${isAction ? 'pe-4 text-center' : header.id === 'display_id' ? 'ps-4' : ''} ${canSort ? 'cursor-pointer user-select-none' : ''}`}
+                                                    style={isAction ? { width: '80px' } : undefined}
+                                                    onClick={header.column.getToggleSortingHandler()}
+                                                >
+                                                    <div className={`d-inline-flex align-items-center gap-1.5 ${isAction ? 'justify-content-center' : ''}`}>
+                                                        <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                                                        {canSort && (
+                                                            <span className="text-muted" style={{ fontSize: '11px' }}>
+                                                                {isSorted === 'asc' ? (
+                                                                    <i className="ri ri-arrow-up-line text-primary fw-bold"></i>
+                                                                ) : isSorted === 'desc' ? (
+                                                                    <i className="ri ri-arrow-down-line text-primary fw-bold"></i>
+                                                                ) : (
+                                                                    <i className="ri ri-expand-up-down-line opacity-50"></i>
+                                                                )}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </th>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
                             </thead>
                             <tbody>
-                                {filteredBookings.map((item) => {
+                                {table.getRowModel().rows.map((row) => {
+                                    const item = row.original;
                                     const isLead = item.source_type === 'MANUAL_LEAD';
                                     const travelersList = getParsedList(item.raw?.travelers);
 
@@ -706,10 +831,26 @@ function BookingsPageContent() {
                                                         <i className="ri ri-flashlight-fill text-warning"></i> Online Razorpay
                                                     </span>
                                                 ) : (
-                                                    <span className="badge bg-light text-muted border rounded-pill px-2.5 py-1">
-                                                        <i className="ri ri-file-text-line me-1"></i> Booking Form
+                                                    <span 
+                                                        className="badge bg-secondary bg-opacity-10 text-dark border border-secondary border-opacity-25 rounded-pill px-2.5 py-1 fw-bold d-inline-flex align-items-center gap-1"
+                                                        style={{ color: '#1e293b' }}
+                                                    >
+                                                        <i className="ri ri-file-text-line text-secondary"></i> Booking Form
                                                     </span>
                                                 )}
+
+                                                {/* Platform Tag */}
+                                                <div className="mt-1">
+                                                    {(item.platform === 'sundarban-deltasafari' || item.raw?.platform === 'sundarban-deltasafari') ? (
+                                                        <span className="badge bg-success-subtle text-success border border-success border-opacity-25 rounded-pill px-2 py-0.5 d-inline-flex align-items-center gap-1" style={{ fontSize: '10px', fontWeight: '700' }}>
+                                                            <i className="ri ri-compass-3-line"></i> Sundarban Safari
+                                                        </span>
+                                                    ) : (
+                                                        <span className="badge bg-primary-subtle text-primary border border-primary border-opacity-25 rounded-pill px-2 py-0.5 d-inline-flex align-items-center gap-1" style={{ fontSize: '10px', fontWeight: '700' }}>
+                                                            <i className="ri ri-global-line"></i> Delta Safari
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </td>
 
                                             {/* 4. Tour Package & Destination */}
@@ -755,74 +896,189 @@ function BookingsPageContent() {
                                                 {getBookingStatusBadge(item)}
                                             </td>
 
-                                            {/* 9. Actions */}
-                                            <td className="pe-4 text-end">
-                                                <div className="d-flex align-items-center justify-content-end gap-1.5 flex-wrap">
-                                                    {isLead ? (
-                                                        <>
-                                                            {/* Invoice for Lead */}
-                                                            <Link
-                                                                href={`/crm/invoices?create_for_lead=${item.contact_id || item.booking_id}`}
-                                                                className="btn btn-sm btn-outline-dark rounded-pill px-2.5 py-1"
-                                                                title="Create Customer Tax Invoice for this lead"
-                                                            >
-                                                                <i className="ri ri-file-list-3-line"></i> Invoice
-                                                            </Link>
+                                            {/* 9. Actions (3-dot dropdown) */}
+                                            <td className="pe-4 text-center" style={{ position: 'relative' }}>
+                                                <div className="dropdown booking-actions-dropdown d-inline-block position-relative">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setActiveDropdownId(activeDropdownId === item.unique_id ? null : item.unique_id);
+                                                        }}
+                                                        className={`btn btn-sm ${activeDropdownId === item.unique_id ? 'btn-primary text-white shadow-sm' : 'btn-light border'} rounded-circle p-0 d-inline-flex align-items-center justify-content-center`}
+                                                        style={{ width: '34px', height: '34px', transition: 'all 0.2s ease' }}
+                                                        title="More Actions"
+                                                        aria-expanded={activeDropdownId === item.unique_id}
+                                                    >
+                                                        <i className="ri ri-more-2-fill fs-5"></i>
+                                                    </button>
 
-                                                            {/* Lead Details Modal */}
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-sm btn-outline-success rounded-pill px-2.5 py-1 fw-semibold d-inline-flex align-items-center gap-1"
-                                                                onClick={() => setSelectedLead(item)}
-                                                                title="View Converted Lead Details"
-                                                            >
-                                                                <i className="ri ri-eye-line"></i> Details
-                                                            </button>
+                                                    {activeDropdownId === item.unique_id && (
+                                                        <ul
+                                                            className="dropdown-menu dropdown-menu-end show border-0 shadow-lg rounded-3 py-2 position-absolute"
+                                                            style={{
+                                                                right: 0,
+                                                                top: '100%',
+                                                                marginTop: '6px',
+                                                                zIndex: 1050,
+                                                                minWidth: '230px',
+                                                                boxShadow: '0 12px 32px rgba(15, 23, 42, 0.15)',
+                                                                border: '1px solid rgba(0,0,0,0.08)'
+                                                            }}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            {isLead ? (
+                                                                <>
+                                                                    {/* 1. Lead Details Modal */}
+                                                                    <li>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                            onClick={() => {
+                                                                                setActiveDropdownId(null);
+                                                                                setSelectedLead(item);
+                                                                            }}
+                                                                        >
+                                                                            <span className="badge bg-success bg-opacity-10 text-success p-1.5 rounded-2">
+                                                                                <i className="ri ri-eye-line fs-6"></i>
+                                                                            </span>
+                                                                            <div>
+                                                                                <div className="fw-semibold small text-dark">View Details</div>
+                                                                                <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Converted lead specs &amp; deal</small>
+                                                                            </div>
+                                                                        </button>
+                                                                    </li>
 
-                                                            {/* Open WhatsApp Chat */}
-                                                            <Link
-                                                                href={`/crm/whatsapp?phone=${item.customer_phone.replace(/[^0-9]/g, '')}`}
-                                                                className="btn btn-sm btn-success rounded-circle p-1.5 d-inline-flex align-items-center justify-content-center shadow-2xs"
-                                                                style={{ width: '30px', height: '30px' }}
-                                                                title="Chat with Customer on WhatsApp"
-                                                            >
-                                                                <i className="ri ri-whatsapp-line"></i>
-                                                            </Link>
-                                                        </>
-                                                    ) : (
-                                                        <>
-                                                            {/* View / Print Official Invoice */}
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-sm btn-outline-dark rounded-pill px-2.5 py-1"
-                                                                onClick={() => setInvoiceBooking(item.raw)}
-                                                                title="Print / View Invoice"
-                                                            >
-                                                                <i className="ri ri-printer-line"></i> Invoice
-                                                            </button>
+                                                                    {/* 2. Customer Tax Invoice */}
+                                                                    <li>
+                                                                        <Link
+                                                                            href={`/crm/invoices?create_for_lead=${item.contact_id || item.booking_id}`}
+                                                                            className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                            onClick={() => setActiveDropdownId(null)}
+                                                                        >
+                                                                            <span className="badge bg-primary bg-opacity-10 text-primary p-1.5 rounded-2">
+                                                                                <i className="ri ri-file-list-3-line fs-6"></i>
+                                                                            </span>
+                                                                            <div>
+                                                                                <div className="fw-semibold small text-dark">Create Invoice</div>
+                                                                                <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Tax invoice &amp; payment link</small>
+                                                                            </div>
+                                                                        </Link>
+                                                                    </li>
 
-                                                            {/* Mark as Booked Button for pending reservation */}
-                                                            {Number(item.booking_status) === 1 && (
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn btn-sm btn-success rounded-pill px-2.5 py-1 fw-semibold d-flex align-items-center gap-1 shadow-sm"
-                                                                    onClick={() => setConfirmModalData(item.raw)}
-                                                                    title="Confirm & Mark as Booked"
-                                                                >
-                                                                    <i className="ri ri-check-line"></i> Confirm
-                                                                </button>
+                                                                    {/* 3. Open WhatsApp Chat */}
+                                                                    {item.customer_phone && item.customer_phone !== 'N/A' && (
+                                                                        <>
+                                                                            <li><hr className="dropdown-divider my-1" /></li>
+                                                                            <li>
+                                                                                <Link
+                                                                                    href={`/crm/whatsapp?phone=${item.customer_phone.replace(/[^0-9]/g, '')}`}
+                                                                                    className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                                    onClick={() => setActiveDropdownId(null)}
+                                                                                >
+                                                                                    <span className="badge bg-success bg-opacity-10 text-success p-1.5 rounded-2">
+                                                                                        <i className="ri ri-whatsapp-fill fs-6"></i>
+                                                                                    </span>
+                                                                                    <div>
+                                                                                        <div className="fw-semibold small text-dark">WhatsApp Chat</div>
+                                                                                        <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Direct message customer</small>
+                                                                                    </div>
+                                                                                </Link>
+                                                                            </li>
+                                                                        </>
+                                                                    )}
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    {/* 1. Full Details Modal */}
+                                                                    <li>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                            onClick={() => {
+                                                                                setActiveDropdownId(null);
+                                                                                setSelectedBooking(item.raw);
+                                                                            }}
+                                                                        >
+                                                                            <span className="badge bg-primary bg-opacity-10 text-primary p-1.5 rounded-2">
+                                                                                <i className="ri ri-eye-line fs-6"></i>
+                                                                            </span>
+                                                                            <div>
+                                                                                <div className="fw-semibold small text-dark">View Details</div>
+                                                                                <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Reservation &amp; guests</small>
+                                                                            </div>
+                                                                        </button>
+                                                                    </li>
+
+                                                                    {/* 2. View / Print Official Invoice */}
+                                                                    <li>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                            onClick={() => {
+                                                                                setActiveDropdownId(null);
+                                                                                setInvoiceBooking(item.raw);
+                                                                            }}
+                                                                        >
+                                                                            <span className="badge bg-dark bg-opacity-10 text-dark p-1.5 rounded-2">
+                                                                                <i className="ri ri-printer-line fs-6"></i>
+                                                                            </span>
+                                                                            <div>
+                                                                                <div className="fw-semibold small text-dark">Print Invoice</div>
+                                                                                <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Official receipt voucher</small>
+                                                                            </div>
+                                                                        </button>
+                                                                    </li>
+
+                                                                    {/* 3. Mark as Booked Button for pending reservation */}
+                                                                    {Number(item.booking_status) === 1 && (
+                                                                        <>
+                                                                            <li><hr className="dropdown-divider my-1" /></li>
+                                                                            <li>
+                                                                                <button
+                                                                                    type="button"
+                                                                                    className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start bg-success-subtle text-success"
+                                                                                    onClick={() => {
+                                                                                        setActiveDropdownId(null);
+                                                                                        setConfirmModalData(item.raw);
+                                                                                    }}
+                                                                                >
+                                                                                    <span className="badge bg-success text-white p-1.5 rounded-2">
+                                                                                        <i className="ri ri-checkbox-circle-fill fs-6"></i>
+                                                                                    </span>
+                                                                                    <div>
+                                                                                        <div className="fw-bold small text-success">Confirm &amp; Book</div>
+                                                                                        <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Mark booked &amp; settle pay</small>
+                                                                                    </div>
+                                                                                </button>
+                                                                            </li>
+                                                                        </>
+                                                                    )}
+
+                                                                    {/* 4. WhatsApp Chat */}
+                                                                    {item.customer_phone && item.customer_phone !== 'N/A' && (
+                                                                        <>
+                                                                            <li><hr className="dropdown-divider my-1" /></li>
+                                                                            <li>
+                                                                                <Link
+                                                                                    href={`/crm/whatsapp?phone=${item.customer_phone.replace(/[^0-9]/g, '')}`}
+                                                                                    className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                                    onClick={() => setActiveDropdownId(null)}
+                                                                                >
+                                                                                    <span className="badge bg-success bg-opacity-10 text-success p-1.5 rounded-2">
+                                                                                        <i className="ri ri-whatsapp-fill fs-6"></i>
+                                                                                    </span>
+                                                                                    <div>
+                                                                                        <div className="fw-semibold small text-dark">WhatsApp Chat</div>
+                                                                                        <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Direct message customer</small>
+                                                                                    </div>
+                                                                                </Link>
+                                                                            </li>
+                                                                        </>
+                                                                    )}
+                                                                </>
                                                             )}
-
-                                                            {/* Full Details Modal */}
-                                                            <button
-                                                                type="button"
-                                                                className="btn btn-sm btn-outline-primary rounded-pill px-2.5 py-1"
-                                                                onClick={() => setSelectedBooking(item.raw)}
-                                                                title="View Full Details"
-                                                            >
-                                                                <i className="ri ri-eye-line"></i> Details
-                                                            </button>
-                                                        </>
+                                                        </ul>
                                                     )}
                                                 </div>
                                             </td>
@@ -833,6 +1089,15 @@ function BookingsPageContent() {
                         </table>
                     )}
                 </div>
+
+                {/* TanStack Table Pagination */}
+                {!loading && filteredBookings.length > 0 && (
+                    <TanstackTablePagination 
+                        table={table} 
+                        totalItems={filteredBookings.length} 
+                        label="bookings & won deals" 
+                    />
+                )}
             </div>
 
             {/* 5. MODAL: View Full Reservation Details */}
@@ -880,9 +1145,21 @@ function BookingsPageContent() {
                                                         <small className="text-muted d-block">Contact Phone</small>
                                                         <span className="fw-semibold text-dark">{selectedBooking.customer_phone || 'N/A'}</span>
                                                     </div>
-                                                    <div className="col-sm-12">
+                                                    <div className="col-sm-6">
                                                         <small className="text-muted d-block">Email Address</small>
                                                         <span className="text-dark">{selectedBooking.customer_email || 'N/A'}</span>
+                                                    </div>
+                                                    <div className="col-sm-6">
+                                                        <small className="text-muted d-block">Booking Platform Source</small>
+                                                        {selectedBooking.platform === 'sundarban-deltasafari' ? (
+                                                            <span className="badge bg-success-subtle text-success border border-success px-2.5 py-1 fw-bold">
+                                                                <i className="ri ri-compass-3-line me-1"></i> Sundarban DeltaSafari
+                                                            </span>
+                                                        ) : (
+                                                            <span className="badge bg-primary-subtle text-primary border border-primary px-2.5 py-1 fw-bold">
+                                                                <i className="ri ri-global-line me-1"></i> Delta Safari
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>

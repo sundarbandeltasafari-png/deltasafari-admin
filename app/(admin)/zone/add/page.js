@@ -3,6 +3,7 @@ import {createZoneUrl, getAllZoneUrl } from '@/app/routes/serviceRoutes';
 import MultiLevelSelect from '@/components/blogs/MultiLevelSelect';
 import MetaComponent from '@/components/seocomponent/MetaComponent';
 import TouristGuideComponent, { defaultGuideData } from '@/components/seocomponent/TouristGuideComponent';
+import CopyContentDropdown from '@/components/common/CopyContentDropdown';
 import { showMessage } from '@/libs/commonHelper';
 import axios from 'axios';
 import { useRouter } from 'next/navigation';
@@ -85,6 +86,14 @@ function page() {
   }
 
   useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const urlParams = new URLSearchParams(window.location.search);
+      const prefillParent = urlParams.get('parent_id');
+      if (prefillParent) {
+        setFormData(prev => ({ ...prev, parent_id: prefillParent }));
+      }
+    }
+
     getZones().then((res) => {
       if (res.status) {
         setLoading(false);
@@ -132,6 +141,23 @@ function page() {
     }
   }
 
+  const handleCopyContent = (data) => {
+    if (data.touristGuide) {
+      setGuideData(data.touristGuide);
+    }
+    setFormData(prev => ({
+      ...prev,
+      description: data.description || prev.description,
+      meta_title: data.meta_title || prev.meta_title,
+      meta_description: data.meta_description || prev.meta_description,
+      tags: data.tags && data.tags.length > 0 ? data.tags : prev.tags,
+      canonical_url: data.canonical_url || prev.canonical_url,
+      og_title: data.og_title || prev.og_title,
+      og_description: data.og_description || prev.og_description,
+      robots_meta: data.robots_meta || prev.robots_meta
+    }));
+  };
+
   return (
     <div className="container-fluid min-vh-100 py-5 bg-light mt-10">
       <div className="row justify-content-center">
@@ -150,6 +176,13 @@ function page() {
                     <p className="text-muted small">Fill in the details to create a Destination.</p>
                   </div>
                 </div>
+
+                {/* Copy Content from Existing Destination or City */}
+                <CopyContentDropdown 
+                  setGuideData={setGuideData} 
+                  onCopy={handleCopyContent} 
+                  currentEntityName="Destination" 
+                />
 
                 <form className="row g-4">
                   <div className="col-md-8">
@@ -216,7 +249,12 @@ function page() {
 
                   {/* Tourist Guide Section Configuration */}
                   <div className="col-12">
-                    <TouristGuideComponent guideData={guideData} setGuideData={setGuideData} entityName="Destination" />
+                    <TouristGuideComponent 
+                      guideData={guideData} 
+                      setGuideData={setGuideData} 
+                      entityName="Destination" 
+                      onCopyContent={handleCopyContent}
+                    />
                   </div>
 
                   <div className="col-12">

@@ -17,7 +17,7 @@ const page = ({ onBack }) => {
     const route = useRouter();
     const [seoSettings, setSeoSettings] = useState({
         meta_title: '', meta_description: '', meta_keywords: '',
-        og_title: '', og_description: '', page_name: '', page_id: pageId
+        og_title: '', og_description: '', canonical_url: '', page_name: '', page_id: pageId
     });
     const [loading, setLoading] = useState()
 
@@ -25,7 +25,11 @@ const page = ({ onBack }) => {
     useEffect(() => {
         axiosPost(getSeoPageUrl, { page_id: urlDecode(pageId) }, token).then((res) => {
             if (res.status && res?.seos) {
-                setSeoSettings({...res?.seos, page_id: pageId})
+                setSeoSettings({
+                    ...res?.seos,
+                    canonical_url: res?.seos?.canonical_url || '',
+                    page_id: pageId
+                })
                 setLoading(false)
             } else {
                 showMessage(res.msg, "error")
@@ -65,8 +69,8 @@ const page = ({ onBack }) => {
             {/* Top Navigation Row */}
             <div className="d-flex justify-content-between align-items-center mb-4">
                 <div>
-                    <h4 className="fw-bold mb-1"><span className="text-muted fw-light"></span> Configure FAQ</h4>
-                    <p className="text-muted mb-0">Managing layouts and assets for: <strong className="text-primary">{page.page_name} Page</strong></p>
+                    <h4 className="fw-bold mb-1"><span className="text-muted fw-light"></span> Configure Page SEO</h4>
+                    <p className="text-muted mb-0">Managing SEO metadata for: <strong className="text-primary">{seoSettings.page_name || 'Selected'} Page</strong></p>
                 </div>
                 <button onClick={onBack} className="btn btn-outline-secondary px-3 btn-sm">
                     <i className="bi bi-arrow-left me-1"></i> Back to List
@@ -81,20 +85,32 @@ const page = ({ onBack }) => {
                     <div className="card-body p-4">
                         <div className="row">
                             <div className="col-md-6 mb-3">
-                                <label className="form-label fw-medium">FAQ Page Meta Title</label>
-                                <input type="text" className="form-control" name="meta_title" value={seoSettings.meta_title} onChange={handleSeoChange} placeholder="e.g. Frequently Asked Questions | Company Name" />
+                                <label className="form-label fw-medium">Page Meta Title</label>
+                                <input type="text" className="form-control" name="meta_title" value={seoSettings.meta_title || ''} onChange={handleSeoChange} placeholder="e.g. Tour Packages | Delta Safari" />
                             </div>
                             <div className="col-md-6 mb-3">
                                 <label className="form-label fw-medium">Meta Keywords</label>
-                                <input type="text" className="form-control" name="meta_keywords" value={seoSettings.meta_keywords} onChange={handleSeoChange} placeholder="keywords, separated, by, commas" />
+                                <input type="text" className="form-control" name="meta_keywords" value={seoSettings.meta_keywords || ''} onChange={handleSeoChange} placeholder="keywords, separated, by, commas" />
                             </div>
                             <div className="col-12 mb-3">
                                 <label className="form-label fw-medium">Meta Description Summary</label>
-                                <textarea className="form-control" rows="2" name="meta_description" value={seoSettings.meta_description} onChange={handleSeoChange} placeholder="Write a short summary overview targeting organic search results indexes..."></textarea>
+                                <textarea className="form-control" rows="2" name="meta_description" value={seoSettings.meta_description || ''} onChange={handleSeoChange} placeholder="Write a short summary overview targeting organic search results indexes..."></textarea>
                             </div>
                             <div className="col-md-12 mb-3">
                                 <label className="form-label fw-medium">Facebook/WhatsApp Share Title (OG)</label>
-                                <input type="text" className="form-control" name="og_title" value={seoSettings.og_title} onChange={handleSeoChange} />
+                                <input type="text" className="form-control" name="og_title" value={seoSettings.og_title || ''} onChange={handleSeoChange} />
+                            </div>
+                            <div className="col-md-12 mb-3">
+                                <label className="form-label fw-medium">Page Canonical URL (Optional)</label>
+                                <input 
+                                    type="text" 
+                                    className="form-control" 
+                                    name="canonical_url" 
+                                    value={seoSettings.canonical_url || ''} 
+                                    onChange={handleSeoChange} 
+                                    placeholder="e.g. https://deltasafari.in/packages or /packages (Leave blank for default URL)" 
+                                />
+                                <small className="text-muted">Specify a custom canonical URL for this page, or leave blank to automatically use the standard page URL (e.g. https://deltasafari.in/...).</small>
                             </div>
                         </div>
                     </div>

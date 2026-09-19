@@ -1,10 +1,10 @@
 'use client'
 
-import { toggleSidebar } from "@/services/reducers/themeSlices";
+import { toggleSidebar, closeSidebar } from "@/services/reducers/themeSlices";
 import Link from "next/link"
 import { usePathname } from 'next/navigation'
 import { useDispatch, useSelector } from "react-redux";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import axios from "axios";
 import { getTaskStatsUrl, getNoticeStatsUrl, getChatUnreadCountUrl } from "@/app/routes/whatsappRoutes";
 
@@ -18,6 +18,47 @@ function HeaderAdmin() {
     const [taskCount, setTaskCount] = useState(0);
     const [noticeCount, setNoticeCount] = useState(0);
     const [chatCount, setChatCount] = useState(0);
+    const asideRef = useRef(null);
+
+    // Auto-close sidebar on route change
+    useEffect(() => {
+        if (sidebar) {
+            dispatch(closeSidebar());
+        }
+    }, [pathname, dispatch]);
+
+    // Close sidebar on click outside or touch outside
+    useEffect(() => {
+        if (!sidebar) return;
+
+        const handleClickOutside = (e) => {
+            if (asideRef.current && !asideRef.current.contains(e.target)) {
+                if (e.target.closest('.layout-menu-toggle')) return;
+                dispatch(closeSidebar());
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        document.addEventListener('touchstart', handleClickOutside);
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('touchstart', handleClickOutside);
+        };
+    }, [sidebar, dispatch]);
+
+    // Close sidebar when clicking any link inside the sidebar menu
+    const handleSidebarClick = (e) => {
+        const link = e.target.closest('a');
+        if (link) {
+            // Ignore if clicking the collapse/expand chevron
+            if (link.classList.contains('layout-menu-toggle')) return;
+            // Close sidebar in mobile view or when sidebar is open
+            if (typeof window !== 'undefined' && (window.innerWidth < 1200 || sidebar)) {
+                dispatch(closeSidebar());
+            }
+        }
+    };
 
     const fetchTaskCount = useCallback(async () => {
         if (!token || !user?.id) return;
@@ -150,7 +191,7 @@ function HeaderAdmin() {
     const hasCities = hasRouteAccess('/cities');
     const hasPackage = hasRouteAccess('/package');
     const hasHotels = hasRouteAccess('/hotels');
-    const hasCalendar = hasRouteAccess('/calendar');
+    const hasCalendar = hasRouteAccess('/calendar') || hasRouteAccess('/crm/calendar');
     const showServiceSection = hasDestination || hasCities || hasPackage || hasHotels || hasCalendar;
 
     // Reservations section items
@@ -177,8 +218,25 @@ function HeaderAdmin() {
     const hasUsers = hasRouteAccess('/users');
     const hasPermisions = hasRouteAccess('/permision');
     const hasAdminUsers = hasRouteAccess('/adminusers');
-    const hasReferrals = hasRouteAccess('/referrals');
-    const showUsersRolesSection = hasUsers || hasPermisions || hasAdminUsers || hasReferrals;
+    const hasReferrals = hasRouteAccess('/referrals') || user?.admin === 1;
+    const hasWithdrawals = hasRouteAccess('/withdrawals') || user?.admin === 1;
+    const showUsersRolesSection = hasUsers || hasPermisions || hasAdminUsers || hasReferrals || hasWithdrawals;
+
+    // Sundarban Delta Safari section items
+    const hasSundarbanAll = hasRouteAccess('/sundarban');
+    const hasSundarbanDashboard = hasRouteAccess('/sundarban/dashboard') || hasSundarbanAll;
+    const hasSundarbanGuide = hasRouteAccess('/sundarban/guide') || hasSundarbanAll;
+    const hasSundarbanGallery = hasRouteAccess('/sundarban/gallery') || hasSundarbanAll;
+    const hasSundarbanAbout = hasRouteAccess('/sundarban/about') || hasSundarbanAll;
+    const hasSundarbanFaqs = hasRouteAccess('/sundarban/faqs') || hasSundarbanAll;
+    const hasSundarbanContact = hasRouteAccess('/sundarban/contact') || hasSundarbanAll;
+    const hasSundarbanReviews = hasRouteAccess('/sundarban/reviews') || hasSundarbanAll;
+    const hasSundarbanSeo = hasRouteAccess('/sundarban/seo') || hasSundarbanAll;
+    const hasSundarbanBranding = hasRouteAccess('/sundarban/branding') || hasSundarbanAll;
+    const hasSundarbanPackages = hasRouteAccess('/sundarban/packages') || hasSundarbanAll;
+    const hasSundarbanLeads = hasRouteAccess('/sundarban/leads') || hasSundarbanAll;
+    const hasSundarbanSettings = hasRouteAccess('/sundarban/settings') || hasSundarbanAll;
+    const showSundarbanSection = hasSundarbanAll || hasSundarbanDashboard || hasSundarbanGuide || hasSundarbanGallery || hasSundarbanAbout || hasSundarbanFaqs || hasSundarbanContact || hasSundarbanReviews || hasSundarbanSeo || hasSundarbanBranding || hasSundarbanPackages || hasSundarbanLeads || hasSundarbanSettings;
 
     // Dashboard item
     const showDashboard = hasRouteAccess('/dashboard');
@@ -186,7 +244,7 @@ function HeaderAdmin() {
     return (
         <>
             <div className={sidebar ? "layout-menu-expanded" : ''}>
-                <aside id="layout-menu" className="layout-menu menu-vertical menu">
+                <aside id="layout-menu" ref={asideRef} className="layout-menu menu-vertical menu" onClick={handleSidebarClick}>
                     <div className="app-brand demo">
                         <Link href="/crm/calendar" className="app-brand-link">
                             <img src="/images/logo_DS.png" alt="Logo" style={{ width: "150px" }} />
@@ -252,8 +310,8 @@ function HeaderAdmin() {
                                     </li>
                                 )}
                                 {hasCalendar && (
-                                    <li className="menu-item">
-                                        <Link href="" className="menu-link">
+                                    <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/calendar") ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/crm/calendar" className="menu-link">
                                             <i className="menu-icon icon-base ri ri-calendar-line"></i>
                                             <div data-i18n="Calendar">Calendar</div>
                                         </Link>
@@ -289,6 +347,111 @@ function HeaderAdmin() {
                                         <Link href="/custom-package" className="menu-link">
                                             <i className="menu-icon icon-base ri ri-compass-3-line"></i>
                                             <div data-i18n="Custom Package">Custom Package</div>
+                                        </Link>
+                                    </li>
+                                )}
+                            </>
+                        )}
+
+                        {/* Sundarban Delta Safari Management */}
+                        {showSundarbanSection && (
+                            <>
+                                <li className="menu-header small mt-5">
+                                    <span className="menu-header-text text-success fw-bold" data-i18n="Sundarban Delta Safari">Sundarban Delta Safari</span>
+                                </li>
+                                {hasSundarbanDashboard && (
+                                    <li className={`menu-item menu-item-parent ${pathname === "/sundarban/dashboard" ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/sundarban/dashboard" className="menu-link">
+                                            <i className="menu-icon icon-base ri ri-compass-3-fill text-success"></i>
+                                            <div data-i18n="Sundarban Dashboard">Sundarban Dashboard</div>
+                                        </Link>
+                                    </li>
+                                )}
+                                {hasSundarbanGuide && (
+                                    <li className={`menu-item menu-item-parent ${pathname.startsWith("/sundarban/guide") ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/sundarban/guide" className="menu-link">
+                                            <i className="menu-icon icon-base ri ri-compass-discover-line text-success"></i>
+                                            <div data-i18n="Safari Guide">Safari Guide</div>
+                                        </Link>
+                                    </li>
+                                )}
+                                {hasSundarbanGallery && (
+                                    <li className={`menu-item menu-item-parent ${pathname.startsWith("/sundarban/gallery") ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/sundarban/gallery" className="menu-link">
+                                            <i className="menu-icon icon-base ri ri-gallery-line text-primary"></i>
+                                            <div data-i18n="Gallery">Gallery</div>
+                                        </Link>
+                                    </li>
+                                )}
+                                {hasSundarbanAbout && (
+                                    <li className={`menu-item menu-item-parent ${pathname.startsWith("/sundarban/about") ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/sundarban/about" className="menu-link">
+                                            <i className="menu-icon icon-base ri ri-information-line text-info"></i>
+                                            <div data-i18n="About Us">About Us</div>
+                                        </Link>
+                                    </li>
+                                )}
+                                {hasSundarbanFaqs && (
+                                    <li className={`menu-item menu-item-parent ${pathname.startsWith("/sundarban/faqs") ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/sundarban/faqs" className="menu-link">
+                                            <i className="menu-icon icon-base ri ri-question-line text-warning"></i>
+                                            <div data-i18n="FAQs">FAQs</div>
+                                        </Link>
+                                    </li>
+                                )}
+                                {hasSundarbanContact && (
+                                    <li className={`menu-item menu-item-parent ${pathname.startsWith("/sundarban/contact") ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/sundarban/contact" className="menu-link">
+                                            <i className="menu-icon icon-base ri ri-customer-service-2-line text-danger"></i>
+                                            <div data-i18n="Contact Details">Contact Details</div>
+                                        </Link>
+                                    </li>
+                                )}
+                                {hasSundarbanReviews && (
+                                    <li className={`menu-item menu-item-parent ${pathname.startsWith("/sundarban/reviews") ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/sundarban/reviews" className="menu-link">
+                                            <i className="menu-icon icon-base ri ri-star-smile-line text-warning"></i>
+                                            <div data-i18n="User Reviews">User Reviews</div>
+                                        </Link>
+                                    </li>
+                                )}
+                                {hasSundarbanSeo && (
+                                    <li className={`menu-item menu-item-parent ${pathname.startsWith("/sundarban/seo") ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/sundarban/seo" className="menu-link">
+                                            <i className="menu-icon icon-base ri ri-search-eye-line text-success"></i>
+                                            <div data-i18n="Manage All Page SEO">Manage All Page SEO</div>
+                                        </Link>
+                                    </li>
+                                )}
+                                {hasSundarbanBranding && (
+                                    <li className={`menu-item menu-item-parent ${pathname.startsWith("/sundarban/branding") ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/sundarban/branding" className="menu-link">
+                                            <i className="menu-icon icon-base ri ri-image-edit-line text-warning"></i>
+                                            <div data-i18n="Logo & Favicon">Logo &amp; Favicon</div>
+                                        </Link>
+                                    </li>
+                                )}
+                                {hasSundarbanPackages && (
+                                    <li className={`menu-item menu-item-parent ${pathname === "/sundarban/packages" ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/sundarban/packages" className="menu-link">
+                                            <i className="menu-icon icon-base ri ri-instance-line text-primary"></i>
+                                            <div data-i18n="Sundarban Packages">Sundarban Packages</div>
+                                        </Link>
+                                    </li>
+                                )}
+                                {hasSundarbanLeads && (
+                                    <li className={`menu-item menu-item-parent ${pathname === "/sundarban/leads" ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/sundarban/leads" className="menu-link">
+                                            <i className="menu-icon icon-base ri ri-user-voice-line text-info"></i>
+                                            <div data-i18n="Customized Leads">Customized Leads</div>
+                                        </Link>
+                                    </li>
+                                )}
+                                {hasSundarbanSettings && (
+                                    <li className={`menu-item menu-item-parent ${pathname === "/sundarban/settings" ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/sundarban/settings" className="menu-link">
+                                            <i className="menu-icon icon-base ri ri-settings-4-line text-secondary"></i>
+                                            <div data-i18n="Website Settings">Website Settings</div>
                                         </Link>
                                     </li>
                                 )}
@@ -361,6 +524,12 @@ function HeaderAdmin() {
                             <Link href="/crm/marketing" className="menu-link">
                                 <i className="menu-icon icon-base ri ri-megaphone-line text-info"></i>
                                 <div data-i18n="WhatsApp Marketing">WhatsApp Marketing</div>
+                            </Link>
+                        </li>
+                        <li className={`menu-item menu-item-parent ${pathname.startsWith("/whatsapp-settings") ? 'active' : ''}`} onClick={openParentmenu}>
+                            <Link href="/whatsapp-settings" className="menu-link">
+                                <i className="menu-icon icon-base ri ri-whatsapp-line text-success"></i>
+                                <div data-i18n="WhatsApp Settings">WhatsApp Settings</div>
                             </Link>
                         </li>
                         <li className={`menu-item menu-item-parent ${pathname.startsWith("/crm/tasks") ? 'active' : ''}`} onClick={openParentmenu}>
@@ -535,6 +704,14 @@ function HeaderAdmin() {
                                         </Link>
                                     </li>
                                 )}
+                                {hasWithdrawals && (
+                                    <li className={`menu-item menu-item-parent ${pathname.includes("/withdrawals") ? 'active' : ''}`} onClick={openParentmenu}>
+                                        <Link href="/withdrawals" className="menu-link">
+                                            <i className="icon-base ri ri-bank-card-line menu-icon text-primary"></i>
+                                            <div data-i18n="Bank & Withdrawals">Bank &amp; Withdrawals</div>
+                                        </Link>
+                                    </li>
+                                )}
                             </>
                         )}
 
@@ -551,8 +728,28 @@ function HeaderAdmin() {
                     </ul>
                 </aside>
 
-                <div className="menu-mobile-toggler d-xl-none rounded-1">
-                    <a className="layout-menu-toggle menu-link text-large text-bg-secondary p-2 rounded-1">
+                {sidebar && (
+                    <div 
+                        className="layout-overlay d-xl-none" 
+                        onClick={() => dispatch(closeSidebar())}
+                        style={{
+                            display: 'block',
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            width: '100vw',
+                            height: '100vh',
+                            backgroundColor: 'rgba(33, 37, 41, 0.5)',
+                            zIndex: 1099,
+                            cursor: 'pointer'
+                        }}
+                    />
+                )}
+
+                <div className="menu-mobile-toggler d-xl-none rounded-1" onClick={() => dispatch(toggleSidebar())}>
+                    <a className="layout-menu-toggle menu-link text-large text-bg-secondary p-2 rounded-1" style={{ cursor: 'pointer' }}>
                         <i className="ri ri-menu-line icon-base"></i>
                         <i className="ri ri-arrow-right-s-line icon-base"></i>
                     </a>

@@ -22,4 +22,6 @@ export const getAdminUserSearchUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin
 export const getReferralOverviewUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/getReferralOverview`;
 export const releaseWalletPayoutUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/releaseWalletPayout`;
 export const processWithdrawalRequestUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/processWithdrawalRequest`;
+export const getAllWithdrawalRequestsUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/getAllWithdrawalRequests`;
+export const updateUserBankDetailsUrl = `${process.env.NEXT_PUBLIC_SERVER_URL}admin/user/updateUserBankDetails`;
 

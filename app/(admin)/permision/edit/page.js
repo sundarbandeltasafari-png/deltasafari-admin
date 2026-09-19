@@ -27,7 +27,21 @@ const defaultSidebarRoutes = [
     { id: 15, name: 'Users', route: '/users' },
     { id: 16, name: 'Permision Group', route: '/permision' },
     { id: 17, name: 'Admin Users', route: '/adminusers' },
-    { id: 18, name: 'Referral Program', route: '/referrals' }
+    { id: 18, name: 'Referral Program', route: '/referrals' },
+    { id: 19, name: 'Bank & Withdrawals', route: '/withdrawals' },
+    { id: 38, name: 'Sundarban Delta Safari', route: '/sundarban' },
+    { id: 39, name: 'Sundarban Dashboard', route: '/sundarban/dashboard' },
+    { id: 40, name: 'Sundarban Safari Guide', route: '/sundarban/guide' },
+    { id: 41, name: 'Sundarban Gallery', route: '/sundarban/gallery' },
+    { id: 42, name: 'Sundarban About Us', route: '/sundarban/about' },
+    { id: 43, name: 'Sundarban FAQs', route: '/sundarban/faqs' },
+    { id: 44, name: 'Sundarban Contact Details', route: '/sundarban/contact' },
+    { id: 45, name: 'Sundarban User Reviews', route: '/sundarban/reviews' },
+    { id: 46, name: 'Sundarban All Page SEO', route: '/sundarban/seo' },
+    { id: 47, name: 'Sundarban Logo & Favicon', route: '/sundarban/branding' },
+    { id: 48, name: 'Sundarban Packages', route: '/sundarban/packages' },
+    { id: 49, name: 'Sundarban Customized Leads', route: '/sundarban/leads' },
+    { id: 50, name: 'Sundarban Website Settings', route: '/sundarban/settings' }
 ];
 
 const isExcludedPermission = (name = '', route = '') => {

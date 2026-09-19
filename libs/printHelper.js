@@ -13,7 +13,7 @@ export function printInvoiceDocument({ invoice, config }) {
     const tradeLicence = config?.trade_licence || '767';
     const mobileNumbers = config?.mobile_numbers || '+91 7029533240 & +91 6297603562';
     const email = config?.email || 'sundarban.deltasafari@gmail.com';
-    const website = config?.website || 'sundarbandeltasafari.com';
+    const website = config?.website || 'deltasafari.in';
     const logoSrc = config?.logo_url || '/images/logo_DS.png';
 
     const bankName = config?.bank_name || 'STATE BANK OF INDIA';

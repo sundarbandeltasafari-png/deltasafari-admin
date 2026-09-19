@@ -1,9 +1,9 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { 
     getWhatsAppContactsUrl, 
     createManualLeadUrl,
@@ -23,12 +23,25 @@ import { axiosGet, axiosPost, axiosDelete } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
 import LoadingComponent from '@/components/common/LoadingComponent';
 import NotFound from '@/components/common/NotFound';
+import { 
+    useReactTable, 
+    getCoreRowModel, 
+    getPaginationRowModel, 
+    getSortedRowModel,
+    flexRender 
+} from "@tanstack/react-table";
+import TanstackTablePagination from "@/components/admin/common/TanstackTablePagination";
 
 export default function WhatsAppLeadsPage() {
     const router = useRouter();
+    const searchParams = useSearchParams();
     const user = useSelector((state) => state?.adminAuth?.user);
     const token = useSelector((state) => state?.adminAuth?.token);
-    const isSuperAdmin = user?.admin === 1;
+    const isSuperAdmin = Number(user?.admin) === 1 || Number(user?.admin) === 2;
+
+    const urlSearch = searchParams?.get('search') || '';
+    const urlContactId = searchParams?.get('contactId') || searchParams?.get('leadId') || '';
+    const urlAutoOpen = searchParams?.get('autoOpen');
 
     const [loading, setLoading] = useState(true);
     const [contacts, setContacts] = useState([]);
@@ -42,11 +55,84 @@ export default function WhatsAppLeadsPage() {
         today_messages: 0
     });
     const [configStatus, setConfigStatus] = useState(null);
-    const [searchTerm, setSearchTerm] = useState('');
+    const [searchTerm, setSearchTerm] = useState(urlSearch || '');
+    const [highlightedContactId, setHighlightedContactId] = useState(urlContactId ? Number(urlContactId) : null);
+    const hasHandledAutoOpenRef = useRef(false);
     const [filterAssignee, setFilterAssignee] = useState('');
     const [filterSource, setFilterSource] = useState(''); // '' = all, 'whatsapp' = whatsapp leads, 'custom' = custom leads
     const [managers, setManagers] = useState([]);
     const [packageSuggestions, setPackageSuggestions] = useState([]);
+
+    // TanStack Table State
+    const [sorting, setSorting] = useState([]);
+    const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 25 });
+
+    // TanStack Table Columns
+    const columns = useMemo(() => {
+        const cols = [
+            {
+                id: 'index',
+                header: '#',
+                enableSorting: false,
+            },
+            {
+                accessorKey: 'name',
+                header: 'Contact Name',
+            },
+            {
+                accessorKey: 'lead_source',
+                header: 'Lead Source',
+            },
+            {
+                accessorKey: 'wa_id',
+                header: 'WhatsApp Phone',
+            },
+        ];
+
+        if (isSuperAdmin) {
+            cols.push({
+                accessorKey: 'assigned_user_name',
+                header: 'Assigned Admin',
+            });
+        }
+
+        cols.push(
+            {
+                accessorKey: 'last_message',
+                header: 'Last Message',
+            },
+            {
+                accessorFn: (row) => row.last_message_time || row.updated_at || row.created_at || '',
+                id: 'last_activity',
+                header: 'Last Activity',
+            },
+            {
+                accessorKey: 'total_messages',
+                header: 'Messages',
+            },
+            {
+                id: 'actions',
+                header: 'Action',
+                enableSorting: false,
+            }
+        );
+
+        return cols;
+    }, [isSuperAdmin]);
+
+    const table = useReactTable({
+        data: contacts,
+        columns,
+        state: {
+            sorting,
+            pagination,
+        },
+        onSortingChange: setSorting,
+        onPaginationChange: setPagination,
+        getCoreRowModel: getCoreRowModel(),
+        getSortedRowModel: getSortedRowModel(),
+        getPaginationRowModel: getPaginationRowModel(),
+    });
 
     // Create Manual Lead Modal State
     const [manualLeadModalOpen, setManualLeadModalOpen] = useState(false);
@@ -120,7 +206,14 @@ export default function WhatsAppLeadsPage() {
         extra_discount: 0,
         converted_amount: '',
         travel_date: '',
-        conversion_note: ''
+        conversion_note: '',
+        confirm_booking: true,
+        advance_amount: '',
+        due_amount: '',
+        food_type: 'Veg & Non-Veg (Standard Sundarban Menu)',
+        pickup_drop: 'Canning Station',
+        template_id: '',
+        invoice_no: ''
     });
 
     // Chat Drawer / Modal State
@@ -140,16 +233,13 @@ export default function WhatsAppLeadsPage() {
     const [deletingLead, setDeletingLead] = useState(false);
 
     const handleOpenDeleteModal = (contact) => {
-        if (!isSuperAdmin) {
-            showMessage('error', 'Only administrators have permission to delete leads.');
-            return;
-        }
+        if (!contact) return;
         setLeadToDelete(contact);
         setDeleteModalOpen(true);
     };
 
     const handleConfirmDelete = async () => {
-        if (!isSuperAdmin || !leadToDelete?.id) {
+        if (!leadToDelete?.id) {
             setDeleteModalOpen(false);
             setLeadToDelete(null);
             return;
@@ -180,6 +270,20 @@ export default function WhatsAppLeadsPage() {
 
     const messagesEndRef = useRef(null);
 
+    // Actions Dropdown State
+    const [activeDropdownId, setActiveDropdownId] = useState(null);
+
+    // Click outside to close actions dropdown
+    useEffect(() => {
+        const handleClickOutside = (e) => {
+            if (!e.target.closest('.whatsapp-actions-dropdown')) {
+                setActiveDropdownId(null);
+            }
+        };
+        document.addEventListener('click', handleClickOutside);
+        return () => document.removeEventListener('click', handleClickOutside);
+    }, []);
+
     // Auto-scroll chat to bottom
     const scrollToBottom = () => {
         if (messagesEndRef.current) {
@@ -193,7 +297,14 @@ export default function WhatsAppLeadsPage() {
 
     // Initial Load
     useEffect(() => {
-        fetchContacts();
+        const initialSearch = urlSearch || (urlContactId ? String(urlContactId) : '');
+        if (urlSearch) {
+            setSearchTerm(urlSearch);
+        }
+        fetchContacts(initialSearch, filterAssignee, filterSource, {
+            autoOpenId: urlContactId,
+            shouldAutoOpen: urlAutoOpen === 'true' || Boolean(urlContactId)
+        });
         fetchStats();
         fetchPackages();
         if (isSuperAdmin) {
@@ -289,7 +400,7 @@ export default function WhatsAppLeadsPage() {
         }
     };
 
-    const fetchContacts = async (searchVal = searchTerm, assignVal = filterAssignee, sourceVal = filterSource) => {
+    const fetchContacts = async (searchVal = searchTerm, assignVal = filterAssignee, sourceVal = filterSource, autoOpenConfig = null) => {
         setLoading(true);
         try {
             let url = `${getWhatsAppContactsUrl}?search=${encodeURIComponent(searchVal || '')}`;
@@ -302,6 +413,30 @@ export default function WhatsAppLeadsPage() {
             const res = await axiosGet(url, token);
             if (res?.status && Array.isArray(res.data)) {
                 setContacts(res.data);
+
+                // Auto-open and display lead if redirected from Custom Package section
+                if (autoOpenConfig?.shouldAutoOpen && !hasHandledAutoOpenRef.current && res.data.length > 0) {
+                    hasHandledAutoOpenRef.current = true;
+                    let targetContact = null;
+                    if (autoOpenConfig.autoOpenId) {
+                        targetContact = res.data.find(c => String(c.id) === String(autoOpenConfig.autoOpenId));
+                    }
+                    if (!targetContact && searchVal) {
+                        const cleanS = String(searchVal).replace(/[^0-9]/g, '');
+                        targetContact = res.data.find(c => 
+                            (cleanS && String(c.wa_id).includes(cleanS)) || 
+                            (c.name && c.name.toLowerCase().includes(String(searchVal).toLowerCase()))
+                        );
+                    }
+                    if (!targetContact && res.data.length === 1) {
+                        targetContact = res.data[0];
+                    }
+
+                    if (targetContact) {
+                        setHighlightedContactId(targetContact.id);
+                        handleOpenChat(targetContact);
+                    }
+                }
             } else {
                 setContacts([]);
             }
@@ -1080,7 +1215,14 @@ export default function WhatsAppLeadsPage() {
             extra_discount: initialDiscount,
             converted_amount: initialAmount,
             travel_date: existingTravelDate,
-            conversion_note: ''
+            conversion_note: '',
+            confirm_booking: isConfirmBooking !== false,
+            advance_amount: '',
+            due_amount: '',
+            food_type: 'Veg & Non-Veg (Standard Sundarban Menu)',
+            pickup_drop: item.travel_destination ? `${item.travel_destination} / Canning` : 'Canning Station',
+            template_id: '',
+            invoice_no: ''
         });
         setConvertModalOpen(true);
     };
@@ -1254,13 +1396,20 @@ export default function WhatsAppLeadsPage() {
             rooms: convertFormData.rooms,
             room_details: convertFormData.rooms,
             extra_discount: convertFormData.extra_discount,
-            conversion_note: finalNote
+            conversion_note: finalNote,
+            confirm_booking: convertFormData.confirm_booking,
+            advance_amount: convertFormData.advance_amount,
+            due_amount: convertFormData.due_amount,
+            food_type: convertFormData.food_type,
+            pickup_drop: convertFormData.pickup_drop,
+            template_id: convertFormData.template_id,
+            invoice_no: convertFormData.invoice_no
         };
 
         try {
             const res = await axiosPost(convertLeadUrl, payload, token);
             if (res?.status) {
-                showMessage('success', '🎉 Lead marked as Converted successfully! Moved to Converted Leads section.');
+                showMessage('success', res?.msg || '🎉 Lead marked as Converted successfully! Moved to Converted Leads section.');
                 setConvertModalOpen(false);
                 fetchContacts(searchTerm, filterAssignee);
                 fetchStats();
@@ -1563,6 +1712,31 @@ export default function WhatsAppLeadsPage() {
                 </div>
             </div>
 
+            {/* Redirect Notice Banner from Custom Package */}
+            {(urlContactId || urlSearch) && (
+                <div className="alert alert-info py-2.5 px-3 d-flex align-items-center justify-content-between mb-3 rounded-3 shadow-xs border-0 border-start border-4 border-info">
+                    <div className="d-flex align-items-center gap-2">
+                        <i className="ri ri-compass-3-line fs-5 text-info"></i>
+                        <span className="small fw-medium">
+                            Displaying WhatsApp lead {urlContactId ? `(#${urlContactId})` : ''} {urlSearch ? `for contact "${urlSearch}"` : ''} from Custom Package Enquiries.
+                        </span>
+                    </div>
+                    <button 
+                        type="button" 
+                        className="btn btn-sm btn-outline-info rounded-pill py-0.5 px-2.5 small fw-semibold"
+                        onClick={() => {
+                            setSearchTerm('');
+                            setHighlightedContactId(null);
+                            router.push('/crm/whatsapp');
+                            fetchContacts('', filterAssignee, filterSource);
+                        }}
+                    >
+                        <i className="ri ri-close-circle-line me-1"></i>
+                        Clear Filter / View All
+                    </button>
+                </div>
+            )}
+
             {/* 4. Leads Table */}
             <div className="card border-0 shadow-sm rounded-3 overflow-hidden">
                 <div className="card-header bg-white border-bottom py-3 d-flex align-items-center justify-content-between flex-wrap gap-2">
@@ -1586,7 +1760,7 @@ export default function WhatsAppLeadsPage() {
                     </span>
                 </div>
 
-                <div className="table-responsive text-nowrap">
+                <div className="table-responsive text-nowrap" style={{ minHeight: '380px' }}>
                     {loading ? (
                         <div className="p-5 text-center">
                             <LoadingComponent />
@@ -1616,20 +1790,45 @@ export default function WhatsAppLeadsPage() {
                     ) : (
                         <table className="table table-hover align-middle mb-0">
                             <thead className="table-light">
-                                <tr>
-                                    <th style={{ width: '50px' }} className="ps-3">#</th>
-                                    <th>Contact Name</th>
-                                    <th style={{ width: '150px' }}>Lead Source</th>
-                                    <th>WhatsApp Phone</th>
-                                    {isSuperAdmin && <th>Assigned Admin</th>}
-                                    <th>Last Message</th>
-                                    <th>Last Activity</th>
-                                    <th className="text-center">Messages</th>
-                                    <th className="text-center pe-3">Actions</th>
-                                </tr>
+                                {table.getHeaderGroups().map((headerGroup) => (
+                                    <tr key={headerGroup.id}>
+                                        {headerGroup.headers.map((header) => {
+                                            const canSort = header.column.getCanSort();
+                                            const isSorted = header.column.getIsSorted();
+                                            const isAction = header.id === 'actions';
+                                            const isIndex = header.id === 'index';
+                                            const isMessages = header.id === 'total_messages';
+                                            return (
+                                                <th
+                                                    key={header.id}
+                                                    className={`${isIndex ? 'ps-3' : ''} ${isAction ? 'pe-3 text-center' : ''} ${isMessages ? 'text-center' : ''} ${canSort ? 'cursor-pointer user-select-none' : ''}`}
+                                                    style={isIndex ? { width: '50px' } : isAction ? { width: '80px' } : header.id === 'lead_source' ? { width: '150px' } : undefined}
+                                                    onClick={header.column.getToggleSortingHandler()}
+                                                >
+                                                    <div className={`d-inline-flex align-items-center gap-1.5 ${isAction || isMessages ? 'justify-content-center' : ''}`}>
+                                                        <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                                                        {canSort && (
+                                                            <span className="text-muted" style={{ fontSize: '11px' }}>
+                                                                {isSorted === 'asc' ? (
+                                                                    <i className="ri ri-arrow-up-line text-primary fw-bold"></i>
+                                                                ) : isSorted === 'desc' ? (
+                                                                    <i className="ri ri-arrow-down-line text-primary fw-bold"></i>
+                                                                ) : (
+                                                                    <i className="ri ri-expand-up-down-line opacity-50"></i>
+                                                                )}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </th>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
                             </thead>
                             <tbody>
-                                {contacts.map((contact, idx) => {
+                                {table.getRowModel().rows.map((row, idx) => {
+                                    const contact = row.original;
+                                    const displayIndex = pagination.pageIndex * pagination.pageSize + idx + 1;
                                     const avatarBg = getAvatarColor(contact.name || contact.wa_id);
                                     const initials = (contact.name || 'WA')
                                         .split(' ')
@@ -1639,8 +1838,11 @@ export default function WhatsAppLeadsPage() {
                                         .substring(0, 2);
 
                                     return (
-                                        <tr key={contact.id || idx}>
-                                            <td className="text-muted small ps-3">{idx + 1}</td>
+                                        <tr 
+                                            key={contact.id || idx}
+                                            className={highlightedContactId === contact.id ? 'table-warning border-start border-4 border-warning shadow-xs' : ''}
+                                        >
+                                            <td className="text-muted small ps-3">{displayIndex}</td>
                                             
                                             {/* Name with Avatar */}
                                             <td>
@@ -1766,46 +1968,142 @@ export default function WhatsAppLeadsPage() {
                                                 </span>
                                             </td>
 
-                                            {/* Action Buttons */}
-                                            <td className="text-center pe-3">
-                                                <div className="d-inline-flex align-items-center gap-1.5">
+                                            {/* Action Buttons (3-dot dropdown) */}
+                                            <td className="text-center pe-3" style={{ position: 'relative' }}>
+                                                <div className="dropdown whatsapp-actions-dropdown d-inline-block position-relative">
                                                     <button
                                                         type="button"
-                                                        onClick={() => handleOpenConvertModal(contact)}
-                                                        className="btn btn-sm btn-outline-success rounded-pill px-2.5 d-inline-flex align-items-center gap-1 shadow-xs fw-semibold"
-                                                        title="Mark Lead as Converted (Won Deal)"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setActiveDropdownId(activeDropdownId === contact.id ? null : contact.id);
+                                                        }}
+                                                        className={`btn btn-sm ${activeDropdownId === contact.id ? 'btn-primary text-white shadow-sm' : 'btn-light border'} rounded-circle p-0 d-inline-flex align-items-center justify-content-center`}
+                                                        style={{ width: '34px', height: '34px', transition: 'all 0.2s ease' }}
+                                                        title="More Actions"
+                                                        aria-expanded={activeDropdownId === contact.id}
                                                     >
-                                                        <i className="ri ri-checkbox-circle-fill text-success"></i>
-                                                        <span>Convert</span>
+                                                        <i className="ri ri-more-2-fill fs-5"></i>
                                                     </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleOpenFollowupModal(contact)}
-                                                        className="btn btn-sm btn-outline-warning rounded-pill px-2.5 d-inline-flex align-items-center gap-1 shadow-xs text-dark fw-semibold"
-                                                        title="Add or Update Follow-up"
-                                                    >
-                                                        <i className="ri ri-calendar-check-line text-warning"></i>
-                                                        <span>Follow-up</span>
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => handleOpenChat(contact)}
-                                                        className="btn btn-sm btn-primary rounded-pill px-3 d-inline-flex align-items-center gap-1.5 shadow-sm"
-                                                        style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
-                                                    >
-                                                        <i className="ri ri-chat-1-line"></i>
-                                                        <span>Chat</span>
-                                                    </button>
-                                                    {isSuperAdmin && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleOpenDeleteModal(contact)}
-                                                            className="btn btn-sm btn-outline-danger rounded-pill px-2.5 d-inline-flex align-items-center gap-1 shadow-xs fw-semibold"
-                                                            title="Delete Lead (Admin Only)"
+
+                                                    {activeDropdownId === contact.id && (
+                                                        <ul
+                                                            className="dropdown-menu dropdown-menu-end show border-0 shadow-lg rounded-3 py-2 position-absolute"
+                                                            style={{
+                                                                right: 0,
+                                                                top: '100%',
+                                                                marginTop: '6px',
+                                                                zIndex: 1050,
+                                                                minWidth: '235px',
+                                                                boxShadow: '0 12px 32px rgba(15, 23, 42, 0.15)',
+                                                                border: '1px solid rgba(0,0,0,0.08)'
+                                                            }}
+                                                            onClick={(e) => e.stopPropagation()}
                                                         >
-                                                            <i className="ri ri-delete-bin-line"></i>
-                                                            <span>Delete</span>
-                                                        </button>
+                                                            {/* 1. Confirm Booking (Convert & Send WhatsApp) */}
+                                                            <li>
+                                                                <button
+                                                                    type="button"
+                                                                    className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start bg-success-subtle text-success"
+                                                                    onClick={() => {
+                                                                        setActiveDropdownId(null);
+                                                                        handleOpenConvertModal(contact, true);
+                                                                    }}
+                                                                >
+                                                                    <span className="badge bg-success text-white p-1.5 rounded-2">
+                                                                        <i className="ri ri-whatsapp-fill fs-6"></i>
+                                                                    </span>
+                                                                    <div>
+                                                                        <div className="fw-bold small text-success">Confirm Booking</div>
+                                                                        <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>WhatsApp confirmation &amp; convert</small>
+                                                                    </div>
+                                                                </button>
+                                                            </li>
+
+                                                            {/* 2. Convert Lead */}
+                                                            <li>
+                                                                <button
+                                                                    type="button"
+                                                                    className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                    onClick={() => {
+                                                                        setActiveDropdownId(null);
+                                                                        handleOpenConvertModal(contact, false);
+                                                                    }}
+                                                                >
+                                                                    <span className="badge bg-success bg-opacity-10 text-success p-1.5 rounded-2">
+                                                                        <i className="ri ri-checkbox-circle-fill fs-6"></i>
+                                                                    </span>
+                                                                    <div>
+                                                                        <div className="fw-semibold small text-dark">Convert Lead</div>
+                                                                        <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Mark deal won &amp; package rate</small>
+                                                                    </div>
+                                                                </button>
+                                                            </li>
+
+                                                            {/* 3. Follow-up */}
+                                                            <li>
+                                                                <button
+                                                                    type="button"
+                                                                    className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                    onClick={() => {
+                                                                        setActiveDropdownId(null);
+                                                                        handleOpenFollowupModal(contact);
+                                                                    }}
+                                                                >
+                                                                    <span className="badge bg-warning bg-opacity-15 text-warning-emphasis p-1.5 rounded-2">
+                                                                        <i className="ri ri-calendar-check-line fs-6"></i>
+                                                                    </span>
+                                                                    <div>
+                                                                        <div className="fw-semibold small text-dark">Add / Edit Follow-up</div>
+                                                                        <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Schedule call &amp; remarks</small>
+                                                                    </div>
+                                                                </button>
+                                                            </li>
+
+                                                            {/* 4. Chat */}
+                                                            <li>
+                                                                <button
+                                                                    type="button"
+                                                                    className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                    onClick={() => {
+                                                                        setActiveDropdownId(null);
+                                                                        handleOpenChat(contact);
+                                                                    }}
+                                                                >
+                                                                    <span className="badge bg-primary bg-opacity-10 text-primary p-1.5 rounded-2">
+                                                                        <i className="ri ri-chat-1-line fs-6"></i>
+                                                                    </span>
+                                                                    <div>
+                                                                        <div className="fw-semibold small text-dark">Open Chat</div>
+                                                                        <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Chat drawer &amp; reply</small>
+                                                                    </div>
+                                                                </button>
+                                                            </li>
+
+                                                            {/* 5. Delete Lead (Admin Only) */}
+                                                            {isSuperAdmin && (
+                                                                <>
+                                                                    <li><hr className="dropdown-divider my-1" /></li>
+                                                                    <li>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start text-danger"
+                                                                            onClick={() => {
+                                                                                setActiveDropdownId(null);
+                                                                                handleOpenDeleteModal(contact);
+                                                                            }}
+                                                                        >
+                                                                            <span className="badge bg-danger bg-opacity-10 text-danger p-1.5 rounded-2">
+                                                                                <i className="ri ri-delete-bin-line fs-6"></i>
+                                                                            </span>
+                                                                            <div>
+                                                                                <div className="fw-semibold small text-danger">Delete Lead</div>
+                                                                                <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Admin only action</small>
+                                                                            </div>
+                                                                        </button>
+                                                                    </li>
+                                                                </>
+                                                            )}
+                                                        </ul>
                                                     )}
                                                 </div>
                                             </td>
@@ -1816,6 +2114,15 @@ export default function WhatsAppLeadsPage() {
                         </table>
                     )}
                 </div>
+
+                {/* TanStack Table Pagination */}
+                {!loading && contacts.length > 0 && (
+                    <TanstackTablePagination 
+                        table={table} 
+                        totalItems={contacts.length} 
+                        label="contacts & leads" 
+                    />
+                )}
             </div>
 
             {/* 5. WhatsApp Real-Time Conversation Modal */}
@@ -2018,7 +2325,7 @@ export default function WhatsAppLeadsPage() {
                                     <button
                                         type="submit"
                                         disabled={sendingReply || !replyText.trim()}
-                                        className="btn btn-primary rounded-circle p-2.5 d-flex align-items-center justify-content-center shadow-sm"
+                                        className="btn btn-primary rounded-circle p-2 d-flex align-items-center justify-content-center shadow-sm"
                                         style={{ backgroundColor: '#0066cc', borderColor: '#0066cc', width: '44px', height: '44px', minWidth: '44px' }}
                                         title="Send WhatsApp Message"
                                     >
@@ -3176,7 +3483,107 @@ export default function WhatsAppLeadsPage() {
                                         </div>
                                     </div>
 
-                                    {/* 5. Status Notice */}
+                                    {/* 5. Confirm Booking & WhatsApp Delivery Card */}
+                                    <div className="card border-success border-2 rounded-3 p-3 mb-3 bg-white shadow-2xs">
+                                        <div className="d-flex align-items-center justify-content-between mb-2">
+                                            <div className="form-check form-switch mb-0">
+                                                <input 
+                                                    className="form-check-input ms-0 me-2" 
+                                                    type="checkbox" 
+                                                    id="confirmBookingSwitchWA"
+                                                    checked={convertFormData.confirm_booking}
+                                                    onChange={(e) => setConvertFormData({ ...convertFormData, confirm_booking: e.target.checked })}
+                                                />
+                                                <label className="form-check-label fw-bold text-dark fs-6 cursor-pointer" htmlFor="confirmBookingSwitchWA">
+                                                    <i className="ri ri-whatsapp-fill text-success me-1"></i>
+                                                    Confirm Booking &amp; Send WhatsApp Confirmation
+                                                </label>
+                                            </div>
+                                            <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1 text-2xs fw-bold">
+                                                UTILITY TEMPLATE
+                                            </span>
+                                        </div>
+                                        <small className="text-muted d-block mb-3" style={{ fontSize: '11.5px' }}>
+                                            Sends the official <strong>Confirm Booking</strong> utility template to <strong>+{convertFormData.phone}</strong> with invoice number, advance received, and remaining due.
+                                        </small>
+
+                                        {convertFormData.confirm_booking && (
+                                            <div className="p-3 bg-light rounded-3 border">
+                                                <div className="row g-3">
+                                                    <div className="col-12 col-md-6">
+                                                        <label className="form-label small fw-bold text-dark mb-1">
+                                                            Advance Payment Received (₹)
+                                                        </label>
+                                                        <div className="input-group">
+                                                            <span className="input-group-text bg-white text-success fw-bold">₹</span>
+                                                            <input 
+                                                                type="number"
+                                                                min="0"
+                                                                className="form-control rounded-end-3 font-monospace fw-semibold"
+                                                                placeholder="e.g. 5000"
+                                                                value={convertFormData.advance_amount}
+                                                                onChange={(e) => {
+                                                                    const adv = e.target.value;
+                                                                    const tot = parseFloat(convertFormData.converted_amount) || 0;
+                                                                    const due = Math.max(0, tot - (parseFloat(adv) || 0));
+                                                                    setConvertFormData({
+                                                                        ...convertFormData,
+                                                                        advance_amount: adv,
+                                                                        due_amount: String(due)
+                                                                    });
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="col-12 col-md-6">
+                                                        <label className="form-label small fw-bold text-dark mb-1">
+                                                            Balance Due on Tour (₹)
+                                                        </label>
+                                                        <div className="input-group">
+                                                            <span className="input-group-text bg-white text-danger fw-bold">₹</span>
+                                                            <input 
+                                                                type="number"
+                                                                min="0"
+                                                                className="form-control rounded-end-3 font-monospace fw-semibold text-danger"
+                                                                placeholder="Auto-calculated"
+                                                                value={convertFormData.due_amount !== '' ? convertFormData.due_amount : Math.max(0, (parseFloat(convertFormData.converted_amount) || 0) - (parseFloat(convertFormData.advance_amount) || 0))}
+                                                                onChange={(e) => setConvertFormData({ ...convertFormData, due_amount: e.target.value })}
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="col-12 col-md-6">
+                                                        <label className="form-label small fw-bold text-dark mb-1">
+                                                            Food Menu / Preference
+                                                        </label>
+                                                        <input 
+                                                            type="text"
+                                                            className="form-control rounded-3"
+                                                            placeholder="e.g. Standard Bengali Non-Veg Menu"
+                                                            value={convertFormData.food_type}
+                                                            onChange={(e) => setConvertFormData({ ...convertFormData, food_type: e.target.value })}
+                                                        />
+                                                    </div>
+
+                                                    <div className="col-12 col-md-6">
+                                                        <label className="form-label small fw-bold text-dark mb-1">
+                                                            Pickup &amp; Drop Location
+                                                        </label>
+                                                        <input 
+                                                            type="text"
+                                                            className="form-control rounded-3"
+                                                            placeholder="e.g. Canning Station (9:00 AM)"
+                                                            value={convertFormData.pickup_drop}
+                                                            onChange={(e) => setConvertFormData({ ...convertFormData, pickup_drop: e.target.value })}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* 6. Status Notice */}
                                     <div className="alert alert-success d-flex align-items-center gap-2 mb-3 py-2.5 px-3 rounded-3" style={{ fontSize: '12.5px' }}>
                                         <i className="ri ri-checkbox-circle-fill fs-5 text-success"></i>
                                         <div>
@@ -3184,7 +3591,7 @@ export default function WhatsAppLeadsPage() {
                                         </div>
                                     </div>
 
-                                    {/* 6. Conversion Remarks / Booking Notes */}
+                                    {/* 7. Conversion Remarks / Booking Notes */}
                                     <div className="mb-2">
                                         <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
                                             <i className="ri ri-file-text-line text-secondary"></i>
@@ -3213,8 +3620,7 @@ export default function WhatsAppLeadsPage() {
                                             type="button" 
                                             disabled={convertingLead}
                                             onClick={(e) => handleConfirmConvert(e, true)}
-                                            className="btn btn-primary rounded-pill px-3.5 d-inline-flex align-items-center gap-1.5 shadow-sm"
-                                            style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
+                                            className="btn btn-outline-primary rounded-pill px-3.5 d-inline-flex align-items-center gap-1.5 shadow-sm"
                                             title="Convert lead and immediately generate customer invoice"
                                         >
                                             <i className="ri ri-file-list-3-line"></i>
@@ -3224,16 +3630,17 @@ export default function WhatsAppLeadsPage() {
                                             type="submit" 
                                             disabled={convertingLead}
                                             className="btn btn-success rounded-pill px-4 d-inline-flex align-items-center gap-2 shadow-sm"
+                                            style={{ backgroundColor: '#25D366', borderColor: '#25D366' }}
                                         >
                                             {convertingLead ? (
                                                 <>
                                                     <span className="spinner-border spinner-border-sm" role="status"></span>
-                                                    <span>Marking Converted...</span>
+                                                    <span>Confirming Booking...</span>
                                                 </>
                                             ) : (
                                                 <>
-                                                    <i className="ri ri-checkbox-circle-fill"></i>
-                                                    <span>🎉 Mark as Converted</span>
+                                                    <i className={convertFormData.confirm_booking ? "ri ri-whatsapp-fill fs-5" : "ri ri-checkbox-circle-fill"}></i>
+                                                    <span>{convertFormData.confirm_booking ? 'Confirm Booking' : '🎉 Mark as Converted'}</span>
                                                 </>
                                             )}
                                         </button>
@@ -3926,8 +4333,8 @@ export default function WhatsAppLeadsPage() {
                 </div>
             )}
 
-            {/* 6. Delete Lead Confirmation Modal (Admin Only) */}
-            {deleteModalOpen && isSuperAdmin && leadToDelete && (
+            {/* 6. Delete Lead Confirmation Modal */}
+            {deleteModalOpen && leadToDelete && (
                 <div 
                     className="modal fade show d-block" 
                     tabIndex="-1" 
@@ -3974,7 +4381,7 @@ export default function WhatsAppLeadsPage() {
                                         </div>
                                     )}
                                 </div>
-                                <div className="alert alert-warning border-0 rounded-3 text-start p-2.5 d-flex gap-2 align-items-start mb-0" style={{ fontSize: '12px' }}>
+                                <div className="alert alert-warning border-0 rounded-3 text-start p-2 d-flex gap-2 align-items-start mb-0" style={{ fontSize: '12px' }}>
                                     <i className="ri ri-information-fill text-warning fs-6 mt-0.5 flex-shrink-0"></i>
                                     <span>
                                         This action will permanently delete this lead from the CRM, including its chat message thread, follow-up logs, and associated tasks. <strong>This action cannot be undone.</strong>

@@ -10,6 +10,14 @@ import { axiosGet } from "@/libs/axiosHelper";
 import { printInvoiceDocument } from "@/libs/printHelper";
 import LoadingComponent from "@/components/common/LoadingComponent";
 import InvoicePrintTemplate from "@/components/admin/invoice/InvoicePrintTemplate";
+import { 
+    useReactTable, 
+    getCoreRowModel, 
+    getPaginationRowModel, 
+    getSortedRowModel,
+    flexRender 
+} from "@tanstack/react-table";
+import TanstackTablePagination from "@/components/admin/common/TanstackTablePagination";
 
 export default function BookingUsersPage() {
     const token = useSelector((state) => state?.adminAuth?.token);
@@ -31,9 +39,66 @@ export default function BookingUsersPage() {
     const [searchTerm, setSearchTerm] = useState("");
     const [paymentFilter, setPaymentFilter] = useState("all"); // 'all', 'paid', 'due', 'pending'
 
-    // Selected User for Booking History Modal
-    const [selectedUser, setSelectedUser] = useState(null);
-    const [historyModalOpen, setHistoryModalOpen] = useState(false);
+    // TanStack Table State
+    const [sorting, setSorting] = useState([]);
+    const [pagination, setPagination] = useState({ pageIndex: 0, pageSize: 25 });
+
+    // TanStack Table Columns
+    const columns = useMemo(() => [
+        {
+            id: "index",
+            header: "#",
+            enableSorting: false,
+        },
+        {
+            accessorKey: "customer_name",
+            header: "Customer / Contact",
+        },
+        {
+            accessorKey: "total_bookings",
+            header: "Bookings",
+        },
+        {
+            id: "packages",
+            header: "Packages Booked",
+            enableSorting: false,
+        },
+        {
+            accessorKey: "total_spent",
+            header: "Total Billed",
+        },
+        {
+            accessorKey: "total_paid",
+            header: "Paid / Advance",
+        },
+        {
+            accessorKey: "total_due",
+            header: "Balance Due",
+        },
+        {
+            accessorKey: "last_booking_date",
+            header: "Last Booking",
+        },
+        {
+            id: "actions",
+            header: "Actions",
+            enableSorting: false,
+        },
+    ], []);
+
+    const table = useReactTable({
+        data: users,
+        columns,
+        state: {
+            sorting,
+            pagination,
+        },
+        onSortingChange: setSorting,
+        onPaginationChange: setPagination,
+        getCoreRowModel: getCoreRowModel(),
+        getSortedRowModel: getSortedRowModel(),
+        getPaginationRowModel: getPaginationRowModel(),
+    });
 
     // Invoice View / Print Modal
     const [selectedInvoiceToPrint, setSelectedInvoiceToPrint] = useState(null);
@@ -89,16 +154,6 @@ export default function BookingUsersPage() {
     const handleSearchSubmit = (e) => {
         e.preventDefault();
         fetchBookingUsers();
-    };
-
-    const handleOpenHistoryModal = (client) => {
-        setSelectedUser(client);
-        setHistoryModalOpen(true);
-    };
-
-    const handleCloseHistoryModal = () => {
-        setSelectedUser(null);
-        setHistoryModalOpen(false);
     };
 
     const handlePrintInvoice = (inv) => {
@@ -396,23 +451,60 @@ export default function BookingUsersPage() {
                             )}
                         </div>
                     ) : (
-                        <div className="table-responsive">
+                        <>
+                            <div className="table-responsive">
                             <table className="table table-hover align-middle mb-0">
                                 <thead className="table-light text-muted small text-uppercase">
-                                    <tr>
-                                        <th style={{ width: "40px" }} className="text-center">#</th>
-                                        <th style={{ minWidth: "200px" }}>Customer / Contact</th>
-                                        <th style={{ minWidth: "120px" }}>Bookings</th>
-                                        <th style={{ minWidth: "220px" }}>Packages Booked</th>
-                                        <th style={{ minWidth: "140px" }} className="text-end">Total Billed</th>
-                                        <th style={{ minWidth: "130px" }} className="text-end">Paid / Advance</th>
-                                        <th style={{ minWidth: "130px" }} className="text-end">Balance Due</th>
-                                        <th style={{ minWidth: "120px" }}>Last Booking</th>
-                                        <th style={{ minWidth: "160px" }} className="text-center">Actions</th>
-                                    </tr>
+                                    {table.getHeaderGroups().map((headerGroup) => (
+                                        <tr key={headerGroup.id}>
+                                            {headerGroup.headers.map((header) => {
+                                                const canSort = header.column.getCanSort();
+                                                const isSorted = header.column.getIsSorted();
+                                                const isAction = header.id === "actions";
+                                                const isIndex = header.id === "index";
+                                                const isRightAligned = ["total_spent", "total_paid", "total_due"].includes(header.id);
+
+                                                return (
+                                                    <th
+                                                        key={header.id}
+                                                        className={`${isIndex || isAction ? "text-center" : isRightAligned ? "text-end" : ""} ${canSort ? "cursor-pointer user-select-none" : ""}`}
+                                                        style={
+                                                            isIndex ? { width: "40px" } :
+                                                            isAction ? { minWidth: "160px" } :
+                                                            header.id === "customer_name" ? { minWidth: "200px" } :
+                                                            header.id === "total_bookings" ? { minWidth: "120px" } :
+                                                            header.id === "packages" ? { minWidth: "220px" } :
+                                                            header.id === "total_spent" ? { minWidth: "140px" } :
+                                                            header.id === "total_paid" ? { minWidth: "130px" } :
+                                                            header.id === "total_due" ? { minWidth: "130px" } :
+                                                            header.id === "last_booking_date" ? { minWidth: "120px" } : undefined
+                                                        }
+                                                        onClick={header.column.getToggleSortingHandler()}
+                                                    >
+                                                        <div className={`d-inline-flex align-items-center gap-1.5 ${isIndex || isAction ? "justify-content-center" : isRightAligned ? "justify-content-end" : ""}`}>
+                                                            <span>{flexRender(header.column.columnDef.header, header.getContext())}</span>
+                                                            {canSort && (
+                                                                <span className="text-muted" style={{ fontSize: "11px" }}>
+                                                                    {isSorted === "asc" ? (
+                                                                        <i className="ri ri-arrow-up-line text-primary fw-bold"></i>
+                                                                    ) : isSorted === "desc" ? (
+                                                                        <i className="ri ri-arrow-down-line text-primary fw-bold"></i>
+                                                                    ) : (
+                                                                        <i className="ri ri-expand-up-down-line opacity-50"></i>
+                                                                    )}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </th>
+                                                );
+                                            })}
+                                        </tr>
+                                    ))}
                                 </thead>
                                 <tbody>
-                                    {users.map((client, idx) => {
+                                    {table.getRowModel().rows.map((row, idx) => {
+                                        const client = row.original;
+                                        const displayIndex = pagination.pageIndex * pagination.pageSize + idx + 1;
                                         const cleanPhone = client.normalized_phone || (client.customer_phone || "").replace(/\D/g, "");
                                         const whatsappUrl = cleanPhone
                                             ? `https://wa.me/${cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone}`
@@ -422,7 +514,7 @@ export default function BookingUsersPage() {
 
                                         return (
                                             <tr key={client.key || idx}>
-                                                <td className="text-center text-muted fw-medium">{idx + 1}</td>
+                                                <td className="text-center text-muted fw-medium">{displayIndex}</td>
 
                                                 {/* Customer Details */}
                                                 <td>
@@ -448,17 +540,6 @@ export default function BookingUsersPage() {
                                                                     </span>
                                                                 ) : (
                                                                     <span className="text-muted">No phone</span>
-                                                                )}
-                                                                {whatsappUrl && (
-                                                                    <a
-                                                                        href={whatsappUrl}
-                                                                        target="_blank"
-                                                                        rel="noreferrer"
-                                                                        className="text-success"
-                                                                        title="Chat on WhatsApp"
-                                                                    >
-                                                                        <i className="ri ri-whatsapp-fill"></i>
-                                                                    </a>
                                                                 )}
                                                             </div>
                                                             {client.customer_email && (
@@ -536,29 +617,15 @@ export default function BookingUsersPage() {
                                                 {/* Actions */}
                                                 <td className="text-center">
                                                     <div className="d-flex align-items-center justify-content-center gap-1.5">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => handleOpenHistoryModal(client)}
-                                                            className="btn btn-sm btn-primary rounded-pill px-2.5 py-1 d-inline-flex align-items-center gap-1 shadow-2xs"
-                                                            title="View Complete Booking History"
-                                                            style={{ fontSize: "11.5px" }}
+                                                        <Link
+                                                            href={`/crm/booking-users/details?key=${encodeURIComponent(client.key || "")}&phone=${encodeURIComponent(client.customer_phone || "")}&email=${encodeURIComponent(client.customer_email || "")}`}
+                                                            className="btn btn-sm btn-primary rounded-pill px-3 py-1 d-inline-flex align-items-center gap-1.5 shadow-2xs"
+                                                            title="View Complete User & Booking Details"
+                                                            style={{ fontSize: "12px" }}
                                                         >
-                                                            <i className="ri ri-history-line"></i>
-                                                            <span>History ({client.booking_history?.length || 0})</span>
-                                                        </button>
-
-                                                        {whatsappUrl && (
-                                                            <a
-                                                                href={whatsappUrl}
-                                                                target="_blank"
-                                                                rel="noreferrer"
-                                                                className="btn btn-sm btn-success rounded-circle d-inline-flex align-items-center justify-content-center shadow-2xs"
-                                                                style={{ width: "30px", height: "30px", backgroundColor: "#25D366", borderColor: "#25D366" }}
-                                                                title="Send WhatsApp Message"
-                                                            >
-                                                                <i className="ri ri-whatsapp-line text-white"></i>
-                                                            </a>
-                                                        )}
+                                                            <i className="ri ri-file-user-line"></i>
+                                                            <span>Details</span>
+                                                        </Link>
                                                     </div>
                                                 </td>
                                             </tr>
@@ -567,182 +634,19 @@ export default function BookingUsersPage() {
                                 </tbody>
                             </table>
                         </div>
+
+                        {/* TanStack Table Pagination */}
+                        {!loading && users.length > 0 && (
+                            <TanstackTablePagination 
+                                table={table} 
+                                totalItems={users.length} 
+                                label="booking users" 
+                            />
+                        )}
+                        </>
                     )}
                 </div>
             </div>
-
-            {/* ========================================================= */}
-            {/* BOOKING HISTORY MODAL FOR SELECTED USER                   */}
-            {/* ========================================================= */}
-            {historyModalOpen && selectedUser && (
-                <div
-                    className="modal show d-block"
-                    tabIndex="-1"
-                    style={{ backgroundColor: "rgba(0,0,0,0.65)", zIndex: 1050 }}
-                >
-                    <div className="modal-dialog modal-xl modal-dialog-centered modal-dialog-scrollable">
-                        <div className="modal-content border-0 shadow-lg rounded-4">
-                            {/* Modal Header */}
-                            <div className="modal-header bg-primary text-white py-3 px-4 border-0">
-                                <div>
-                                    <h5 className="modal-title fw-bold mb-0 d-flex align-items-center gap-2">
-                                        <i className="ri ri-history-line"></i>
-                                        <span>Customer Booking History</span>
-                                    </h5>
-                                    <small className="opacity-90">
-                                        Client: <strong>{selectedUser.customer_name}</strong> | Phone: {selectedUser.customer_phone || "N/A"} | Email: {selectedUser.customer_email || "N/A"}
-                                    </small>
-                                </div>
-                                <button
-                                    type="button"
-                                    className="btn-close btn-close-white"
-                                    onClick={handleCloseHistoryModal}
-                                    aria-label="Close"
-                                ></button>
-                            </div>
-
-                            {/* Client Snapshot Ribbon */}
-                            <div className="bg-light p-3 border-bottom">
-                                <div className="row g-2 text-center text-md-start">
-                                    <div className="col-6 col-md-3">
-                                        <span className="text-muted small">Total Bookings:</span>
-                                        <div className="fw-bold text-dark">{selectedUser.total_bookings} Packages</div>
-                                    </div>
-                                    <div className="col-6 col-md-3">
-                                        <span className="text-muted small">Total Billed:</span>
-                                        <div className="fw-bold text-dark">{formatCurrency(selectedUser.total_spent)}</div>
-                                    </div>
-                                    <div className="col-6 col-md-3">
-                                        <span className="text-muted small">Total Paid / Advance:</span>
-                                        <div className="fw-bold text-success">{formatCurrency(selectedUser.total_paid)}</div>
-                                    </div>
-                                    <div className="col-6 col-md-3">
-                                        <span className="text-muted small">Outstanding Balance:</span>
-                                        <div className={`fw-bold ${selectedUser.total_due > 0 ? "text-danger" : "text-success"}`}>
-                                            {selectedUser.total_due > 0 ? formatCurrency(selectedUser.total_due) : "₹0 (Fully Settled)"}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* Modal Body: Chronological Booking History List */}
-                            <div className="modal-body p-4">
-                                {(!selectedUser.booking_history || selectedUser.booking_history.length === 0) ? (
-                                    <p className="text-muted text-center py-4">No booking items recorded.</p>
-                                ) : (
-                                    <div className="d-flex flex-column gap-3">
-                                        {selectedUser.booking_history.map((item, hIdx) => {
-                                            return (
-                                                <div key={item.id || hIdx} className="card border rounded-3 p-3 shadow-2xs bg-body">
-                                                    <div className="d-flex flex-wrap align-items-center justify-content-between gap-2 border-bottom pb-2.5 mb-2.5">
-                                                        <div className="d-flex align-items-center gap-2">
-                                                            <span className={`badge bg-${item.source_badge || "primary"} rounded-pill px-2.5 py-1 text-uppercase`} style={{ fontSize: "11px" }}>
-                                                                {item.source_label || "Booking"}
-                                                            </span>
-                                                            <span className="fw-bold text-dark">Ref: {item.reference_no}</span>
-                                                            <span className="text-muted small">| Date: {formatDate(item.created_at)}</span>
-                                                        </div>
-                                                        <div className="d-flex align-items-center gap-2">
-                                                            {getStatusBadge(item.payment_status)}
-                                                            {item.invoice_data && (
-                                                                <div className="btn-group btn-group-sm">
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handlePrintInvoice(item.invoice_data)}
-                                                                        className="btn btn-outline-primary py-0.5 px-2"
-                                                                        title="View &amp; Print Invoice Modal"
-                                                                    >
-                                                                        <i className="ri ri-file-text-line me-1"></i>View
-                                                                    </button>
-                                                                    <button
-                                                                        type="button"
-                                                                        onClick={() => handleDirectPrintPopup(item.invoice_data)}
-                                                                        className="btn btn-primary py-0.5 px-2"
-                                                                        title="Direct Print or Save PDF"
-                                                                    >
-                                                                        <i className="ri ri-printer-line me-1"></i>Print PDF
-                                                                    </button>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-
-                                                    <div className="row g-2">
-                                                        <div className="col-12 col-md-6">
-                                                            <div className="fw-bold text-primary mb-1 d-flex align-items-center gap-1">
-                                                                <i className="ri ri-map-2-line"></i>
-                                                                <span>{item.package_name}</span>
-                                                            </div>
-                                                            <div className="small text-muted mb-0.5">
-                                                                <strong>Travel Date:</strong> {item.travel_date}
-                                                            </div>
-                                                            <div className="small text-muted">
-                                                                <strong>Travelers &amp; Rooms:</strong> {item.pax} Pax | {item.rooms} | {item.food_preference}
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="col-12 col-md-6">
-                                                            <div className="p-2.5 bg-light rounded-2">
-                                                                <div className="d-flex justify-content-between small mb-1">
-                                                                    <span className="text-muted">Package Total:</span>
-                                                                    <span className="fw-bold">{formatCurrency(item.total_amount)}</span>
-                                                                </div>
-                                                                <div className="d-flex justify-content-between small mb-1">
-                                                                    <span className="text-muted">Paid / Advance:</span>
-                                                                    <span className="fw-semibold text-success">{formatCurrency(item.paid_amount)}</span>
-                                                                </div>
-                                                                <div className="d-flex justify-content-between small">
-                                                                    <span className="text-muted">Balance Due:</span>
-                                                                    <span className={`fw-bold ${item.due_amount > 0 ? "text-danger" : "text-success"}`}>
-                                                                        {formatCurrency(item.due_amount)}
-                                                                    </span>
-                                                                </div>
-
-                                                                {(item.payment_method || item.payment_note || item.payment_proof_file) && (
-                                                                    <div className="mt-2 pt-2 border-top small">
-                                                                        {item.payment_method && (
-                                                                            <span className="badge bg-secondary-subtle text-secondary me-1.5">
-                                                                                Medium: {item.payment_method}
-                                                                            </span>
-                                                                        )}
-                                                                        {item.payment_note && (
-                                                                            <span className="text-muted me-2">Note: {item.payment_note}</span>
-                                                                        )}
-                                                                        {item.payment_proof_file && (
-                                                                            <a
-                                                                                href={item.payment_proof_file}
-                                                                                target="_blank"
-                                                                                rel="noreferrer"
-                                                                                className="badge bg-info text-white text-decoration-none"
-                                                                            >
-                                                                                <i className="ri ri-attachment-line me-0.5"></i>Proof Receipt
-                                                                            </a>
-                                                                        )}
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            );
-                                        })}
-                                    </div>
-                                )}
-                            </div>
-
-                            <div className="modal-footer bg-light py-2 px-4 border-0">
-                                <button
-                                    type="button"
-                                    className="btn btn-secondary rounded-pill px-4"
-                                    onClick={handleCloseHistoryModal}
-                                >
-                                    Close
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
 
             {/* ========================================================= */}
             {/* INVOICE VIEW / PRINT PREVIEW MODAL                        */}

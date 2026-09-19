@@ -4,8 +4,8 @@ import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useSelector } from 'react-redux';
-import { getParticularHolidayEnquiryUrl, updateHolidayEnquiryUrl } from '@/app/routes/serviceRoutes';
-import { axiosGet, axiosPut } from '@/libs/axiosHelper';
+import { getParticularHolidayEnquiryUrl, updateHolidayEnquiryUrl, createHolidayEnquiryWhatsAppLeadUrl } from '@/app/routes/serviceRoutes';
+import { axiosGet, axiosPut, axiosPost } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
 import LoadingComponent from '@/components/common/LoadingComponent';
 
@@ -63,6 +63,7 @@ export default function ViewCustomPackagePage() {
   const [loading, setLoading] = useState(true);
   const [enquiry, setEnquiry] = useState(null);
   const [updating, setUpdating] = useState(false);
+  const [creatingLead, setCreatingLead] = useState(false);
 
   const fetchEnquiryDetails = async () => {
     if (!enquiryId) return;
@@ -148,6 +149,54 @@ export default function ViewCustomPackagePage() {
     }
   };
 
+  const handleCreateWhatsAppLead = async () => {
+    if (!enquiry || !enquiry.id) return;
+    setCreatingLead(true);
+    try {
+      const res = await axiosPost(createHolidayEnquiryWhatsAppLeadUrl, { enquiry_id: enquiry.id }, token);
+      if (res && res.status) {
+        showMessage(res.msg || 'Custom WhatsApp lead created successfully!', 'success');
+        const contactId = res.contact_id || res.data?.contact_id;
+        const cleanPhone = res.phone || enquiry.phone;
+
+        const updatedEnquiry = {
+          ...enquiry,
+          whatsapp_lead_id: contactId,
+          whatsapp_phone: cleanPhone
+        };
+        setEnquiry(updatedEnquiry);
+
+        if (typeof window !== 'undefined') {
+          const saved = localStorage.getItem('holiday_enquiries_data');
+          if (saved) {
+            try {
+              const list = JSON.parse(saved);
+              const updated = list.map(e => String(e.id) === String(enquiry.id) ? updatedEnquiry : e);
+              localStorage.setItem('holiday_enquiries_data', JSON.stringify(updated));
+            } catch (e) {}
+          }
+        }
+      } else {
+        showMessage(res?.msg || 'Failed to create WhatsApp lead.', 'error');
+      }
+    } catch (err) {
+      console.error('Error creating WhatsApp lead:', err);
+      const errMsg = err.response?.data?.msg || err.message || 'Error creating WhatsApp lead.';
+      showMessage(errMsg, 'error');
+    } finally {
+      setCreatingLead(false);
+    }
+  };
+
+  const handleViewWhatsAppLead = () => {
+    if (!enquiry) return;
+    const rawPhone = enquiry.whatsapp_phone || enquiry.phone || '';
+    const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+    const searchVal = cleanPhone || encodeURIComponent(enquiry.name || '');
+    const contactId = enquiry.whatsapp_lead_id || '';
+    router.push(`/crm/whatsapp?search=${searchVal}&contactId=${contactId}&autoOpen=true`);
+  };
+
   const getStatusBadgeClass = (status) => {
     switch (status?.toLowerCase()) {
       case 'pending':
@@ -204,7 +253,51 @@ export default function ViewCustomPackagePage() {
           </div>
         </div>
 
-        <div className="d-flex gap-2">
+        <div className="d-flex align-items-center gap-2 flex-wrap">
+          {enquiry.whatsapp_lead_id ? (
+            <>
+              <button
+                type="button"
+                className="btn btn-outline-secondary d-inline-flex align-items-center gap-1.5"
+                disabled
+                title={`Lead #${enquiry.whatsapp_lead_id} already created in WhatsApp CRM`}
+                style={{ cursor: 'not-allowed', opacity: 0.75 }}
+              >
+                <i className="ri ri-checkbox-circle-fill text-success"></i>
+                <span>Create Lead</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-success d-inline-flex align-items-center gap-1.5 shadow-sm"
+                onClick={handleViewWhatsAppLead}
+                title="View in WhatsApp CRM Section"
+              >
+                <i className="ri ri-whatsapp-fill"></i>
+                <span>View WhatsApp Lead</span>
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-outline-success d-inline-flex align-items-center gap-1.5 shadow-sm"
+              disabled={creatingLead}
+              onClick={handleCreateWhatsAppLead}
+              title="Create Custom WhatsApp Lead from this enquiry"
+            >
+              {creatingLead ? (
+                <>
+                  <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: '14px', height: '14px' }}></span>
+                  <span>Creating Lead...</span>
+                </>
+              ) : (
+                <>
+                  <i className="ri ri-whatsapp-line"></i>
+                  <span>Create WhatsApp Lead</span>
+                </>
+              )}
+            </button>
+          )}
+
           <Link href={`/custom-package/edit/${enquiry.id}`} className="btn btn-primary">
             <i className="ri ri-edit-box-line me-1"></i> Edit Enquiry & Status
           </Link>

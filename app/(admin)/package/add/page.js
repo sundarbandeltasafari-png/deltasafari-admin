@@ -1,6 +1,6 @@
 "use client"
 import { createPackageUrl } from '@/app/routes/packageRoutes';
-import { getAllPackageTypeUrl, getAllZoneUrl, getAllHotelsUrl } from '@/app/routes/serviceRoutes';
+import { getAllPackageTypeUrl, getAllZoneUrl, getAllHotelsUrl, getAllCityUrl } from '@/app/routes/serviceRoutes';
 import MultiLevelSelect from '@/components/blogs/MultiLevelSelect';
 import MultiMediaUpload from '@/components/blogs/MultiMediaUpload';
 import LoadingComponent from '@/components/common/LoadingComponent';
@@ -12,7 +12,8 @@ import MetaComponent from '@/components/seocomponent/MetaComponent';
 import { axiosGet, axiosPost } from '@/libs/axiosHelper';
 import { scrollToView, showMessage } from '@/libs/commonHelper';
 import { useRouter } from 'next/navigation';
-import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
+import React, { useEffect, useState, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 
 function page() {
@@ -25,6 +26,7 @@ function page() {
     tags: [],
     to_destination: '',
     from_destination: '',
+    city: '',
     duration_days: '',
     duration_nights: '',
     base_price: '',
@@ -33,7 +35,8 @@ function page() {
     actual_price: '',
     agent_discount: '',
     agent_actual_price: '',
-    category: null
+    category: null,
+    platform: 'both'
   });
   const [days, setDays] = useState([
     {
@@ -60,9 +63,19 @@ function page() {
   const [zoneData, setZoneData] = useState([])
   const [PackageLoading, setPackageLoading] = useState(true);
   const [packageType, setPackageType] = useState([]);
+  const [citiesList, setCitiesList] = useState([]);
+  const [citiesLoading, setCitiesLoading] = useState(true);
   const [postLoading, setPostLoading] = useState(false)
   const token = useSelector((state) => state.adminAuth?.token);
   const route = useRouter();
+
+  const formattedCities = useMemo(() => {
+    return (citiesList || []).map((c) => ({
+      id: c.id,
+      name: c.state ? `${c.name} (${c.state})` : c.name,
+      image: c.city_image ? (c.city_image.startsWith('http') || c.city_image.startsWith('/') ? c.city_image : `${process.env.NEXT_PUBLIC_SERVER_URL}${c.city_image}`) : null
+    }));
+  }, [citiesList]);
 
   const handleChange = (e) => {
     const { name, value, type } = e.target;
@@ -117,34 +130,46 @@ function page() {
 
   useEffect(() => {
     axiosGet(getAllZoneUrl, token).then((res) => {
-      if (res.status) {
-        setZoneData(res.zone)
-        setLoading(false);
+      if (res && res.status) {
+        setZoneData(res.zone || []);
       } else {
-        showMessage('Something went wrong! Please try again later.')
+        showMessage('Something went wrong loading destinations!');
       }
     }).catch((err) => {
-      showMessage(err.message)
-    })
+      showMessage(err.message);
+    }).finally(() => {
+      setLoading(false);
+    });
+
     axiosGet(getAllPackageTypeUrl, token).then((res) => {
-      if (res.status) {
-        setPackageType(res.packageTypes)
-        setPackageLoading(false);
+      if (res && res.status) {
+        setPackageType(res.packageTypes || []);
       } else {
-        showMessage('Something went wrong! Please try again later.')
+        showMessage('Something went wrong loading categories!');
       }
     }).catch((err) => {
-      showMessage(err.message)
-    })
+      showMessage(err.message);
+    }).finally(() => {
+      setPackageLoading(false);
+    });
+
     axiosGet(getAllHotelsUrl, token).then((res) => {
       if (res?.status && res?.hotels) {
         setAvailableHotels(res.hotels);
       }
     }).catch(console.error);
-  }, [])
+
+    axiosGet(getAllCityUrl, token).then((res) => {
+      if (res?.status && Array.isArray(res.cities)) {
+        setCitiesList(res.cities);
+      }
+    }).catch(console.error).finally(() => {
+      setCitiesLoading(false);
+    });
+  }, []);
 
   const handleSelection = (category, name) => {
-    setFormData({ ...formData, [name]: category.id });
+    setFormData((prev) => ({ ...prev, [name]: category ? (category.id ?? '') : '' }));
   };
 
   const toggleHotelSelection = (hotelId) => {
@@ -294,6 +319,35 @@ function page() {
                   <div className="col-md-6">
                     <label className="form-label fw-bold small text-uppercase text-secondary">Duration Nights (3N/5D) <span className='text-danger'>*</span></label>
                     <input type="number" value={formData.duration_nights} name="duration_nights" className="form-control  p-3" placeholder="Package Nights" onChange={handleChange} onWheel={(e) => e.target.blur()} />
+                  </div>
+
+                  <div className="col-12">
+                    <div className="p-3 bg-light rounded-3 border">
+                      <div className="d-flex justify-content-between align-items-center mb-1">
+                        <label className="form-label fw-bold small text-uppercase text-secondary mb-0">
+                          <i className="ri-map-pin-2-line text-primary me-1"></i> Select Package City / Region
+                        </label>
+                        <Link href="/cities/add" target="_blank" className="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 text-decoration-none">
+                          <i className="ri-add-line me-1"></i>+ Add City
+                        </Link>
+                      </div>
+                      <select 
+                        name="city" 
+                        value={formData.city || ''} 
+                        onChange={handleChange}
+                        className="form-select p-2.5 bg-white fw-semibold"
+                      >
+                        <option value="">-- Select City for this Package (e.g. Sundarban, Kolkata, Shimla...) --</option>
+                        {citiesList.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            📍 {c.name} {c.state ? `(${c.state})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                      <small className="text-muted d-block mt-1">
+                        Associate this tour package with a City so customers can easily find it when searching by city.
+                      </small>
+                    </div>
                   </div>
 
                   {/* Pricing & Multi-Tier Discounts */}
@@ -484,37 +538,166 @@ function page() {
                 </div>
               </div>
 
-              {/* Right Side: Media Upload */}
-              <div className="col-lg-5 p-4 p-md-5 bg-light d-flex flex-column justify-content-between">
-                <div id='media'>
+              {/* Right Side: Classification & Media Upload */}
+              <div className="col-lg-5 p-4 p-md-5 bg-light d-flex flex-column gap-4">
+                
+                {/* 1. Classification & Location Card */}
+                <div className="card border-0 shadow-sm rounded-4 p-4 bg-white">
+                  <div className="d-flex align-items-center mb-3">
+                    <div className="bg-primary bg-opacity-10 p-3 rounded-3 me-3 text-primary">
+                      <i className="bi bi-geo-alt-fill fs-4"></i>
+                    </div>
+                    <div>
+                      <h4 className="fw-bold mb-0">Location &amp; Destination</h4>
+                      <p className="text-muted small mb-0">Select Category, City, and Destination routes.</p>
+                    </div>
+                  </div>
+
+                  {/* Platform Visibility */}
+                  <div className="my-3 p-3 bg-light rounded-3 border">
+                    <label className="form-label fw-bold small text-uppercase text-secondary mb-2 d-flex align-items-center justify-content-between">
+                      <span><i className="ri ri-global-line me-1 text-primary"></i> Platform Visibility <span className='text-danger'>*</span></span>
+                      <span className="badge bg-primary-subtle text-primary border border-primary-subtle">Visibility</span>
+                    </label>
+                    <select 
+                      name="platform" 
+                      value={formData.platform || 'both'} 
+                      onChange={handleChange}
+                      className="form-select p-2.5 fw-semibold"
+                    >
+                      <option value="both">🌐 Show on Both (DeltaSafari &amp; Sundarban)</option>
+                      <option value="deltasafari">⛵ Delta Safari Only</option>
+                      <option value="sundarban">🐅 Sundarban DeltaSafari Only</option>
+                    </select>
+                    <small className="text-muted d-block mt-1">
+                      Control which booking website this package is visible on.
+                    </small>
+                  </div>
+
+                  {/* Package Category */}
+                  <div id='category' className="mb-3">
+                    <div className="d-flex justify-content-between align-items-center mb-1">
+                      <label className="form-label fw-bold small text-uppercase text-secondary mb-0">
+                        Package Category <span className='text-danger'>*</span>
+                      </label>
+                      <Link href="/news/category" target="_blank" className="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 text-decoration-none">
+                        <i className="ri-add-line me-1"></i>+ Category
+                      </Link>
+                    </div>
+                    {PackageLoading ? (
+                      <div className="p-3 text-center bg-white rounded-3 border">
+                        <div className="spinner-border spinner-border-sm text-primary me-2"></div>
+                        <span className="small text-muted">Loading categories...</span>
+                      </div>
+                    ) : (
+                      <MultiLevelSelect
+                        categories={packageType}
+                        selectedId={formData.category}
+                        onSelect={(category) => { handleSelection(category, 'category') }}
+                        type="select"
+                        name="Category"
+                        placeholder="Search category..."
+                      />
+                    )}
+                  </div>
+
+                  {/* Package City */}
+                  <div id='city' className="mb-3">
+                    <div className="d-flex justify-content-between align-items-center mb-1">
+                      <label className="form-label fw-bold small text-uppercase text-secondary mb-0">
+                        <i className="ri-map-pin-2-line text-primary me-1"></i> Package City
+                      </label>
+                      <Link href="/cities/add" target="_blank" className="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 text-decoration-none">
+                        <i className="ri-add-line me-1"></i>+ Add City
+                      </Link>
+                    </div>
+                    {citiesLoading ? (
+                      <div className="p-3 text-center bg-white rounded-3 border">
+                        <div className="spinner-border spinner-border-sm text-primary me-2"></div>
+                        <span className="small text-muted">Loading cities...</span>
+                      </div>
+                    ) : (
+                      <MultiLevelSelect
+                        categories={formattedCities}
+                        selectedId={formData.city}
+                        onSelect={(city) => { handleSelection(city, 'city') }}
+                        type="select"
+                        name="City"
+                        placeholder="Search city (e.g. Sundarban, Kolkata, Shimla)..."
+                      />
+                    )}
+                  </div>
+
+                  {/* From Destination */}
+                  <div id='from_destination' className="mb-3">
+                    <div className="d-flex justify-content-between align-items-center mb-1">
+                      <label className="form-label fw-bold small text-uppercase text-secondary mb-0">
+                        From Destination (Pickup Point) <span className='text-danger'>*</span>
+                      </label>
+                      <Link href="/zone/add" target="_blank" className="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 text-decoration-none">
+                        <i className="ri-add-line me-1"></i>+ Add Destination
+                      </Link>
+                    </div>
+                    {loading ? (
+                      <div className="p-3 text-center bg-white rounded-3 border">
+                        <div className="spinner-border spinner-border-sm text-primary me-2"></div>
+                        <span className="small text-muted">Loading destinations...</span>
+                      </div>
+                    ) : (
+                      <MultiLevelSelect
+                        categories={zoneData}
+                        selectedId={formData.from_destination}
+                        onSelect={(category) => { handleSelection(category, 'from_destination') }}
+                        type="select"
+                        name="From Destination"
+                        placeholder="Search starting pickup destination..."
+                      />
+                    )}
+                  </div>
+
+                  {/* To Destination */}
+                  <div id='to_destination' className="mb-0">
+                    <div className="d-flex justify-content-between align-items-center mb-1">
+                      <label className="form-label fw-bold small text-uppercase text-secondary mb-0">
+                        To Destination (Tour Spot) <span className='text-danger'>*</span>
+                      </label>
+                      <Link href="/zone/add" target="_blank" className="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 text-decoration-none">
+                        <i className="ri-add-line me-1"></i>+ Add Destination
+                      </Link>
+                    </div>
+                    {loading ? (
+                      <div className="p-3 text-center bg-white rounded-3 border">
+                        <div className="spinner-border spinner-border-sm text-primary me-2"></div>
+                        <span className="small text-muted">Loading destinations...</span>
+                      </div>
+                    ) : (
+                      <MultiLevelSelect
+                        categories={zoneData}
+                        selectedId={formData.to_destination}
+                        onSelect={(category) => { handleSelection(category, 'to_destination') }}
+                        type="select"
+                        name="To Destination"
+                        placeholder="Search tour destination spot..."
+                      />
+                    )}
+                  </div>
+                </div>
+
+                {/* 2. Media Upload Card */}
+                <div id='media' className="card border-0 shadow-sm rounded-4 p-4 bg-white">
                   <div className="d-flex align-items-center mb-4">
                     <div className="bg-success bg-opacity-10 p-3 rounded-3 me-3 text-success">
                       <i className="bi bi-images fs-3"></i>
                     </div>
                     <div>
-                      <h3 className="fw-bold mb-0">Package Media</h3>
-                      <p className="text-muted small">Upload high quality images and short videos.</p>
+                      <h4 className="fw-bold mb-0">Package Media</h4>
+                      <p className="text-muted small mb-0">Upload high quality images and short videos.</p>
                     </div>
-                  </div>
-
-                  {
-                    !PackageLoading &&
-                    <div className="my-3">
-                      <label className="form-label fw-bold small text-uppercase text-secondary">Package Category <span className='text-danger'>*</span></label>
-                      <MultiLevelSelect categories={packageType} handleSelection={(category) => { handleSelection(category, 'category') }} title="Select Category" />
-                    </div>
-                  }
-                  <div className="my-3">
-                    <label className="form-label fw-bold small text-uppercase text-secondary">From Destination <span className='text-danger'>*</span></label>
-                    <MultiLevelSelect categories={zoneData} handleSelection={(category) => { handleSelection(category, 'from_destination') }} title="Select From Destination" />
-                  </div>
-                  <div className="my-3">
-                    <label className="form-label fw-bold small text-uppercase text-secondary">To Destination <span className='text-danger'>*</span></label>
-                    <MultiLevelSelect categories={zoneData} handleSelection={(category) => { handleSelection(category, 'to_destination') }} title="Select To Destination" />
                   </div>
 
                   <MultiMediaUpload images={images} setImages={setImages} videos={videos} setVideos={setVideos} />
                 </div>
+
               </div>
 
             </div>

@@ -8,6 +8,7 @@ import { createCityUrl, getAllCountriesUrl } from '@/app/routes/serviceRoutes';
 import MediaUpload from '@/components/blogs/MediaUpload';
 import MetaComponent from '@/components/seocomponent/MetaComponent';
 import TouristGuideComponent, { defaultGuideData } from '@/components/seocomponent/TouristGuideComponent';
+import CopyContentDropdown from '@/components/common/CopyContentDropdown';
 import { showMessage } from '@/libs/commonHelper';
 import Link from 'next/link';
 import { axiosGet } from '@/libs/axiosHelper';
@@ -213,6 +214,22 @@ export default function AddCityPage() {
         }
     };
 
+    const handleCopyContent = (data) => {
+        if (data.touristGuide) {
+            setGuideData(data.touristGuide);
+        }
+        setFormData(prev => ({
+            ...prev,
+            meta_title: data.meta_title || prev.meta_title,
+            meta_description: data.meta_description || prev.meta_description,
+            tags: data.tags && data.tags.length > 0 ? data.tags : prev.tags,
+            canonical_url: data.canonical_url || prev.canonical_url,
+            og_title: data.og_title || prev.og_title,
+            og_description: data.og_description || prev.og_description,
+            robots_meta: data.robots_meta || prev.robots_meta
+        }));
+    };
+
     return (
         <div className="container-xxl flex-grow-1 container-p-y">
 
@@ -229,6 +246,13 @@ export default function AddCityPage() {
 
             <div className="row justify-content-center">
                 <div className="col-12 col-lg-10">
+
+                    {/* Copy Content from Existing Destination or City */}
+                    <CopyContentDropdown 
+                        setGuideData={setGuideData} 
+                        onCopy={handleCopyContent} 
+                        currentEntityName="City" 
+                    />
 
                     <form onSubmit={handleCreateCity}>
                         <div className="row g-6">
@@ -448,7 +472,12 @@ export default function AddCityPage() {
 
                             {/* Tourist Guide Section Configuration */}
                             <div className="col-12 mt-3">
-                                <TouristGuideComponent guideData={guideData} setGuideData={setGuideData} entityName="City" />
+                                <TouristGuideComponent 
+                                    guideData={guideData} 
+                                    setGuideData={setGuideData} 
+                                    entityName="City" 
+                                    onCopyContent={handleCopyContent}
+                                />
                             </div>
 
                             {/* Action Buttons */}

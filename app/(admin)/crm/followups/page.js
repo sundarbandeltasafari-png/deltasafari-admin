@@ -25,7 +25,7 @@ export default function LeadFollowupsPage() {
 
     const token = useSelector((state) => state.adminAuth?.token);
     const user = useSelector((state) => state.adminAuth?.user);
-    const isSuperAdmin = user?.admin === 1;
+    const isSuperAdmin = Number(user?.admin) === 1 || Number(user?.admin) === 2;
 
     // Follow-up List & Stats State
     const [followups, setFollowups] = useState([]);
@@ -74,17 +74,14 @@ export default function LeadFollowupsPage() {
     const [deletingLead, setDeletingLead] = useState(false);
 
     const handleOpenDeleteModal = (item) => {
-        if (!isSuperAdmin) {
-            showMessage('error', 'Only administrators have permission to delete leads.');
-            return;
-        }
+        if (!item) return;
         setLeadToDelete(item);
         setDeleteModalOpen(true);
     };
 
     const handleConfirmDelete = async () => {
         const contactId = leadToDelete?.contact_id || leadToDelete?.id;
-        if (!isSuperAdmin || !contactId) {
+        if (!contactId) {
             setDeleteModalOpen(false);
             setLeadToDelete(null);
             return;
@@ -163,7 +160,14 @@ export default function LeadFollowupsPage() {
         extra_discount: 0,
         converted_amount: '',
         travel_date: '',
-        conversion_note: ''
+        conversion_note: '',
+        confirm_booking: true,
+        advance_amount: '',
+        due_amount: '',
+        food_type: 'Veg & Non-Veg (Standard Sundarban Menu)',
+        pickup_drop: 'Canning Station',
+        template_id: '',
+        invoice_no: ''
     });
 
     // Fetch Follow-up Stats
@@ -482,7 +486,7 @@ export default function LeadFollowupsPage() {
     };
 
     // Open Convert Lead Modal
-    const handleOpenConvertModal = (item) => {
+    const handleOpenConvertModal = (item, isConfirmBooking = true) => {
         const formatDateVal = (d) => {
             if (!d) return '';
             try {
@@ -492,17 +496,40 @@ export default function LeadFollowupsPage() {
             }
         };
 
-        const rawPkgName = (item.package_name || '').trim();
-        const matchedPkg = findMatchedPackage(packageSuggestions, rawPkgName);
-        const selectedPkgVal = matchedPkg ? matchedPkg.title : (rawPkgName || '');
-        const customPkgVal = matchedPkg ? '' : (rawPkgName || '');
+        const initialAdults = item.adults !== null && item.adults !== undefined ? item.adults : (item.number_of_persons || 2);
+        const initialChildren = item.children !== null && item.children !== undefined ? item.children : 0;
+        const initialInfants = item.infants !== null && item.infants !== undefined ? item.infants : 0;
+        const initialDiscount = item.extra_discount !== null && item.extra_discount !== undefined ? item.extra_discount : 0;
+        const initialBookingDays = item.booking_days !== null && item.booking_days !== undefined ? item.booking_days : 1;
 
-        const initialBookingDays = Math.max(1, parseInt(item.booking_days, 10) || (matchedPkg ? (parseInt(matchedPkg.duration_nights, 10) || (parseInt(matchedPkg.duration_days, 10) ? Math.max(1, parseInt(matchedPkg.duration_days, 10) - 1) : 1)) : 1));
-        const loadedRooms = parseItemRooms(item);
-        const initialAdults = item.adults !== undefined && item.adults !== null ? Number(item.adults) : Math.max(1, parseInt(item.number_of_persons, 10) || 2);
-        const initialChildren = item.children !== undefined && item.children !== null ? Number(item.children) : 0;
-        const initialInfants = item.infants !== undefined && item.infants !== null ? Number(item.infants) : 0;
-        const initialDiscount = 0;
+        let loadedRooms = [{ id: 1, room_number: 1, type: 'non_ac', extra_charge: 0, bed_type: 'Double Bed', bed_charge: 0 }];
+        if (item.room_details) {
+            try {
+                const parsed = typeof item.room_details === 'string' ? JSON.parse(item.room_details) : item.room_details;
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    loadedRooms = parsed;
+                }
+            } catch (e) {}
+        } else if (item.rooms) {
+            try {
+                const parsed = typeof item.rooms === 'string' ? JSON.parse(item.rooms) : item.rooms;
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    loadedRooms = parsed;
+                }
+            } catch (e) {}
+        }
+
+        const rawPkg = item.package_name || '';
+        let selectedPkgVal = rawPkg;
+        let customPkgVal = '';
+        if (rawPkg) {
+            const matchedPkg = findMatchedPackage(packageSuggestions, rawPkg);
+            if (matchedPkg) {
+                selectedPkgVal = matchedPkg.title || matchedPkg.name;
+            } else {
+                selectedPkgVal = rawPkg;
+            }
+        }
 
         const effectivePkg = selectedPkgVal === '__custom__' ? customPkgVal : selectedPkgVal;
         const { finalTotal, unitPrice, acExtraTotal, bedExtraTotal } = calculateConvertAutoAmount(effectivePkg, initialAdults, initialChildren, initialDiscount, loadedRooms, initialBookingDays);
@@ -530,7 +557,14 @@ export default function LeadFollowupsPage() {
             extra_discount: initialDiscount,
             converted_amount: initialAmount,
             travel_date: formatDateVal(item.travel_date),
-            conversion_note: ''
+            conversion_note: '',
+            confirm_booking: isConfirmBooking !== false,
+            advance_amount: '',
+            due_amount: '',
+            food_type: 'Veg & Non-Veg (Standard Sundarban Menu)',
+            pickup_drop: item.travel_destination ? `${item.travel_destination} / Canning` : 'Canning Station',
+            template_id: '',
+            invoice_no: ''
         });
         setConvertModalOpen(true);
     };
@@ -702,13 +736,20 @@ export default function LeadFollowupsPage() {
             total_rooms: roomsArr.length || convertFormData.total_rooms || 1,
             rooms: roomsArr,
             room_details: roomsArr,
-            extra_discount: convertFormData.extra_discount
+            extra_discount: convertFormData.extra_discount,
+            confirm_booking: convertFormData.confirm_booking,
+            advance_amount: convertFormData.advance_amount,
+            due_amount: convertFormData.due_amount,
+            food_type: convertFormData.food_type,
+            pickup_drop: convertFormData.pickup_drop,
+            template_id: convertFormData.template_id,
+            invoice_no: convertFormData.invoice_no
         };
 
         try {
             const res = await axiosPost(convertLeadUrl, payload, token);
             if (res?.status) {
-                showMessage('success', '🎉 Lead marked as Converted successfully! Moved to Converted Leads section.');
+                showMessage('success', res?.msg || '🎉 Lead marked as Converted successfully! Moved to Converted Leads section.');
                 setConvertModalOpen(false);
                 fetchFollowups(currentPage, activeTab);
                 fetchStats();
@@ -1671,22 +1712,36 @@ export default function LeadFollowupsPage() {
                                             </div>
                                         </td>
 
-                                        {/* Actions Dropdown (3 dots) */}
+                                        {/* Actions Dropdown & Delete Button */}
                                         <td className="text-center pe-4" style={{ position: 'relative' }}>
-                                            <div className="dropdown followup-actions-dropdown d-inline-block position-relative">
+                                            <div className="d-inline-flex align-items-center gap-1.5">
                                                 <button
                                                     type="button"
+                                                    className="btn btn-sm btn-label-danger rounded-circle p-0 d-inline-flex align-items-center justify-content-center"
+                                                    style={{ width: '34px', height: '34px' }}
+                                                    title="Delete Lead"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setActiveDropdownId(activeDropdownId === `conv_${item.followup_id}` ? null : `conv_${item.followup_id}`);
+                                                        setActiveDropdownId(null);
+                                                        handleOpenDeleteModal(item);
                                                     }}
-                                                    className={`btn btn-sm ${activeDropdownId === `conv_${item.followup_id}` ? 'btn-primary text-white shadow-sm' : 'btn-light border'} rounded-circle p-0 d-inline-flex align-items-center justify-content-center`}
-                                                    style={{ width: '34px', height: '34px', transition: 'all 0.2s ease' }}
-                                                    title="More Actions"
-                                                    aria-expanded={activeDropdownId === `conv_${item.followup_id}`}
                                                 >
-                                                    <i className="ri ri-more-2-fill fs-5"></i>
+                                                    <i className="ri ri-delete-bin-line fs-6"></i>
                                                 </button>
+                                                <div className="dropdown followup-actions-dropdown d-inline-block position-relative">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setActiveDropdownId(activeDropdownId === `conv_${item.followup_id}` ? null : `conv_${item.followup_id}`);
+                                                        }}
+                                                        className={`btn btn-sm ${activeDropdownId === `conv_${item.followup_id}` ? 'btn-primary text-white shadow-sm' : 'btn-light border'} rounded-circle p-0 d-inline-flex align-items-center justify-content-center`}
+                                                        style={{ width: '34px', height: '34px', transition: 'all 0.2s ease' }}
+                                                        title="More Actions"
+                                                        aria-expanded={activeDropdownId === `conv_${item.followup_id}`}
+                                                    >
+                                                        <i className="ri ri-more-2-fill fs-5"></i>
+                                                    </button>
 
                                                 {activeDropdownId === `conv_${item.followup_id}` && (
                                                     <ul
@@ -1802,6 +1857,7 @@ export default function LeadFollowupsPage() {
                                                         )}
                                                     </ul>
                                                 )}
+                                                </div>
                                             </div>
                                         </td>
                                     </tr>
@@ -1966,21 +2022,36 @@ export default function LeadFollowupsPage() {
                                         )}
 
                                         {/* Actions Dropdown (3 dots) */}
+                                        {/* Actions Dropdown & Delete Button */}
                                         <td className="text-center pe-4" style={{ position: 'relative' }}>
-                                            <div className="dropdown followup-actions-dropdown d-inline-block position-relative">
+                                            <div className="d-inline-flex align-items-center gap-1.5">
                                                 <button
                                                     type="button"
+                                                    className="btn btn-sm btn-label-danger rounded-circle p-0 d-inline-flex align-items-center justify-content-center"
+                                                    style={{ width: '34px', height: '34px' }}
+                                                    title="Delete Lead"
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        setActiveDropdownId(activeDropdownId === item.followup_id ? null : item.followup_id);
+                                                        setActiveDropdownId(null);
+                                                        handleOpenDeleteModal(item);
                                                     }}
-                                                    className={`btn btn-sm ${activeDropdownId === item.followup_id ? 'btn-primary text-white shadow-sm' : 'btn-light border'} rounded-circle p-0 d-inline-flex align-items-center justify-content-center`}
-                                                    style={{ width: '34px', height: '34px', transition: 'all 0.2s ease' }}
-                                                    title="More Actions"
-                                                    aria-expanded={activeDropdownId === item.followup_id}
                                                 >
-                                                    <i className="ri ri-more-2-fill fs-5"></i>
+                                                    <i className="ri ri-delete-bin-line fs-6"></i>
                                                 </button>
+                                                <div className="dropdown followup-actions-dropdown d-inline-block position-relative">
+                                                    <button
+                                                        type="button"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setActiveDropdownId(activeDropdownId === item.followup_id ? null : item.followup_id);
+                                                        }}
+                                                        className={`btn btn-sm ${activeDropdownId === item.followup_id ? 'btn-primary text-white shadow-sm' : 'btn-light border'} rounded-circle p-0 d-inline-flex align-items-center justify-content-center`}
+                                                        style={{ width: '34px', height: '34px', transition: 'all 0.2s ease' }}
+                                                        title="More Actions"
+                                                        aria-expanded={activeDropdownId === item.followup_id}
+                                                    >
+                                                        <i className="ri ri-more-2-fill fs-5"></i>
+                                                    </button>
 
                                                 {activeDropdownId === item.followup_id && (
                                                     <ul
@@ -2014,24 +2085,44 @@ export default function LeadFollowupsPage() {
                                                                 </Link>
                                                             </li>
                                                         ) : (
-                                                            <li>
-                                                                <button
-                                                                    type="button"
-                                                                    className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
-                                                                    onClick={() => {
-                                                                        setActiveDropdownId(null);
-                                                                        handleOpenConvertModal(item);
-                                                                    }}
-                                                                >
-                                                                    <span className="badge bg-success bg-opacity-10 text-success p-1.5 rounded-2">
-                                                                        <i className="ri ri-checkbox-circle-fill fs-6"></i>
-                                                                    </span>
-                                                                    <div>
-                                                                        <div className="fw-semibold small text-dark">Convert Lead</div>
-                                                                        <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Mark won deal &amp; rate</small>
-                                                                    </div>
-                                                                </button>
-                                                            </li>
+                                                            <>
+                                                                <li>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start bg-success-subtle text-success"
+                                                                        onClick={() => {
+                                                                            setActiveDropdownId(null);
+                                                                            handleOpenConvertModal(item, true);
+                                                                        }}
+                                                                    >
+                                                                        <span className="badge bg-success text-white p-1.5 rounded-2">
+                                                                            <i className="ri ri-whatsapp-fill fs-6"></i>
+                                                                        </span>
+                                                                        <div>
+                                                                            <div className="fw-bold small text-success">Confirm Booking</div>
+                                                                            <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Send WhatsApp Confirmation</small>
+                                                                        </div>
+                                                                    </button>
+                                                                </li>
+                                                                <li>
+                                                                    <button
+                                                                        type="button"
+                                                                        className="dropdown-item d-flex align-items-center gap-2.5 py-2 px-3 text-start"
+                                                                        onClick={() => {
+                                                                            setActiveDropdownId(null);
+                                                                            handleOpenConvertModal(item, false);
+                                                                        }}
+                                                                    >
+                                                                        <span className="badge bg-success bg-opacity-10 text-success p-1.5 rounded-2">
+                                                                            <i className="ri ri-checkbox-circle-fill fs-6"></i>
+                                                                        </span>
+                                                                        <div>
+                                                                            <div className="fw-semibold small text-dark">Convert Lead</div>
+                                                                            <small className="text-muted d-block" style={{ fontSize: '10.5px' }}>Mark won deal &amp; rate</small>
+                                                                        </div>
+                                                                    </button>
+                                                                </li>
+                                                            </>
                                                         )}
 
                                                         {/* 2. Update Follow-up */}
@@ -2116,6 +2207,7 @@ export default function LeadFollowupsPage() {
                                                         )}
                                                     </ul>
                                                 )}
+                                                </div>
                                             </div>
                                         </td>
                                     </tr>
@@ -2636,7 +2728,107 @@ export default function LeadFollowupsPage() {
                                         </div>
                                     </div>
 
-                                    {/* 5. Status Notice */}
+                                    {/* 5. Confirm Booking & WhatsApp Delivery Card */}
+                                    <div className="card border-success border-2 rounded-3 p-3 mb-3 bg-white shadow-2xs">
+                                        <div className="d-flex align-items-center justify-content-between mb-2">
+                                            <div className="form-check form-switch mb-0">
+                                                <input 
+                                                    className="form-check-input ms-0 me-2" 
+                                                    type="checkbox" 
+                                                    id="confirmBookingSwitch"
+                                                    checked={convertFormData.confirm_booking}
+                                                    onChange={(e) => setConvertFormData({ ...convertFormData, confirm_booking: e.target.checked })}
+                                                />
+                                                <label className="form-check-label fw-bold text-dark fs-6 cursor-pointer" htmlFor="confirmBookingSwitch">
+                                                    <i className="ri ri-whatsapp-fill text-success me-1"></i>
+                                                    Confirm Booking &amp; Send WhatsApp Confirmation
+                                                </label>
+                                            </div>
+                                            <span className="badge bg-success-subtle text-success border border-success-subtle rounded-pill px-2.5 py-1 text-2xs fw-bold">
+                                                UTILITY TEMPLATE
+                                            </span>
+                                        </div>
+                                        <small className="text-muted d-block mb-3" style={{ fontSize: '11.5px' }}>
+                                            Sends the official <strong>Confirm Booking</strong> utility template to <strong>+{convertFormData.phone}</strong> with invoice number, advance received, and remaining due.
+                                        </small>
+
+                                        {convertFormData.confirm_booking && (
+                                            <div className="p-3 bg-light rounded-3 border">
+                                                <div className="row g-3">
+                                                    <div className="col-12 col-md-6">
+                                                        <label className="form-label small fw-bold text-dark mb-1">
+                                                            Advance Payment Received (₹)
+                                                        </label>
+                                                        <div className="input-group">
+                                                            <span className="input-group-text bg-white text-success fw-bold">₹</span>
+                                                            <input 
+                                                                type="number"
+                                                                min="0"
+                                                                className="form-control rounded-end-3 font-monospace fw-semibold"
+                                                                placeholder="e.g. 5000"
+                                                                value={convertFormData.advance_amount}
+                                                                onChange={(e) => {
+                                                                    const adv = e.target.value;
+                                                                    const tot = parseFloat(convertFormData.converted_amount) || 0;
+                                                                    const due = Math.max(0, tot - (parseFloat(adv) || 0));
+                                                                    setConvertFormData({
+                                                                        ...convertFormData,
+                                                                        advance_amount: adv,
+                                                                        due_amount: String(due)
+                                                                    });
+                                                                }}
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="col-12 col-md-6">
+                                                        <label className="form-label small fw-bold text-dark mb-1">
+                                                            Balance Due on Tour (₹)
+                                                        </label>
+                                                        <div className="input-group">
+                                                            <span className="input-group-text bg-white text-danger fw-bold">₹</span>
+                                                            <input 
+                                                                type="number"
+                                                                min="0"
+                                                                className="form-control rounded-end-3 font-monospace fw-semibold text-danger"
+                                                                placeholder="Auto-calculated"
+                                                                value={convertFormData.due_amount !== '' ? convertFormData.due_amount : Math.max(0, (parseFloat(convertFormData.converted_amount) || 0) - (parseFloat(convertFormData.advance_amount) || 0))}
+                                                                onChange={(e) => setConvertFormData({ ...convertFormData, due_amount: e.target.value })}
+                                                            />
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="col-12 col-md-6">
+                                                        <label className="form-label small fw-bold text-dark mb-1">
+                                                            Food Menu / Preference
+                                                        </label>
+                                                        <input 
+                                                            type="text"
+                                                            className="form-control rounded-3"
+                                                            placeholder="e.g. Standard Bengali Non-Veg Menu"
+                                                            value={convertFormData.food_type}
+                                                            onChange={(e) => setConvertFormData({ ...convertFormData, food_type: e.target.value })}
+                                                        />
+                                                    </div>
+
+                                                    <div className="col-12 col-md-6">
+                                                        <label className="form-label small fw-bold text-dark mb-1">
+                                                            Pickup &amp; Drop Location
+                                                        </label>
+                                                        <input 
+                                                            type="text"
+                                                            className="form-control rounded-3"
+                                                            placeholder="e.g. Canning Station (9:00 AM)"
+                                                            value={convertFormData.pickup_drop}
+                                                            onChange={(e) => setConvertFormData({ ...convertFormData, pickup_drop: e.target.value })}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* 6. Status Notice */}
                                     <div className="alert alert-success d-flex align-items-center gap-2 mb-3 py-2.5 px-3 rounded-3" style={{ fontSize: '12.5px' }}>
                                         <i className="ri ri-checkbox-circle-fill fs-5 text-success"></i>
                                         <div>
@@ -2644,7 +2836,7 @@ export default function LeadFollowupsPage() {
                                         </div>
                                     </div>
 
-                                    {/* 6. Conversion Remarks / Booking Notes */}
+                                    {/* 7. Conversion Remarks / Booking Notes */}
                                     <div className="mb-2">
                                         <label className="form-label small fw-bold text-dark d-flex align-items-center gap-1">
                                             <i className="ri ri-file-text-line text-secondary"></i>
@@ -2673,8 +2865,7 @@ export default function LeadFollowupsPage() {
                                             type="button" 
                                             disabled={convertingLead}
                                             onClick={(e) => handleConfirmConvert(e, true)}
-                                            className="btn btn-primary rounded-pill px-3.5 d-inline-flex align-items-center gap-1.5 shadow-sm"
-                                            style={{ backgroundColor: '#0066cc', borderColor: '#0066cc' }}
+                                            className="btn btn-outline-primary rounded-pill px-3.5 d-inline-flex align-items-center gap-1.5 shadow-sm"
                                             title="Convert lead and immediately generate customer invoice"
                                         >
                                             <i className="ri ri-file-list-3-line"></i>
@@ -2684,16 +2875,17 @@ export default function LeadFollowupsPage() {
                                             type="submit" 
                                             disabled={convertingLead}
                                             className="btn btn-success rounded-pill px-4 d-inline-flex align-items-center gap-2 shadow-sm"
+                                            style={{ backgroundColor: '#25D366', borderColor: '#25D366' }}
                                         >
                                             {convertingLead ? (
                                                 <>
                                                     <span className="spinner-border spinner-border-sm" role="status"></span>
-                                                    <span>Marking Converted...</span>
+                                                    <span>Confirming Booking...</span>
                                                 </>
                                             ) : (
                                                 <>
-                                                    <i className="ri ri-checkbox-circle-fill"></i>
-                                                    <span>🎉 Mark as Converted</span>
+                                                    <i className={convertFormData.confirm_booking ? "ri ri-whatsapp-fill fs-5" : "ri ri-checkbox-circle-fill"}></i>
+                                                    <span>{convertFormData.confirm_booking ? 'Confirm Booking' : '🎉 Mark as Converted'}</span>
                                                 </>
                                             )}
                                         </button>
@@ -3440,8 +3632,8 @@ export default function LeadFollowupsPage() {
                 </div>
             )}
 
-            {/* 4. Delete Lead Confirmation Modal (Admin Only) */}
-            {deleteModalOpen && isSuperAdmin && leadToDelete && (
+            {/* 4. Delete Lead Confirmation Modal */}
+            {deleteModalOpen && leadToDelete && (
                 <div 
                     className="modal fade show d-block" 
                     tabIndex="-1" 
@@ -3494,7 +3686,7 @@ export default function LeadFollowupsPage() {
                                         </div>
                                     )}
                                 </div>
-                                <div className="alert alert-warning border-0 rounded-3 text-start p-2.5 d-flex gap-2 align-items-start mb-0" style={{ fontSize: '12px' }}>
+                                <div className="alert alert-warning border-0 rounded-3 text-start p-2 d-flex gap-2 align-items-start mb-0" style={{ fontSize: '12px' }}>
                                     <i className="ri ri-information-fill text-warning fs-6 mt-0.5 flex-shrink-0"></i>
                                     <span>
                                         This action will permanently delete this lead from the CRM, including follow-up history, conversation logs, and associated tasks. <strong>This action cannot be undone.</strong>

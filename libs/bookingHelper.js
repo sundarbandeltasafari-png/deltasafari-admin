@@ -109,6 +109,7 @@ export const normalizeBookingItem = (item, source = 'RESERVATION') => {
             booking_status: item.booking_status,
             is_confirmed: Number(item.booking_status) === 2,
             notes: item.customer_comment || item.admin_notes || '',
+            platform: item.platform || 'deltasafari',
             raw: item
         };
     } else {
@@ -149,6 +150,7 @@ export const normalizeBookingItem = (item, source = 'RESERVATION') => {
             is_confirmed: true,
             converted_by_name: item.converted_by_name || item.assigned_user_name || 'Admin',
             notes: item.conversion_note || item.extra_note || '',
+            platform: item.platform || 'deltasafari',
             raw: item
         };
     }

@@ -25,6 +25,7 @@ function page() {
   const [duplicateModalOpen, setDuplicateModalOpen] = useState(false);
   const [duplicateTargetPackage, setDuplicateTargetPackage] = useState(null);
   const [isDuplicating, setIsDuplicating] = useState(false);
+  const [platformFilter, setPlatformFilter] = useState('ALL');
 
   const permisions = useSelector((state) => state.permision?.permisions);
 
@@ -92,15 +93,35 @@ function page() {
     }
   }
 
+  const filteredPackages = packages.filter(pkg => {
+    if (platformFilter === 'ALL') return true;
+    if (platformFilter === 'both') return !pkg.platform || pkg.platform === 'both';
+    if (platformFilter === 'sundarban') return pkg.platform === 'sundarban';
+    if (platformFilter === 'deltasafari') return pkg.platform === 'deltasafari';
+    return true;
+  });
+
   return (
     <section className='p-3'>
       <div className='card mt-10'>
-        <div className=' card-header d-flex justify-content-between p-3 pb-4'>
+        <div className='card-header d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 p-3 pb-4'>
           <div>
-            <h5>Package Dashboard</h5>
-            <p className='mb-0'>Manage your packages beautifully</p>
+            <h5 className="mb-1">Package Dashboard</h5>
+            <p className='mb-0 text-muted'>Manage your packages beautifully across DeltaSafari and Sundarban</p>
           </div>
-          <div>
+          <div className="d-flex align-items-center gap-2 flex-wrap">
+            <select
+              className="form-select form-select-sm fw-semibold"
+              style={{ width: 'auto', minWidth: '180px' }}
+              value={platformFilter}
+              onChange={(e) => setPlatformFilter(e.target.value)}
+            >
+              <option value="ALL">🌐 All Platforms ({packages.length})</option>
+              <option value="both">🔗 Both Platforms</option>
+              <option value="deltasafari">⛵ Delta Safari Only</option>
+              <option value="sundarban">🐅 Sundarban Safari Only</option>
+            </select>
+
             {(permisions?.includes('/news/add') || true) && (
               <button onClick={() => { route.push("/package/add") }} className='btn btn-primary' variant="primary">
                 <i className="bi bi-plus-lg me-2"></i>
@@ -112,7 +133,7 @@ function page() {
       </div>
       <div className="pt-3">
         {!loading && <div className="row g-4">
-          {packages?.length > 0 ? packages.map((pkg, index) => {
+          {filteredPackages?.length > 0 ? filteredPackages.map((pkg, index) => {
             return <div key={index} className="col-lg-4 col-md-6">
               <div className="card package-card border-0 shadow-sm h-100">
                 <div className="position-relative overflow-hidden rounded-top-3" style={{ borderBottom: "1px solid #80808024" }}>
@@ -141,9 +162,31 @@ function page() {
 
                 <div className="card-body p-4 d-flex flex-column">
                   <div>
-                    <span className="my-3 mt-0 badge bg-secondary py-2 fs-6">
-                      {pkg?.package_type_name} Package
-                    </span>
+                    <div className="d-flex flex-wrap gap-1 mb-2">
+                      <span className="badge bg-secondary py-1.5 px-2.5 fs-6">
+                        {pkg?.package_type_name} Package
+                      </span>
+                      {(!pkg?.platform || pkg?.platform === 'both') && (
+                        <span className="badge bg-primary-subtle text-primary border border-primary-subtle py-1.5 px-2.5 fs-6">
+                          <i className="ri ri-links-line me-1"></i>Both Platforms
+                        </span>
+                      )}
+                      {pkg?.platform === 'sundarban' && (
+                        <span className="badge bg-success-subtle text-success border border-success-subtle py-1.5 px-2.5 fs-6">
+                          <i className="ri ri-compass-3-line me-1"></i>Sundarban Safari
+                        </span>
+                      )}
+                      {pkg?.platform === 'deltasafari' && (
+                        <span className="badge bg-info-subtle text-info border border-info-subtle py-1.5 px-2.5 fs-6">
+                          <i className="ri ri-global-line me-1"></i>Delta Safari
+                        </span>
+                      )}
+                      {pkg?.city_name && (
+                        <span className="badge bg-warning-subtle text-warning-emphasis border border-warning-subtle py-1.5 px-2.5 fs-6">
+                          <i className="ri-map-pin-2-line me-1"></i>{pkg.city_name}
+                        </span>
+                      )}
+                    </div>
                     <h5 className="card-title fw-bold text-dark mb-1 twoline">{pkg?.title}</h5>
                     <p className="text-muted small fw-medium mb-3 twoline">{pkg?.description}</p>
                   </div>
@@ -159,15 +202,19 @@ function page() {
                   </div>
 
                   <div className="row align-items-center bg-light rounded-3 p-3 mx-0 mb-4 g-2 border">
-                    <div className="col-6 border-end">
-                      <span className="d-block text-muted small lh-sm">Pickup Location <i className="bi bi-question-circle text-muted" style={{ fontSize: "0.75rem" }}></i></span>
-                      <span className="small fw-bold text-dark mt-1">{pkg?.from_destination_name}</span>
+                    <div className="col-4 border-end">
+                      <span className="d-block text-muted small lh-sm">Pickup</span>
+                      <span className="small fw-bold text-dark mt-1 text-truncate d-block">{pkg?.from_destination_name || 'N/A'}</span>
                     </div>
-                    <div className="col-6 d-flex justify-content-between align-items-center ps-3">
-                      <div>
-                        <span className="d-block text-muted small lh-sm">Package Destination <i className="bi bi-question-circle text-muted" style={{ fontSize: "0.75rem" }}></i></span>
-                        <span className="badge bg-primary d-block mt-1">{pkg?.to_destination_name}</span>
-                      </div>
+                    <div className="col-4 border-end ps-2">
+                      <span className="d-block text-muted small lh-sm">Destination</span>
+                      <span className="badge bg-primary d-block mt-1 text-truncate">{pkg?.to_destination_name || 'N/A'}</span>
+                    </div>
+                    <div className="col-4 ps-2">
+                      <span className="d-block text-muted small lh-sm">City</span>
+                      <span className="badge bg-info-subtle text-dark border border-info-subtle d-block mt-1 text-truncate">
+                        {pkg?.city_name || 'No City'}
+                      </span>
                     </div>
                   </div>
 

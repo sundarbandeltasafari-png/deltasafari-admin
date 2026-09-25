@@ -152,7 +152,7 @@ export default function SundarbanPackagesPage() {
                                     <div className="mt-auto pt-3 border-top d-flex justify-content-between align-items-center">
                                         <div className="d-flex gap-2">
                                             <Link 
-                                                href={`/package/edit/${pkg.id}`} 
+                                                href={`/package/edit/${urlEncode(pkg.id)}`} 
                                                 className="btn btn-sm btn-outline-primary rounded-pill px-3"
                                             >
                                                 <i className="ri ri-edit-line me-1"></i> Edit

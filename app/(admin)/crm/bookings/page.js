@@ -1237,7 +1237,7 @@ function CrmBookingsPageContent() {
                                                     <span className="text-muted">Total Booking Amount:</span>
                                                     <span className="fw-bold text-primary fs-5">₹{Number(selectedBooking.total_cost || 0).toLocaleString('en-IN')}</span>
                                                 </div>
-                                                {Number(selectedBooking.commission_amount) > 0 && (
+                                                {Number(selectedBooking.commission_amount) > 0 && selectedBooking.is_agent && (
                                                     <div className="d-flex justify-content-between py-2.5 bg-success bg-opacity-10 rounded-3 px-3 mt-3 border border-success border-opacity-25">
                                                         <span className="fw-bold text-success">
                                                             <i className="ri ri-gift-line me-1"></i> Agent Payout Commission:

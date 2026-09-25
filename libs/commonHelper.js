@@ -16,7 +16,7 @@ export const showMessage = (type, message) => {
         theme: "light",
         transition: Bounce,
     }
-    if (message == 'error' || message == 'info' || message == 'warning' || message == 'success') {
+    if (message == 'error' || message == 'danger' || message == 'info' || message == 'warning' || message == 'success') {
         switch (message) {
             case 'info':
                 return toast.info(type, toastOption);
@@ -25,6 +25,7 @@ export const showMessage = (type, message) => {
                 return toast.success(type, toastOption);
                 break;
             case 'error':
+            case 'danger':
                 return toast.error(type, toastOption);
                 break;
             case 'warning':
@@ -42,6 +43,7 @@ export const showMessage = (type, message) => {
                 return toast.success(message, toastOption);
                 break;
             case 'error':
+            case 'danger':
                 return toast.error(message, toastOption);
                 break;
             case 'warning':

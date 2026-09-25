@@ -2,14 +2,36 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { useSelector } from 'react-redux';
-import { getSundarbanLeadsUrl } from '@/app/routes/sundarbanRoutes';
+import { useRouter } from 'next/navigation';
+import { getSundarbanLeadsUrl, createSundarbanLeadUrl, createSundarbanLeadFromEnquiryUrl } from '@/app/routes/sundarbanRoutes';
 import { updateHolidayEnquiryUrl } from '@/app/routes/serviceRoutes';
-import { axiosGet, axiosPut } from '@/libs/axiosHelper';
+import { axiosGet, axiosPost, axiosPut } from '@/libs/axiosHelper';
 import { showMessage } from '@/libs/commonHelper';
 import LoadingComponent from '@/components/common/LoadingComponent';
 import NotFound from '@/components/common/NotFound';
 
+const initialCreateForm = {
+    enquiry_id: null,
+    full_name: '',
+    phone: '',
+    email: '',
+    destination: 'Sundarban Custom Safari',
+    departure_city: 'Kolkata',
+    travel_date: '',
+    duration_days: 2,
+    duration_nights: 1,
+    adults_count: 2,
+    children_count: 0,
+    hotel_category: 'Eco Luxury Resort',
+    meal_plan: 'All Meals Included (Bengali Traditional Cuisine)',
+    cab_type: 'AC Car / Launch Boat Transfer',
+    budget: '',
+    status: 'Pending',
+    message: ''
+};
+
 export default function SundarbanLeadsPage() {
+    const router = useRouter();
     const token = useSelector((state) => state.adminAuth?.token);
     const [loading, setLoading] = useState(true);
     const [leads, setLeads] = useState([]);
@@ -17,6 +39,10 @@ export default function SundarbanLeadsPage() {
     const [statusFilter, setStatusFilter] = useState('All');
     const [selectedLead, setSelectedLead] = useState(null);
     const [updatingId, setUpdatingId] = useState(null);
+    const [creatingLeadId, setCreatingLeadId] = useState(null);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [createSubmitting, setCreateSubmitting] = useState(false);
+    const [createForm, setCreateForm] = useState(initialCreateForm);
 
     const fetchLeads = async () => {
         if (!token) return;
@@ -60,6 +86,106 @@ export default function SundarbanLeadsPage() {
         }
     };
 
+    // Convert custom package enquiry directly to official WhatsApp / CRM Lead
+    const handleCreateLeadFromEnquiry = async (item) => {
+        if (!item || !item.id) return;
+        setCreatingLeadId(item.id);
+        try {
+            const res = await axiosPost(createSundarbanLeadFromEnquiryUrl, { enquiry_id: item.id }, token);
+            if (res && res.status) {
+                showMessage(res.msg || 'Custom CRM lead created successfully!', 'success');
+                const contactId = res.contact_id || res.data?.contact_id;
+                const cleanPhone = res.phone || item.phone;
+
+                setLeads(prev => prev.map(l => l.id === item.id ? {
+                    ...l,
+                    whatsapp_lead_id: contactId,
+                    whatsapp_phone: cleanPhone
+                } : l));
+
+                if (selectedLead && selectedLead.id === item.id) {
+                    setSelectedLead(prev => ({
+                        ...prev,
+                        whatsapp_lead_id: contactId,
+                        whatsapp_phone: cleanPhone
+                    }));
+                }
+            } else {
+                showMessage(res?.msg || 'Failed to create custom lead.', 'error');
+            }
+        } catch (err) {
+            console.error('Error creating lead from enquiry:', err);
+            showMessage(err?.message || 'Error creating lead from enquiry.', 'error');
+        } finally {
+            setCreatingLeadId(null);
+        }
+    };
+
+    // Open lead in CRM
+    const handleViewWhatsAppLead = (item) => {
+        const rawPhone = item.whatsapp_phone || item.phone || '';
+        const cleanPhone = rawPhone.replace(/[^0-9]/g, '');
+        const searchVal = cleanPhone || encodeURIComponent(item.full_name || item.name || '');
+        const contactId = item.whatsapp_lead_id || '';
+        router.push(`/crm/whatsapp?search=${searchVal}&contactId=${contactId}&autoOpen=true`);
+    };
+
+    // Open modal prefilled with enquiry details
+    const handleOpenPrefilledModal = (item) => {
+        setCreateForm({
+            enquiry_id: item.id,
+            full_name: item.full_name || item.name || '',
+            phone: item.phone || '',
+            email: item.email || '',
+            destination: item.destination || 'Sundarban Custom Safari',
+            departure_city: item.departure_city || 'Kolkata',
+            travel_date: item.travel_date ? String(item.travel_date).slice(0, 10) : '',
+            duration_days: Number(item.duration_days) || 2,
+            duration_nights: Number(item.duration_nights) || 1,
+            adults_count: Number(item.adults_count || item.adults) || 2,
+            children_count: Number(item.children_count || item.children) || 0,
+            hotel_category: item.hotel_category || 'Eco Luxury Resort',
+            meal_plan: item.meal_plan || 'All Meals Included (Bengali Traditional Cuisine)',
+            cab_type: item.cab_type || 'AC Car / Launch Boat Transfer',
+            budget: item.budget || '',
+            status: item.status || 'Pending',
+            message: item.message || item.special_notes || ''
+        });
+        setShowCreateModal(true);
+    };
+
+    const handleCreateSubmit = async (e) => {
+        e.preventDefault();
+        if (!createForm.full_name?.trim() || !createForm.phone?.trim()) {
+            showMessage("Guest full name and phone number are required.", "error");
+            return;
+        }
+
+        setCreateSubmitting(true);
+        try {
+            let res;
+            if (createForm.enquiry_id) {
+                res = await axiosPost(createSundarbanLeadFromEnquiryUrl, createForm, token);
+            } else {
+                res = await axiosPost(createSundarbanLeadUrl, createForm, token);
+            }
+
+            if (res && res.status) {
+                showMessage(res.msg || "Custom Sundarban tour lead created successfully!", "success");
+                setShowCreateModal(false);
+                setCreateForm(initialCreateForm);
+                fetchLeads();
+            } else {
+                showMessage(res?.msg || "Failed to create custom lead.", "error");
+            }
+        } catch (err) {
+            console.error("Error creating custom lead:", err);
+            showMessage(err?.message || "Failed to create lead", "error");
+        } finally {
+            setCreateSubmitting(false);
+        }
+    };
+
     const filteredLeads = useMemo(() => {
         return leads.filter((item) => {
             const matchesStatus = statusFilter === 'All' || (item.status || '').toLowerCase() === statusFilter.toLowerCase();
@@ -97,10 +223,17 @@ export default function SundarbanLeadsPage() {
                         Tailored vacation requests submitted through the Sundarban DeltaSafari custom tour planner.
                     </p>
                 </div>
-                <div>
+                <div className="d-flex align-items-center gap-2">
                     <button 
                         type="button" 
-                        className="btn btn-primary d-flex align-items-center gap-2 rounded-pill px-4 shadow-sm" 
+                        className="btn btn-success d-flex align-items-center gap-2 rounded-pill px-4 shadow-sm fw-semibold" 
+                        onClick={() => { setCreateForm(initialCreateForm); setShowCreateModal(true); }}
+                    >
+                        <i className="ri ri-user-add-line"></i> Create Custom Lead
+                    </button>
+                    <button 
+                        type="button" 
+                        className="btn btn-outline-primary d-flex align-items-center gap-2 rounded-pill px-4 shadow-sm" 
                         onClick={fetchLeads}
                     >
                         <i className="ri ri-refresh-line"></i> Refresh
@@ -170,6 +303,7 @@ export default function SundarbanLeadsPage() {
                                     <th>Group Size</th>
                                     <th>Estimated Budget</th>
                                     <th>Status</th>
+                                    <th className="text-center">Custom Lead (CRM)</th>
                                     <th className="text-end pe-4">Actions</th>
                                 </tr>
                             </thead>
@@ -248,6 +382,54 @@ export default function SundarbanLeadsPage() {
                                                     </ul>
                                                 </div>
                                             </td>
+                                            <td className="text-center">
+                                                {item.whatsapp_lead_id ? (
+                                                    <div className="d-inline-flex align-items-center gap-1.5">
+                                                        <span className="badge bg-success-subtle text-success border border-success-subtle font-monospace px-2.5 py-1 rounded-pill" title="Official CRM Lead Linked">
+                                                            <i className="ri ri-check-double-line me-1"></i>#CRM-{item.whatsapp_lead_id}
+                                                        </span>
+                                                        <button 
+                                                            type="button" 
+                                                            className="btn btn-xs btn-success d-inline-flex align-items-center gap-1 shadow-sm fw-medium rounded-pill px-2.5 py-1"
+                                                            onClick={() => handleViewWhatsAppLead(item)}
+                                                            title="View this Lead in CRM Section"
+                                                        >
+                                                            <i className="ri ri-whatsapp-fill"></i>
+                                                            <span>View</span>
+                                                        </button>
+                                                    </div>
+                                                ) : (
+                                                    <div className="d-inline-flex align-items-center gap-1">
+                                                        <button 
+                                                            type="button" 
+                                                            className="btn btn-xs btn-success d-inline-flex align-items-center gap-1 shadow-sm fw-semibold rounded-pill px-2.5 py-1"
+                                                            disabled={creatingLeadId === item.id}
+                                                            onClick={() => handleCreateLeadFromEnquiry(item)}
+                                                            title="Create Custom Lead directly using these enquiry details"
+                                                        >
+                                                            {creatingLeadId === item.id ? (
+                                                                <>
+                                                                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" style={{ width: '12px', height: '12px' }}></span>
+                                                                    <span>Creating...</span>
+                                                                </>
+                                                            ) : (
+                                                                <>
+                                                                    <i className="ri ri-user-add-line"></i>
+                                                                    <span>Create Lead</span>
+                                                                </>
+                                                            )}
+                                                        </button>
+                                                        <button 
+                                                            type="button" 
+                                                            className="btn btn-xs btn-outline-secondary rounded-circle p-1" 
+                                                            title="Review details & customize before creating lead"
+                                                            onClick={() => handleOpenPrefilledModal(item)}
+                                                        >
+                                                            <i className="ri ri-edit-line"></i>
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </td>
                                             <td className="text-end pe-4">
                                                 <div className="d-flex justify-content-end gap-1.5">
                                                     <button 
@@ -322,6 +504,69 @@ export default function SundarbanLeadsPage() {
                                                 <p className="text-muted mb-0">{selectedLead.message || 'No special requirements noted.'}</p>
                                             </div>
                                         </div>
+
+                                        <div className="col-12">
+                                            <div className="card border-0 shadow-xs rounded-3 p-3 bg-white">
+                                                <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
+                                                    <div>
+                                                        <h6 className="fw-bold text-dark small text-uppercase mb-1 d-flex align-items-center gap-1.5">
+                                                            <i className="ri ri-customer-service-2-line text-success"></i> CRM Custom Lead Integration
+                                                        </h6>
+                                                        <p className="text-muted small mb-0">
+                                                            {selectedLead.whatsapp_lead_id 
+                                                                ? `This enquiry is officially linked to CRM Lead #CRM-${selectedLead.whatsapp_lead_id}.`
+                                                                : 'Convert this customized enquiry into an official CRM Lead using all submitted guest requirements.'
+                                                            }
+                                                        </p>
+                                                    </div>
+                                                    <div className="d-flex align-items-center gap-2 flex-wrap">
+                                                        {selectedLead.whatsapp_lead_id ? (
+                                                            <button 
+                                                                type="button" 
+                                                                className="btn btn-sm btn-success rounded-pill px-3 d-inline-flex align-items-center gap-1.5 shadow-sm fw-medium"
+                                                                onClick={() => handleViewWhatsAppLead(selectedLead)}
+                                                            >
+                                                                <i className="ri ri-whatsapp-fill"></i>
+                                                                <span>Open #CRM-{selectedLead.whatsapp_lead_id}</span>
+                                                            </button>
+                                                        ) : (
+                                                            <>
+                                                                <button 
+                                                                    type="button" 
+                                                                    className="btn btn-sm btn-success rounded-pill px-3 d-inline-flex align-items-center gap-1.5 shadow-sm fw-semibold"
+                                                                    disabled={creatingLeadId === selectedLead.id}
+                                                                    onClick={() => handleCreateLeadFromEnquiry(selectedLead)}
+                                                                >
+                                                                    {creatingLeadId === selectedLead.id ? (
+                                                                        <>
+                                                                            <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                                                            <span>Creating...</span>
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <i className="ri ri-user-add-line"></i>
+                                                                            <span>Create Custom Lead from Details</span>
+                                                                        </>
+                                                                    )}
+                                                                </button>
+                                                                <button 
+                                                                    type="button" 
+                                                                    className="btn btn-sm btn-outline-secondary rounded-pill px-3 d-inline-flex align-items-center gap-1"
+                                                                    onClick={() => {
+                                                                        const leadToPrefill = selectedLead;
+                                                                        setSelectedLead(null);
+                                                                        handleOpenPrefilledModal(leadToPrefill);
+                                                                    }}
+                                                                >
+                                                                    <i className="ri ri-edit-line"></i>
+                                                                    <span>Customize &amp; Create</span>
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
 
@@ -340,14 +585,24 @@ export default function SundarbanLeadsPage() {
                                         </select>
                                     </div>
                                     <div className="d-flex gap-2">
+                                        {!selectedLead.whatsapp_lead_id && (
+                                            <button 
+                                                type="button" 
+                                                className="btn btn-sm btn-success rounded-pill px-3 d-inline-flex align-items-center gap-1 shadow-sm"
+                                                disabled={creatingLeadId === selectedLead.id}
+                                                onClick={() => handleCreateLeadFromEnquiry(selectedLead)}
+                                            >
+                                                <i className="ri ri-user-add-line"></i> Create Lead
+                                            </button>
+                                        )}
                                         {selectedLead.phone && (
                                             <a 
                                                 href={`https://wa.me/${selectedLead.phone.replace(/[^0-9]/g, '')}`} 
                                                 target="_blank" 
                                                 rel="noreferrer" 
-                                                className="btn btn-sm btn-success rounded-pill px-3"
+                                                className="btn btn-sm btn-outline-success rounded-pill px-3 d-inline-flex align-items-center gap-1"
                                             >
-                                                <i className="ri ri-whatsapp-fill me-1"></i> WhatsApp
+                                                <i className="ri ri-whatsapp-line"></i> WhatsApp Direct
                                             </a>
                                         )}
                                         <button 
@@ -359,6 +614,352 @@ export default function SundarbanLeadsPage() {
                                         </button>
                                     </div>
                                 </div>
+                            </div>
+                        </div>
+                    </div>
+                </>
+            )}
+
+            {/* Create Custom Lead Modal */}
+            {showCreateModal && (
+                <>
+                    <div 
+                        className="modal-backdrop fade show" 
+                        style={{ zIndex: 1050, backgroundColor: 'rgba(15, 23, 42, 0.75)', backdropFilter: 'blur(4px)' }}
+                        onClick={() => !createSubmitting && setShowCreateModal(false)}
+                    ></div>
+
+                    <div className="modal fade show d-block" tabIndex="-1" role="dialog" style={{ zIndex: 1060, overflowY: 'auto' }}>
+                        <div className="modal-dialog modal-dialog-centered modal-lg" role="document">
+                            <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden">
+                                <div className="modal-header bg-success text-white p-3 px-4 d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h5 className="modal-title fw-bold text-white mb-0 d-flex align-items-center gap-2">
+                                            <i className="ri ri-user-add-line"></i> {createForm.enquiry_id ? `Create Custom Lead from Enquiry #SUN-${createForm.enquiry_id}` : 'Create Custom Sundarban Lead'}
+                                        </h5>
+                                        <p className="text-white text-opacity-75 small mb-0 mt-0.5">
+                                            {createForm.enquiry_id 
+                                                ? 'All fields pre-filled from this incoming inquiry. Review, adjust if needed, and save to register this CRM lead.' 
+                                                : 'Manually record a customized tour inquiry for Sundarban DeltaSafari'}
+                                        </p>
+                                    </div>
+                                    <button 
+                                        type="button" 
+                                        className="btn-close btn-close-white" 
+                                        onClick={() => !createSubmitting && setShowCreateModal(false)}
+                                    ></button>
+                                </div>
+
+                                <form onSubmit={handleCreateSubmit}>
+                                    <div className="modal-body p-4 bg-light" style={{ maxHeight: '72vh', overflowY: 'auto' }}>
+                                        {createForm.enquiry_id && (
+                                            <div className="alert alert-success d-flex align-items-center justify-content-between rounded-3 py-2 px-3 mb-3 border border-success border-opacity-25">
+                                                <div className="d-flex align-items-center gap-2">
+                                                    <i className="ri ri-checkbox-circle-line fs-5 text-success"></i>
+                                                    <div>
+                                                        <strong>Pre-filled from Inquiry #SUN-{createForm.enquiry_id}</strong>
+                                                        <div className="small text-muted">All details from the enquiry were loaded. You can modify any detail before creating the official CRM lead.</div>
+                                                    </div>
+                                                </div>
+                                                <span className="badge bg-success text-white">Enquiry #SUN-{createForm.enquiry_id}</span>
+                                            </div>
+                                        )}
+
+                                        {/* Section 1: Guest Information */}
+                                        <div className="card border-0 shadow-xs rounded-3 p-3 mb-3 bg-white">
+                                            <h6 className="fw-bold text-success text-uppercase small mb-3 d-flex align-items-center gap-1.5 border-bottom pb-2">
+                                                <i className="ri ri-user-3-line"></i> 1. Guest &amp; Contact Details
+                                            </h6>
+                                            <div className="row g-3">
+                                                <div className="col-md-6">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Guest Full Name <span className="text-danger">*</span>
+                                                    </label>
+                                                    <div className="input-group">
+                                                        <span className="input-group-text bg-light"><i className="ri ri-user-line text-muted"></i></span>
+                                                        <input 
+                                                            type="text" 
+                                                            className="form-control" 
+                                                            placeholder="e.g. Subhajit Roy" 
+                                                            value={createForm.full_name} 
+                                                            onChange={(e) => setCreateForm({ ...createForm, full_name: e.target.value })}
+                                                            required 
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="col-md-6">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Phone / WhatsApp <span className="text-danger">*</span>
+                                                    </label>
+                                                    <div className="input-group">
+                                                        <span className="input-group-text bg-light"><i className="ri ri-phone-line text-muted"></i></span>
+                                                        <input 
+                                                            type="tel" 
+                                                            className="form-control" 
+                                                            placeholder="e.g. +91 98300 12345" 
+                                                            value={createForm.phone} 
+                                                            onChange={(e) => setCreateForm({ ...createForm, phone: e.target.value })}
+                                                            required 
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="col-md-6">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Email Address <span className="text-muted small fw-normal">(Optional)</span>
+                                                    </label>
+                                                    <div className="input-group">
+                                                        <span className="input-group-text bg-light"><i className="ri ri-mail-line text-muted"></i></span>
+                                                        <input 
+                                                            type="email" 
+                                                            className="form-control" 
+                                                            placeholder="e.g. guest@example.com" 
+                                                            value={createForm.email} 
+                                                            onChange={(e) => setCreateForm({ ...createForm, email: e.target.value })}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="col-md-6">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Departure / Pickup Location
+                                                    </label>
+                                                    <div className="input-group">
+                                                        <span className="input-group-text bg-light"><i className="ri ri-map-pin-line text-muted"></i></span>
+                                                        <input 
+                                                            type="text" 
+                                                            className="form-control" 
+                                                            placeholder="e.g. Kolkata / Godkhali / Airport" 
+                                                            value={createForm.departure_city} 
+                                                            onChange={(e) => setCreateForm({ ...createForm, departure_city: e.target.value })}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Section 2: Tour Schedule & Party Size */}
+                                        <div className="card border-0 shadow-xs rounded-3 p-3 mb-3 bg-white">
+                                            <h6 className="fw-bold text-primary text-uppercase small mb-3 d-flex align-items-center gap-1.5 border-bottom pb-2">
+                                                <i className="ri ri-calendar-check-line"></i> 2. Tour Schedule &amp; Party Size
+                                            </h6>
+                                            <div className="row g-3">
+                                                <div className="col-md-4">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Travel Date
+                                                    </label>
+                                                    <input 
+                                                        type="date" 
+                                                        className="form-control" 
+                                                        value={createForm.travel_date} 
+                                                        onChange={(e) => setCreateForm({ ...createForm, travel_date: e.target.value })}
+                                                    />
+                                                </div>
+
+                                                <div className="col-md-4">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Duration (Days)
+                                                    </label>
+                                                    <input 
+                                                        type="number" 
+                                                        min="1" 
+                                                        max="30"
+                                                        className="form-control" 
+                                                        value={createForm.duration_days} 
+                                                        onChange={(e) => {
+                                                            const days = parseInt(e.target.value) || 1;
+                                                            setCreateForm({
+                                                                ...createForm,
+                                                                duration_days: days,
+                                                                duration_nights: Math.max(0, days - 1)
+                                                            });
+                                                        }}
+                                                    />
+                                                </div>
+
+                                                <div className="col-md-4">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Duration (Nights)
+                                                    </label>
+                                                    <input 
+                                                        type="number" 
+                                                        min="0" 
+                                                        max="30"
+                                                        className="form-control" 
+                                                        value={createForm.duration_nights} 
+                                                        onChange={(e) => setCreateForm({ ...createForm, duration_nights: parseInt(e.target.value) || 0 })}
+                                                    />
+                                                </div>
+
+                                                <div className="col-md-6">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Adults (Age 12+)
+                                                    </label>
+                                                    <input 
+                                                        type="number" 
+                                                        min="1" 
+                                                        max="100"
+                                                        className="form-control" 
+                                                        value={createForm.adults_count} 
+                                                        onChange={(e) => setCreateForm({ ...createForm, adults_count: parseInt(e.target.value) || 1 })}
+                                                    />
+                                                </div>
+
+                                                <div className="col-md-6">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Children (Below 12)
+                                                    </label>
+                                                    <input 
+                                                        type="number" 
+                                                        min="0" 
+                                                        max="50"
+                                                        className="form-control" 
+                                                        value={createForm.children_count} 
+                                                        onChange={(e) => setCreateForm({ ...createForm, children_count: parseInt(e.target.value) || 0 })}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Section 3: Accommodation & Preferences */}
+                                        <div className="card border-0 shadow-xs rounded-3 p-3 mb-3 bg-white">
+                                            <h6 className="fw-bold text-dark text-uppercase small mb-3 d-flex align-items-center gap-1.5 border-bottom pb-2">
+                                                <i className="ri ri-hotel-bed-line"></i> 3. Accommodation &amp; Preferences
+                                            </h6>
+                                            <div className="row g-3">
+                                                <div className="col-md-6">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Stay Preference
+                                                    </label>
+                                                    <select 
+                                                        className="form-select" 
+                                                        value={createForm.hotel_category} 
+                                                        onChange={(e) => setCreateForm({ ...createForm, hotel_category: e.target.value })}
+                                                    >
+                                                        <option value="Eco Luxury Resort">Eco Luxury Resort</option>
+                                                        <option value="Luxury Houseboat / Safari Vessel">Luxury Houseboat / Safari Vessel</option>
+                                                        <option value="Deluxe Mangrove Cottage">Deluxe Mangrove Cottage</option>
+                                                        <option value="Budget Forest Camp">Budget Forest Camp</option>
+                                                        <option value="Day Tour (No Stay)">Day Tour (No Stay)</option>
+                                                    </select>
+                                                </div>
+
+                                                <div className="col-md-6">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Meal Plan
+                                                    </label>
+                                                    <select 
+                                                        className="form-select" 
+                                                        value={createForm.meal_plan} 
+                                                        onChange={(e) => setCreateForm({ ...createForm, meal_plan: e.target.value })}
+                                                    >
+                                                        <option value="All Meals Included (Bengali Traditional Cuisine)">All Meals Included (Bengali Traditional Cuisine)</option>
+                                                        <option value="Breakfast & Dinner (MAP)">Breakfast &amp; Dinner (MAP)</option>
+                                                        <option value="Breakfast Only (CP)">Breakfast Only (CP)</option>
+                                                        <option value="Pure Veg / Jain Special">Pure Veg / Jain Special</option>
+                                                    </select>
+                                                </div>
+
+                                                <div className="col-md-6">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Cab / Transport Type
+                                                    </label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="form-control" 
+                                                        placeholder="e.g. AC Sedan / Innova + Launch Boat" 
+                                                        value={createForm.cab_type} 
+                                                        onChange={(e) => setCreateForm({ ...createForm, cab_type: e.target.value })}
+                                                    />
+                                                </div>
+
+                                                <div className="col-md-6">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Estimated Budget
+                                                    </label>
+                                                    <div className="input-group">
+                                                        <span className="input-group-text bg-light">₹</span>
+                                                        <input 
+                                                            type="text" 
+                                                            className="form-control" 
+                                                            placeholder="e.g. 15000 or Flexible" 
+                                                            value={createForm.budget} 
+                                                            onChange={(e) => setCreateForm({ ...createForm, budget: e.target.value })}
+                                                        />
+                                                    </div>
+                                                </div>
+
+                                                <div className="col-md-6">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Initial Lead Status
+                                                    </label>
+                                                    <select 
+                                                        className="form-select" 
+                                                        value={createForm.status} 
+                                                        onChange={(e) => setCreateForm({ ...createForm, status: e.target.value })}
+                                                    >
+                                                        <option value="Pending">Pending</option>
+                                                        <option value="Contacted">Contacted</option>
+                                                        <option value="Confirmed">Confirmed</option>
+                                                    </select>
+                                                </div>
+
+                                                <div className="col-md-6">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Destination
+                                                    </label>
+                                                    <input 
+                                                        type="text" 
+                                                        className="form-control bg-light" 
+                                                        value={createForm.destination} 
+                                                        onChange={(e) => setCreateForm({ ...createForm, destination: e.target.value })}
+                                                    />
+                                                </div>
+
+                                                <div className="col-12">
+                                                    <label className="form-label fw-semibold small text-dark">
+                                                        Notes &amp; Custom Requests
+                                                    </label>
+                                                    <textarea 
+                                                        rows="3" 
+                                                        className="form-control" 
+                                                        placeholder="Add any specific requests, photography naturalist needed, senior citizen support, dietary requirements..." 
+                                                        value={createForm.message} 
+                                                        onChange={(e) => setCreateForm({ ...createForm, message: e.target.value })}
+                                                    ></textarea>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="modal-footer bg-white p-3 border-top d-flex justify-content-between">
+                                        <button 
+                                            type="button" 
+                                            className="btn btn-outline-secondary rounded-pill px-4" 
+                                            onClick={() => !createSubmitting && setShowCreateModal(false)}
+                                            disabled={createSubmitting}
+                                        >
+                                            Cancel
+                                        </button>
+                                        <button 
+                                            type="submit" 
+                                            className="btn btn-success d-flex align-items-center gap-2 rounded-pill px-4 shadow-sm fw-semibold"
+                                            disabled={createSubmitting}
+                                        >
+                                            {createSubmitting ? (
+                                                <>
+                                                    <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                                    Saving Lead...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <i className="ri ri-check-line"></i> {createForm.enquiry_id ? 'Create Lead from Enquiry' : 'Save Custom Lead'}
+                                                </>
+                                            )}
+                                        </button>
+                                    </div>
+                                </form>
                             </div>
                         </div>
                     </div>

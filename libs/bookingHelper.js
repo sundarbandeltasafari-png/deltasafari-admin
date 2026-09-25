@@ -72,7 +72,7 @@ export const normalizeBookingItem = (item, source = 'RESERVATION') => {
     if (!item) return null;
 
     if (source === 'RESERVATION') {
-        const isAgent = item.user_type === 3 || !!item.agent_first_name;
+        const isAgent = (Number(item.user_type) === 3 || Number(item.agent_user_type) === 3) && (!!item.agent_first_name || !!item.agent_name);
         const isDirectRazorpay = item.booking_type === 'DIRECT_RAZORPAY' || item.payment_method === 'RAZORPAY' || !!item.razorpay_payment_id;
         const isPaid = String(item.payment_status).toUpperCase() === 'PAID' || String(item.payment_status) === '1';
 
@@ -82,13 +82,14 @@ export const normalizeBookingItem = (item, source = 'RESERVATION') => {
         let sourceLabel = 'Booking Form Enquiry';
         if (isAgent) sourceLabel = 'Agent B2B';
         else if (isDirectRazorpay) sourceLabel = 'Online Razorpay';
+        else if (item.platform === 'sundarban-deltasafari') sourceLabel = 'Sundarban Portal';
 
         return {
             unique_id: `res-${item.bookings_id || item.id}`,
             source_type: 'RESERVATION',
             source_label: sourceLabel,
             is_agent: isAgent,
-            agent_name: isAgent ? `${item.agent_first_name || ''} ${item.agent_last_name || ''}`.trim() : null,
+            agent_name: isAgent ? `${item.agent_first_name || ''} ${item.agent_last_name || ''}`.trim() || item.agent_name || null : null,
             booking_id: item.bookings_id || item.id,
             display_id: `#${item.bookings_id || item.id}`,
             invoice_number: item.invoice_number || null,

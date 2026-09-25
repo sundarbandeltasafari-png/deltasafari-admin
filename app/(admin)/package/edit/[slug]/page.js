@@ -11,16 +11,21 @@ import TermsAndConditions from '@/components/package/TermsAndConditions';
 import MetaComponent from '@/components/seocomponent/MetaComponent';
 import { axiosGet, axiosPost } from '@/libs/axiosHelper';
 import { scrollToView, showMessage } from '@/libs/commonHelper';
-import { useParams, useRouter } from 'next/navigation';
+import { urlEncode } from '@/libs/urlHelper';
+import { useParams, useRouter, redirect } from 'next/navigation';
 import Link from 'next/link';
 import React, { useEffect, useState, useMemo } from 'react';
 import { useSelector } from 'react-redux';
 
 function page() {
   const params = useParams();
-  const packageId = params?.slug;
+  const rawId = params?.slug;
+  const packageId = useMemo(() => {
+    if (!rawId) return '';
+    return /^\d+$/.test(rawId) ? urlEncode(rawId) : rawId;
+  }, [rawId]);
   if (!packageId) {
-    redirect('/news');
+    redirect('/package');
   }
   const [formData, setFormData] = useState({
     name: '',

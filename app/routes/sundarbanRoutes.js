@@ -48,6 +48,8 @@ export const uploadSundarbanImageUrl = `${serverUrl}admin/sundarban/upload-image
 
 // Leads, Bookings, Packages, Stats
 export const getSundarbanLeadsUrl = `${serverUrl}admin/sundarban/leads`;
+export const createSundarbanLeadUrl = `${serverUrl}admin/sundarban/leads`;
+export const createSundarbanLeadFromEnquiryUrl = `${serverUrl}admin/service/createHolidayEnquiryWhatsAppLead`;
 export const getSundarbanBookingsUrl = `${serverUrl}admin/sundarban/bookings`;
 export const getSundarbanPackagesUrl = `${serverUrl}admin/sundarban/packages`;
 export const getSundarbanStatsUrl = `${serverUrl}admin/sundarban/stats`;

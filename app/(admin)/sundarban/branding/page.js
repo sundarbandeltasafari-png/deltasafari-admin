@@ -38,9 +38,12 @@ export default function SundarbanBrandingPage() {
     const serverUrl = process.env.NEXT_PUBLIC_SERVER_URL || 'http://localhost:3002/';
 
     const getFullImageUrl = (path, fallback = '') => {
-        if (!path) return fallback;
-        if (path.startsWith('http://') || path.startsWith('https://')) return path;
-        return `${serverUrl.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
+        const target = path || fallback;
+        if (!target) return '';
+        if (target.startsWith('http://') || target.startsWith('https://')) return target;
+        if (target.startsWith('/')) return target;
+        if (target.startsWith('images/')) return `/${target}`;
+        return `${serverUrl.replace(/\/$/, '')}/${target.replace(/^\//, '')}`;
     };
 
     const fetchBranding = async () => {
@@ -69,45 +72,84 @@ export default function SundarbanBrandingPage() {
 
     const handleFileUpload = async (field, file) => {
         if (!file) return;
+        if (!token) {
+            showMessage('danger', 'Administrator login token missing. Please re-login.');
+            return;
+        }
         setUploadingField(field);
         try {
             const formData = new FormData();
             formData.append('image', file);
 
-            const res = await axiosPost(uploadSundarbanImageUrl, formData, token);
-            if (res && res.status && res.path) {
-                setBranding((prev) => ({
-                    ...prev,
-                    [field]: res.path
-                }));
-                showMessage('success', `${field.replace('_', ' ').toUpperCase()} uploaded successfully!`);
+            const res = await axiosPost(uploadSundarbanImageUrl, formData, token, 'multipart/form-data');
+            const uploadedPath = res?.path || res?.url;
+            if (res && (res.status === true || res.status === 'true') && uploadedPath) {
+                const nextBranding = {
+                    ...branding,
+                    [field]: uploadedPath
+                };
+                setBranding(nextBranding);
+
+                try {
+                    const saveRes = await axiosPost(updateSundarbanBrandingUrl, nextBranding, token);
+                    if (saveRes && (saveRes.status === true || saveRes.status === 'true')) {
+                        showMessage('success', `${field.replace(/_/g, ' ').toUpperCase()} uploaded and saved successfully!`);
+                    } else {
+                        showMessage('warning', `${field.replace(/_/g, ' ').toUpperCase()} uploaded! Click 'Save Branding Changes' to save: ${saveRes?.msg || saveRes?.message || ''}`);
+                    }
+                } catch (saveErr) {
+                    showMessage('warning', `${field.replace(/_/g, ' ').toUpperCase()} uploaded! Please click 'Save Branding Changes' to save.`);
+                }
             } else {
-                showMessage('danger', res?.msg || 'Failed to upload image.');
+                showMessage('danger', res?.msg || res?.message || 'Failed to upload image.');
             }
         } catch (err) {
             console.error(`Upload error for ${field}:`, err);
             showMessage('danger', err.message || 'Image upload failed.');
         } finally {
             setUploadingField(null);
+            if (fileInputRefs[field]?.current) {
+                fileInputRefs[field].current.value = '';
+            }
         }
     };
 
-    const handleClearField = (field) => {
-        setBranding((prev) => ({
-            ...prev,
+    const handleClearField = async (field) => {
+        if (!token) {
+            showMessage('danger', 'Administrator login token missing.');
+            return;
+        }
+        const nextBranding = {
+            ...branding,
             [field]: ''
-        }));
+        };
+        setBranding(nextBranding);
+        try {
+            const saveRes = await axiosPost(updateSundarbanBrandingUrl, nextBranding, token);
+            if (saveRes && (saveRes.status === true || saveRes.status === 'true')) {
+                showMessage('success', `${field.replace(/_/g, ' ').toUpperCase()} reset to default and saved!`);
+            } else {
+                showMessage('info', `${field.replace(/_/g, ' ').toUpperCase()} cleared.`);
+            }
+        } catch (saveErr) {
+            showMessage('info', `${field.replace(/_/g, ' ').toUpperCase()} cleared.`);
+        }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!token) {
+            showMessage('danger', 'Administrator login token missing. Please sign in again.');
+            return;
+        }
         setSaving(true);
         try {
             const res = await axiosPost(updateSundarbanBrandingUrl, branding, token);
-            if (res && res.status) {
+            if (res && (res.status === true || res.status === 'true')) {
                 showMessage('success', 'Website logo, favicon & branding updated successfully!');
+                await fetchBranding();
             } else {
-                showMessage('danger', res?.msg || 'Failed to update branding.');
+                showMessage('danger', res?.msg || res?.message || 'Failed to update branding.');
             }
         } catch (err) {
             console.error('Update branding error:', err);
@@ -212,6 +254,7 @@ export default function SundarbanBrandingPage() {
                                             alt="Header Logo Preview"
                                             style={{ maxHeight: '55px', maxWidth: '100%', objectFit: 'contain' }}
                                             onError={(e) => {
+                                                e.target.onerror = null;
                                                 e.target.src = '/images/logo_DS.png';
                                             }}
                                         />
@@ -222,8 +265,12 @@ export default function SundarbanBrandingPage() {
                                             type="file"
                                             ref={fileInputRefs.header_logo}
                                             className="d-none"
-                                            accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                                            onChange={(e) => handleFileUpload('header_logo', e.target.files[0])}
+                                            accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
+                                            onChange={(e) => {
+                                                if (e.target.files && e.target.files[0]) {
+                                                    handleFileUpload('header_logo', e.target.files[0]);
+                                                }
+                                            }}
                                         />
                                         <div className="d-flex flex-wrap gap-2 mb-2">
                                             <button
@@ -294,6 +341,7 @@ export default function SundarbanBrandingPage() {
                                             alt="Mobile Logo Preview"
                                             style={{ maxHeight: '48px', maxWidth: '180px', objectFit: 'contain' }}
                                             onError={(e) => {
+                                                e.target.onerror = null;
                                                 e.target.src = '/images/logo_DS.png';
                                             }}
                                         />
@@ -307,8 +355,12 @@ export default function SundarbanBrandingPage() {
                                             type="file"
                                             ref={fileInputRefs.mobile_logo}
                                             className="d-none"
-                                            accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                                            onChange={(e) => handleFileUpload('mobile_logo', e.target.files[0])}
+                                            accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
+                                            onChange={(e) => {
+                                                if (e.target.files && e.target.files[0]) {
+                                                    handleFileUpload('mobile_logo', e.target.files[0]);
+                                                }
+                                            }}
                                         />
                                         <div className="d-flex flex-wrap gap-2 mb-2">
                                             <button
@@ -389,6 +441,7 @@ export default function SundarbanBrandingPage() {
                                                 borderRadius: '6px'
                                             }}
                                             onError={(e) => {
+                                                e.target.onerror = null;
                                                 e.target.src = '/images/logo_DS.png';
                                             }}
                                         />
@@ -399,8 +452,12 @@ export default function SundarbanBrandingPage() {
                                             type="file"
                                             ref={fileInputRefs.footer_logo}
                                             className="d-none"
-                                            accept="image/png,image/jpeg,image/webp,image/svg+xml"
-                                            onChange={(e) => handleFileUpload('footer_logo', e.target.files[0])}
+                                            accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
+                                            onChange={(e) => {
+                                                if (e.target.files && e.target.files[0]) {
+                                                    handleFileUpload('footer_logo', e.target.files[0]);
+                                                }
+                                            }}
                                         />
                                         <div className="d-flex flex-wrap gap-2 mb-2">
                                             <button
@@ -475,6 +532,7 @@ export default function SundarbanBrandingPage() {
                                                 alt="Favicon Preview"
                                                 style={{ width: '20px', height: '20px', objectFit: 'contain' }}
                                                 onError={(e) => {
+                                                    e.target.onerror = null;
                                                     e.target.src = '/images/favicon.png';
                                                 }}
                                             />
@@ -490,8 +548,12 @@ export default function SundarbanBrandingPage() {
                                             type="file"
                                             ref={fileInputRefs.favicon}
                                             className="d-none"
-                                            accept="image/png,image/x-icon,image/svg+xml,image/jpeg"
-                                            onChange={(e) => handleFileUpload('favicon', e.target.files[0])}
+                                            accept=".ico,.png,.svg,.jpg,.jpeg,image/x-icon,image/vnd.microsoft.icon,image/ico,image/icon,image/png,image/svg+xml,image/jpeg"
+                                            onChange={(e) => {
+                                                if (e.target.files && e.target.files[0]) {
+                                                    handleFileUpload('favicon', e.target.files[0]);
+                                                }
+                                            }}
                                         />
                                         <div className="d-flex flex-wrap gap-2 mb-2">
                                             <button
@@ -572,6 +634,7 @@ export default function SundarbanBrandingPage() {
                                                 alt="App Icon Preview"
                                                 style={{ width: '42px', height: '42px', objectFit: 'contain' }}
                                                 onError={(e) => {
+                                                    e.target.onerror = null;
                                                     e.target.src = '/images/favicon.png';
                                                 }}
                                             />
@@ -584,8 +647,12 @@ export default function SundarbanBrandingPage() {
                                             type="file"
                                             ref={fileInputRefs.apple_touch_icon}
                                             className="d-none"
-                                            accept="image/png,image/jpeg,image/webp"
-                                            onChange={(e) => handleFileUpload('apple_touch_icon', e.target.files[0])}
+                                            accept=".png,.jpg,.jpeg,.webp,.svg,.ico,image/png,image/jpeg,image/webp,image/svg+xml,image/x-icon"
+                                            onChange={(e) => {
+                                                if (e.target.files && e.target.files[0]) {
+                                                    handleFileUpload('apple_touch_icon', e.target.files[0]);
+                                                }
+                                            }}
                                         />
                                         <div className="d-flex flex-wrap gap-2 mb-2">
                                             <button
